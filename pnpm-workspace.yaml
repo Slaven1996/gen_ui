@@ -1,0 +1,19 @@
+packages:
+  - frontend
+  - backend
+  - packages/*
+
+# Single version of cross-cutting deps for every workspace (`"zod": "catalog:"`).
+catalog:
+  typescript: ~6.0.3
+  zod: ^4.6.5
+  ai: ^7.0.107
+  '@types/node': ^24.13.6
+
+# Packages allowed to run install scripts (pnpm 10 blocks them by default).
+onlyBuiltDependencies:
+  - '@prisma/engines'
+  - '@tailwindcss/oxide'
+  - argon2
+  - esbuild
+  - prisma

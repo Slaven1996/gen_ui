@@ -1,8 +1,13 @@
-# Nestjs specific
-/dist
-/node_modules
-/build
+# Dependencies & build output (unanchored so nested workspaces are covered)
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
 /tmp
+
+# Generated code
+backend/src/generated/
 
 # Logs
 logs
@@ -13,12 +18,22 @@ yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
 
-# dotenv environment variable files
+# dotenv environment variable files (templates are committed)
 .env
-.env.development
-.env.test
-.env.production
+.env.*
+!.env.example
+*.local
 
 # temp directory
 .temp
 .tmp
+
+# OS / editor
+.DS_Store
+Thumbs.db
+
+/.claude
+/skills-lock.json
+
+# Playwright MCP artifacts
+.playwright-mcp/
