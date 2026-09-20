@@ -11,6 +11,7 @@ import type {
   PublicUser,
   UpdateUserDto,
 } from '@gen-ui/shared';
+import { UnitOfWork } from '../prisma/unit-of-work.service.js';
 import { RefreshTokenService } from '../sessions/refresh-token.service.js';
 import { PasswordService } from './password.service.js';
 import { toPublicUser, type AuthUser } from './user.mapper.js';
@@ -22,6 +23,7 @@ export class UsersService {
     private readonly users: UsersRepository,
     private readonly passwords: PasswordService,
     private readonly refreshTokens: RefreshTokenService,
+    private readonly uow: UnitOfWork,
   ) {}
 
   async list(query: ListUsersQuery): Promise<Paginated<PublicUser>> {
@@ -61,13 +63,18 @@ export class UsersService {
       throw new ConflictException('At least one active admin is required');
     }
 
-    const updated = await this.users.update(id, dto);
+    // Atomic: a crash between the two must never leave a demoted or deactivated
+    // user holding refresh tokens that still work.
+    const updated = await this.uow.run(async (tx) => {
+      const user = await this.users.update(id, dto, tx);
 
-    if (deactivating) {
-      await this.refreshTokens.revokeAllForUser(id, 'USER_DISABLED');
-    } else if (roleChanged) {
-      await this.refreshTokens.revokeAllForUser(id, 'ROLE_CHANGED');
-    }
+      if (deactivating) {
+        await this.refreshTokens.revokeAllForUser(id, 'USER_DISABLED', tx);
+      } else if (roleChanged) {
+        await this.refreshTokens.revokeAllForUser(id, 'ROLE_CHANGED', tx);
+      }
+      return user;
+    });
     return toPublicUser(updated);
   }
 }

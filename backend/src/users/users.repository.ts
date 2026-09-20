@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { Role } from '@gen-ui/shared';
 import type { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import type { Db } from '../prisma/transaction.js';
 import { publicUserSelect, type UserRecord } from './user.mapper.js';
 
 export interface UserListFilter {
@@ -63,8 +64,9 @@ export class UsersRepository {
   update(
     id: string,
     data: Pick<Prisma.UserUpdateInput, 'name' | 'role' | 'isActive' | 'lastLoginAt'>,
+    db: Db = this.prisma,
   ): Promise<UserRecord> {
-    return this.prisma.user.update({ where: { id }, data, select: publicUserSelect });
+    return db.user.update({ where: { id }, data, select: publicUserSelect });
   }
 
   countActiveAdmins(excludeId?: string): Promise<number> {

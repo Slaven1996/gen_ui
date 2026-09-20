@@ -1,10 +1,12 @@
 import { Module, StandardSchemaValidationPipe } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_PIPE } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AiModule } from './ai/ai.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
 import { RolesGuard } from './auth/roles.guard.js';
+import { AllExceptionsFilter } from './common/all-exceptions.filter.js';
 import { AppConfigModule } from './config/app-config.module.js';
 import { AppConfigService } from './config/app-config.service.js';
 import { HealthController } from './health/health.controller.js';
@@ -15,6 +17,7 @@ import { UsersModule } from './users/users.module.js';
 @Module({
   imports: [
     AppConfigModule,
+    ScheduleModule.forRoot(),
     ThrottlerModule.forRootAsync({
       imports: [AppConfigModule],
       inject: [AppConfigService],
@@ -35,6 +38,9 @@ import { UsersModule } from './users/users.module.js';
     { provide: APP_GUARD, useClass: RolesGuard },
     // Validates every parameter declared with `{ schema }` (Zod, via Standard Schema).
     { provide: APP_PIPE, useValue: new StandardSchemaValidationPipe() },
+    // Nest matches global filters in reverse registration order, so the
+    // catch-all must come first to stay the fallback.
+    { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_FILTER, useClass: PrismaExceptionFilter },
   ],
 })

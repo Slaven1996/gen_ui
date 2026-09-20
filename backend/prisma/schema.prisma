@@ -35,6 +35,12 @@ model User {
   updatedAt     DateTime       @updatedAt @map("updated_at")
   refreshTokens RefreshToken[]
 
+  // Supports the admin user listing: ORDER BY created_at DESC, filtered by
+  // role/is_active. The `search` filter is an unanchored ILIKE and needs a
+  // trigram (pg_trgm) index to be served by an index -- not added here because
+  // it requires CREATE EXTENSION.
+  @@index([createdAt])
+  @@index([role, isActive])
   @@map("users")
 }
 

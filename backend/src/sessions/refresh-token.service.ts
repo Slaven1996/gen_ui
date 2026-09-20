@@ -1,8 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import type { Prisma, RevokeReason } from '../generated/prisma/client.js';
+import type { RevokeReason } from '../generated/prisma/client.js';
 import { AppConfigService } from '../config/app-config.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import type { Db } from '../prisma/transaction.js';
 import { publicUserSelect, type UserRecord } from '../users/user.mapper.js';
 
 export interface ClientMeta {
@@ -22,8 +23,6 @@ export type RotationFailure = 'invalid' | 'expired' | 'inactive' | 'race' | 'reu
 export type RotationResult =
   | { ok: true; refreshToken: IssuedRefreshToken; user: UserRecord }
   | { ok: false; reason: RotationFailure };
-
-type Db = Prisma.TransactionClient;
 
 /** Thrown inside the rotation transaction to roll back a lost compare-and-set. */
 class RotationRaceError extends Error {}
@@ -89,8 +88,8 @@ export class RefreshTokenService {
   }
 
   /** Sign a user out everywhere (deactivation, role change). */
-  async revokeAllForUser(userId: string, reason: RevokeReason): Promise<void> {
-    await this.prisma.refreshToken.updateMany({
+  async revokeAllForUser(userId: string, reason: RevokeReason, db: Db = this.prisma): Promise<void> {
+    await db.refreshToken.updateMany({
       where: { userId, revokedAt: null },
       data: { revokedAt: new Date(), revokedReason: reason },
     });

@@ -41,6 +41,8 @@ export const EnvSchema = z
 
     REFRESH_TOKEN_TTL_DAYS: int(7, 1, 90),
     REFRESH_TOKEN_REUSE_GRACE_SECONDS: int(10, 0, 120),
+    /** Expired refresh tokens are deleted once they are this many days past expiry. */
+    REFRESH_TOKEN_PRUNE_AFTER_DAYS: int(30, 1, 3650),
     REFRESH_COOKIE_NAME: z
       .string()
       .regex(/^[A-Za-z0-9_-]+$/)
