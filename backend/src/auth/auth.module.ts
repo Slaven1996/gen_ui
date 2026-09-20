@@ -30,5 +30,6 @@ import { SameOriginGuard } from './same-origin.guard.js';
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy, RefreshCookieService, SameOriginGuard],
+  exports: [AuthService, RefreshCookieService],
 })
 export class AuthModule {}

@@ -30,6 +30,14 @@ export class UsersRepository {
     });
   }
 
+  /** Loads the hash for a re-authentication check (password change). */
+  findCredentialsById(id: string) {
+    return this.prisma.user.findUnique({
+      where: { id },
+      select: { ...publicUserSelect, passwordHash: true },
+    });
+  }
+
   async list(filter: UserListFilter): Promise<{ items: UserRecord[]; total: number }> {
     const where: Prisma.UserWhereInput = {
       ...(filter.role && { role: filter.role }),
@@ -67,6 +75,10 @@ export class UsersRepository {
     db: Db = this.prisma,
   ): Promise<UserRecord> {
     return db.user.update({ where: { id }, data, select: publicUserSelect });
+  }
+
+  updatePasswordHash(id: string, passwordHash: string, db: Db = this.prisma): Promise<UserRecord> {
+    return db.user.update({ where: { id }, data: { passwordHash }, select: publicUserSelect });
   }
 
   countActiveAdmins(excludeId?: string): Promise<number> {

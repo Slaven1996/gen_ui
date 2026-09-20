@@ -1,52 +1,49 @@
 /**
- * Creates (or re-activates) the first ADMIN account from SEED_ADMIN_* in backend/.env.
- * Idempotent: an existing account keeps its password unless SEED_ADMIN_RESET_PASSWORD=true.
+ * Seed runner. It holds no data of its own: it executes every `.sql` file in
+ * `prisma/seed/` in filename order, each one in its own transaction.
+ *
+ * To seed a new entity, add a file — `002_orders.sql`, `003_invoices.sql` — and
+ * write plain INSERTs. Nothing here needs to change.
+ *
+ * Make each file re-runnable (`ON CONFLICT ... DO NOTHING`, or `WHERE NOT
+ * EXISTS`); `pnpm db:seed` is expected to be safe to run more than once.
+ *
+ * Uses `pg` directly rather than Prisma so the files are ordinary SQL scripts:
+ * multiple statements, functions and comments all behave as they would in psql.
  */
 import 'dotenv/config';
-import { PrismaPg } from '@prisma/adapter-pg';
-import { argon2id, hash } from 'argon2';
-import { PrismaClient } from '../src/generated/prisma/client.js';
+import { readdir, readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { Client } from 'pg';
 
-const email = process.env.SEED_ADMIN_EMAIL?.trim().toLowerCase();
-const password = process.env.SEED_ADMIN_PASSWORD ?? '';
-const name = process.env.SEED_ADMIN_NAME?.trim() || 'Admin';
-const resetPassword = process.env.SEED_ADMIN_RESET_PASSWORD === 'true';
+const seedDir = path.join(import.meta.dirname, 'seed');
 
-if (!email || !password) {
-  throw new Error('Set SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD in backend/.env before seeding.');
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) throw new Error('DATABASE_URL is not set (backend/.env).');
+
+const files = (await readdir(seedDir)).filter((name) => name.endsWith('.sql')).sort();
+if (files.length === 0) {
+  console.log(`No .sql files in ${seedDir} — nothing to seed.`);
+  process.exit(0);
 }
-if (password.length < 12) {
-  throw new Error('SEED_ADMIN_PASSWORD must be at least 12 characters.');
-}
 
-const prisma = new PrismaClient({
-  adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }),
-});
+const client = new Client({ connectionString });
+await client.connect();
 
 try {
-  const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } });
-
-  if (existing) {
-    await prisma.user.update({
-      where: { email },
-      data: {
-        role: 'ADMIN',
-        isActive: true,
-        ...(resetPassword && { passwordHash: await hash(password, { type: argon2id }) }),
-      },
-    });
-    console.log(`Admin ${email} already exists — ensured ADMIN role and active status.`);
-  } else {
-    await prisma.user.create({
-      data: {
-        email,
-        name,
-        role: 'ADMIN',
-        passwordHash: await hash(password, { type: argon2id }),
-      },
-    });
-    console.log(`Created admin ${email}.`);
+  for (const file of files) {
+    const sql = await readFile(path.join(seedDir, file), 'utf8');
+    try {
+      await client.query('BEGIN');
+      await client.query(sql);
+      await client.query('COMMIT');
+      console.log(`  ✔ ${file}`);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw new Error(`Seed file ${file} failed and was rolled back.`, { cause: error });
+    }
   }
+  console.log(`Seeded ${files.length} file(s).`);
 } finally {
-  await prisma.$disconnect();
+  await client.end();
 }

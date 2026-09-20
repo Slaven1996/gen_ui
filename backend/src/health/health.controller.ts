@@ -1,5 +1,4 @@
 import { Controller, Get, Logger, ServiceUnavailableException } from '@nestjs/common';
-import { SkipThrottle } from '@nestjs/throttler';
 import { Public } from '../common/decorators/public.decorator.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
@@ -8,7 +7,6 @@ interface HealthStatus {
 }
 
 @Public()
-@SkipThrottle()
 @Controller('health')
 export class HealthController {
   private readonly logger = new Logger(HealthController.name);

@@ -49,6 +49,15 @@ export const authStore = {
     markReady();
   },
 
+  /**
+   * Replace the cached user after they edit their own profile. Leaves the
+   * access token alone — nothing about it changed.
+   */
+  setUser(user: PublicUser): void {
+    if (snapshot.status !== 'authenticated') return;
+    emit({ status: 'authenticated', user });
+  },
+
   /** Drop the in-memory session. Fires `onSignedOut` listeners if a user was signed in. */
   clearSession(): void {
     const wasAuthenticated = snapshot.status === 'authenticated';

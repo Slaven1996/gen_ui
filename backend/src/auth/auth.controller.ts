@@ -18,7 +18,6 @@ import {
 } from '@gen-ui/shared';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
-import { ThrottleFromEnv } from '../common/throttle.js';
 import type { ClientMeta } from '../sessions/refresh-token.service.js';
 import { toPublicUser, type AuthUser } from '../users/user.mapper.js';
 import { AuthService, refreshFailure } from './auth.service.js';
@@ -39,7 +38,6 @@ export class AuthController {
 
   @Public()
   @UseGuards(SameOriginGuard)
-  @ThrottleFromEnv('THROTTLE_LOGIN_LIMIT')
   @Post('login')
   @HttpCode(HttpStatus.OK)
   async login(
@@ -55,7 +53,6 @@ export class AuthController {
   /** Rotates the refresh cookie and returns a fresh in-memory access token. */
   @Public()
   @UseGuards(SameOriginGuard)
-  @ThrottleFromEnv('THROTTLE_REFRESH_LIMIT')
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response): Promise<AuthResponse> {

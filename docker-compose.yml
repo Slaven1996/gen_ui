@@ -1,5 +1,12 @@
 name: gen-ui
 
+# `docker compose up --build` brings up the whole stack with no prior setup:
+# database, API (migrated + seeded) and the web app on http://localhost:5173.
+#
+# Every value below has a development default, so this file works straight from
+# a fresh clone. Override anything by exporting it or by passing your own env
+# file: `docker compose --env-file backend/.env up`.
+
 services:
   postgres:
     image: postgres:17-alpine
@@ -17,6 +24,61 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Containers talk to Postgres on the compose network, not the host port.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-genui}:${POSTGRES_PASSWORD:-genui}@postgres:5432/${POSTGRES_DB:-genui}?schema=public
+      PORT: '3000'
+
+      # Local demo over plain http://. A real deployment sets NODE_ENV=production,
+      # which forces COOKIE_SECURE=true and therefore HTTPS.
+      NODE_ENV: ${NODE_ENV:-development}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      # nginx is the only hop in front of the API.
+      TRUST_PROXY: ${TRUST_PROXY:-1}
+      # Empty: the browser reaches the API same-origin through nginx.
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+
+      # DEVELOPMENT SECRET — generate your own before deploying anywhere:
+      #   openssl rand -base64 48
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-only-insecure-secret-change-me-before-deploying-0000}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-900}
+
+      # Chat answers 503 until a provider key is set; everything else works.
+      AI_PROVIDER: ${AI_PROVIDER:-anthropic}
+      AI_MODEL: ${AI_MODEL:-claude-opus-5}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
+      AI_GATEWAY_API_KEY: ${AI_GATEWAY_API_KEY:-}
+
+      # Demo accounts from backend/prisma/seed/*.sql. Set false to skip.
+      SEED_ON_START: ${SEED_ON_START:-true}
+    # Not published on purpose: the browser reaches the API through the
+    # frontend's origin (http://localhost:5173/api), and leaving port 3000 free
+    # means this stack never clashes with the API from `pnpm dev`. To hit the
+    # API directly, uncomment:
+    # ports:
+    #   - '3001:3000'
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - '${FRONTEND_PORT:-5173}:80'
 
 volumes:
   pgdata:

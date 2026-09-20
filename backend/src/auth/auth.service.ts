@@ -55,6 +55,16 @@ export class AuthService {
     };
   }
 
+  /**
+   * Issues a session for an already-authenticated user. Used after a password
+   * change, which revokes every existing token — this keeps the tab that made
+   * the change signed in while every other session is forced out.
+   */
+  async startFreshSession(user: UserRecord, meta: ClientMeta): Promise<SessionGrant> {
+    const refreshToken = await this.refreshTokens.issue(user.id, meta);
+    return { body: await this.buildAuthResponse(user), refreshToken };
+  }
+
   async logout(presented: string | undefined): Promise<void> {
     if (presented) await this.refreshTokens.revokeFamilyOf(presented, 'LOGOUT');
   }

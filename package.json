@@ -14,10 +14,14 @@
     "typecheck": "pnpm --filter @gen-ui/shared build && pnpm -r typecheck",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
-    "db:up": "docker compose --env-file backend/.env up -d --wait",
-    "db:down": "docker compose --env-file backend/.env down",
+    "db:up": "docker compose up -d --wait postgres",
+    "db:down": "docker compose stop postgres",
     "db:migrate": "pnpm --filter backend db:migrate",
     "db:seed": "pnpm --filter backend db:seed",
-    "db:studio": "pnpm --filter backend db:studio"
+    "db:studio": "pnpm --filter backend db:studio",
+    "docker:up": "docker compose up --build -d",
+    "docker:logs": "docker compose up --build",
+    "docker:down": "docker compose down",
+    "docker:clean": "docker compose down -v"
   }
 }

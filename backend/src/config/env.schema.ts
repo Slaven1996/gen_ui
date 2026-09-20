@@ -59,12 +59,6 @@ export const EnvSchema = z
         : [],
     ),
 
-    THROTTLE_TTL_MS: int(60_000, 1_000),
-    THROTTLE_LIMIT: int(100, 1),
-    THROTTLE_LOGIN_LIMIT: int(5, 1),
-    THROTTLE_REFRESH_LIMIT: int(30, 1),
-    THROTTLE_CHAT_LIMIT: int(20, 1),
-
     AI_PROVIDER: z.preprocess(blankToUndefined, z.enum(AI_PROVIDERS).default('anthropic')),
     AI_MODEL: z.preprocess(blankToUndefined, z.string().min(1).default('claude-opus-5')),
     AI_MAX_OUTPUT_TOKENS: int(64_000, 256, 128_000),

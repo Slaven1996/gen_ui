@@ -1,5 +1,6 @@
 import { useMutation } from '@tanstack/react-query';
-import { ChevronsUpDown, LogOut } from 'lucide-react';
+import { Link } from '@tanstack/react-router';
+import { ChevronsUpDown, LogOut, UserRound } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
   DropdownMenu,
@@ -51,6 +52,13 @@ export function NavUser() {
                 {user.role === 'ADMIN' ? 'Admin' : 'User'} · {user.email}
               </div>
             </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem asChild>
+              <Link to="/profile">
+                <UserRound />
+                Profile
+              </Link>
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem disabled={signOut.isPending} onSelect={() => signOut.mutate()}>
               <LogOut />

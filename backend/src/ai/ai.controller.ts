@@ -2,7 +2,6 @@ import { Body, Controller, Post, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { ChatRequestSchema, type ChatRequest } from '@gen-ui/shared';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
-import { ThrottleFromEnv } from '../common/throttle.js';
 import type { AuthUser } from '../users/user.mapper.js';
 import { AiService } from './ai.service.js';
 
@@ -12,9 +11,8 @@ export class AiController {
 
   /**
    * Streams an AI SDK UI message stream (SSE) consumed by `useChat`.
-   * Guards (JWT, throttling) still run with `@Res()`; only interceptors are bypassed.
+   * Guards (JWT) still run with `@Res()`; only interceptors are bypassed.
    */
-  @ThrottleFromEnv('THROTTLE_CHAT_LIMIT')
   @Post('chat')
   async chat(
     @Body({ schema: ChatRequestSchema }) body: ChatRequest,

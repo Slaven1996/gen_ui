@@ -121,4 +121,16 @@
   body {
     @apply bg-background text-foreground antialiased;
   }
+  /*
+   * Tailwind v4's Preflight sets `cursor: default` on buttons, so every
+   * <Button>, icon button and sidebar item lost its pointer. Put it back for
+   * anything actually clickable. Disabled controls keep the default arrow, and
+   * utilities like `cursor-w-resize` still win (they're a later layer).
+   */
+  button:not(:disabled),
+  [role='button']:not(:disabled),
+  label[for],
+  summary {
+    cursor: pointer;
+  }
 }

@@ -20,6 +20,7 @@ enum RevokeReason {
   REUSE_DETECTED
   USER_DISABLED
   ROLE_CHANGED
+  PASSWORD_CHANGED
 }
 
 model User {
