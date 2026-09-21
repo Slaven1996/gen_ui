@@ -25,6 +25,8 @@ export default defineConfig(({ mode }) => {
         // just works, and SSE chat streams pass straight through.
         // changeOrigin stays false so the backend's Origin check sees the browser's host.
         '/api': { target: env.DEV_API_TARGET || 'http://localhost:3000', changeOrigin: false },
+        // Swagger UI, so http://localhost:5173/docs works in dev too.
+        '/docs': { target: env.DEV_API_TARGET || 'http://localhost:3000', changeOrigin: false },
       },
     },
   };

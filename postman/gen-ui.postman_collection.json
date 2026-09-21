@@ -1,0 +1,686 @@
+{
+  "info": {
+    "name": "Gen UI API",
+    "description": "Every endpoint of the Gen UI backend.\n\n## Getting going\n\n1. Start the stack: `docker compose up --build`.\n2. Run **Auth > Sign in**. It stores `accessToken` for you, and the collection sends it as a bearer token on everything else.\n3. Anything else. When a request starts answering 401, run **Auth > Rotate the session**.\n\nStep 2 is a convenience rather than a requirement: a collection-level pre-request script signs in for you whenever there is no token, so any request runs on its own and **Run collection** stays green even though **Sign out** clears the token partway through.\n\n## Variables\n\n`baseUrl` points at the API through nginx (`http://localhost:5173/api`), the same origin the browser uses. Running the API with `pnpm dev` instead? Set it to `http://localhost:3000/api`.\n\n`email` and `password` are the credentials **Sign in** uses. All five seeded accounts share the password `Password123!`; `admin@example.com` is the one that may reach `/users`.\n\n## A note on the Origin check\n\n`/auth/*` rejects a browser `Origin` that is neither the API's own host nor an allowed CORS origin. Postman sends no `Origin`, which the guard treats as a non-browser caller and allows. If you add one by hand, it has to match `baseUrl`.\n\n## Keeping this in sync\n\nThis file is maintained by hand. The generated alternative is always current: import `http://localhost:5173/docs/openapi.json` into Postman, or read it at `http://localhost:5173/docs`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Signs in on demand, so every request works on its own and a full",
+          "// collection run stays green after Sign out has cleared the token.",
+          "const PUBLIC = ['Sign in', 'Liveness', 'Readiness'];",
+          "",
+          "if (!PUBLIC.includes(pm.info.requestName) && !pm.collectionVariables.get('accessToken')) {",
+          "  pm.sendRequest({",
+          "    url: pm.variables.replaceIn('{{baseUrl}}/auth/login'),",
+          "    method: 'POST',",
+          "    header: { 'Content-Type': 'application/json' },",
+          "    body: {",
+          "      mode: 'raw',",
+          "      raw: JSON.stringify({",
+          "        email: pm.variables.replaceIn('{{email}}'),",
+          "        password: pm.variables.replaceIn('{{password}}'),",
+          "      }),",
+          "    },",
+          "  }, (err, res) => {",
+          "    if (err || res.code !== 200) {",
+          "      console.error('Auto sign-in failed:', err || res.text());",
+          "      return;",
+          "    }",
+          "    pm.collectionVariables.set('accessToken', res.json().accessToken);",
+          "  });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "description": "Sign in first: **Sign in** writes `accessToken` into the collection variables, and every other request picks it up from there.\n\nThe refresh token never appears in a body - it is an httpOnly cookie scoped to `/api/auth`. Postman's cookie jar keeps it, so **Rotate the session** and **Sign out** work with no extra setup.",
+      "item": [
+        {
+          "name": "Sign in",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Exchanges credentials for a 15-minute access token, and sets the refresh cookie.\n\nChange `email` / `password` in the collection variables to sign in as someone else. Every seeded account uses `Password123!`.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set('accessToken', body.accessToken);",
+                  "pm.collectionVariables.set('userId', body.user.id);",
+                  "console.log('Signed in as ' + body.user.email + ' (' + body.user.role + ')');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Who am I",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
+            },
+            "description": "The account behind the current access token. A 401 here means the token expired - run **Rotate the session**."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Rotate the session",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "No body: the refresh cookie is the credential. Every call replaces both the cookie and the access token.\n\nReplaying a spent token outside a 10-second grace window revokes the whole login - so if this starts answering 401 with `code: REFRESH_REUSED`, sign in again.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "",
+                  "pm.collectionVariables.set('accessToken', pm.response.json().accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Sign out",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "logout"
+              ]
+            },
+            "description": "Revokes the presented token family and clears the cookie. Answers 204 even without a cookie, so it is safe to call twice.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', () => pm.response.to.have.status(204));",
+                  "",
+                  "pm.collectionVariables.set('accessToken', '');"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Profile",
+      "description": "The signed-in user's own account - available to every role, unlike `/users`.",
+      "item": [
+        {
+          "name": "Get my profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/profile",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "profile"
+              ]
+            },
+            "description": "The same payload as `/auth/me`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update my display name",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/profile",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "profile"
+              ]
+            },
+            "description": "Display name only. The schema is strict: sending `email`, `role` or `isActive` is a 400, not a silent no-op. Try it - that 400 is the privilege boundary being visible.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Renamed from Postman\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Change my password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/profile/password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "profile",
+                "password"
+              ]
+            },
+            "description": "**This really changes the password** of whichever account is signed in, and re-seeding will not put it back (the seed skips rows that already exist).\n\nEvery other session for the account is revoked in the same transaction; the response carries a replacement token pair, so this client stays signed in. The test below also moves `newPassword` into `password` so the rest of the collection keeps working.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"{{password}}\",\n  \"newPassword\": \"{{newPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "",
+                  "pm.collectionVariables.set('accessToken', pm.response.json().accessToken);",
+                  "// The old password is gone; keep the collection runnable.",
+                  "pm.collectionVariables.set('password', pm.collectionVariables.get('newPassword'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Users (admin)",
+      "description": "The user directory. Every route here is ADMIN-only - signing in as `liam.carter@example.com` and retrying is the quickest way to see the 403.",
+      "item": [
+        {
+          "name": "List users",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users?page=1&pageSize=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                },
+                {
+                  "key": "search",
+                  "value": "ava",
+                  "disabled": true
+                },
+                {
+                  "key": "role",
+                  "value": "ADMIN",
+                  "disabled": true
+                },
+                {
+                  "key": "isActive",
+                  "value": "true",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "`search` matches email or name anywhere in the value, case-insensitively. The optional filters are switched off below - tick them in the Params tab."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "console.log(body.items.length + ' of ' + body.total + ' users');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create a user",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users"
+              ]
+            },
+            "description": "The only way an account comes into existence - there is no public sign-up.\n\nThe pre-request script stamps the email with a timestamp so this stays re-runnable; without that, the second run is a 409.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{newUserEmail}}\",\n  \"name\": \"Created from Postman\",\n  \"password\": \"Password123!\",\n  \"role\": \"USER\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// A fresh address each run, so re-running never hits the unique-email 409.",
+                  "pm.collectionVariables.set('newUserEmail', 'postman.' + Date.now() + '@example.com');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "",
+                  "pm.collectionVariables.set('createdUserId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get a user",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{createdUserId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{createdUserId}}"
+              ]
+            },
+            "description": "Uses the id saved by **Create a user**. Any UUID works; a non-UUID is a 400 and an unknown one a 404."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update a user",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{createdUserId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{createdUserId}}"
+              ]
+            },
+            "description": "Send only the fields to change. Demoting or deactivating an account also revokes its refresh tokens, in the same transaction, so its sessions end at once.\n\nTwo rules the API enforces: an admin cannot demote or deactivate themselves (403), and the last active admin cannot be demoted (409).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Renamed from Postman\",\n  \"isActive\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Assistant",
+      "description": "**Spends provider tokens on every call.** Needs `ANTHROPIC_API_KEY` (or the key for whatever `AI_PROVIDER` is set to); without one the endpoint answers 503.",
+      "item": [
+        {
+          "name": "Ask the assistant",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "text/event-stream"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ai/chat",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ai",
+                "chat"
+              ]
+            },
+            "description": "Replies as an AI SDK UI message stream over SSE, so Postman shows `data:` frames arriving rather than one JSON body. Some frames are tool calls that the web app renders as React components.\n\n`messages` carries the whole conversation each turn; keep `id` stable across turns.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"postman-conversation\",\n  \"messages\": [\n    {\n      \"id\": \"m1\",\n      \"role\": \"user\",\n      \"parts\": [\n        {\n          \"type\": \"text\",\n          \"text\": \"How many users are there, by role?\"\n        }\n      ]\n    }\n  ],\n  \"context\": {\n    \"pathname\": \"/users\",\n    \"title\": \"Users\",\n    \"summary\": \"The admin user directory.\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "description": "Both are public - no token needed.",
+      "item": [
+        {
+          "name": "Liveness",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health/live",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health",
+                "live"
+              ]
+            },
+            "description": "No dependencies: answers as long as the process can serve. This is what the Docker healthcheck calls, so a database blip never restarts a healthy container.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Readiness",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health/ready",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health",
+                "ready"
+              ]
+            },
+            "description": "Pings the database and answers 503 when it is unreachable. Use it for load-balancer membership, not for restarts.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5173/api",
+      "type": "string"
+    },
+    {
+      "key": "email",
+      "value": "admin@example.com",
+      "type": "string"
+    },
+    {
+      "key": "password",
+      "value": "Password123!",
+      "type": "string"
+    },
+    {
+      "key": "newPassword",
+      "value": "Password123!-changed",
+      "type": "string"
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "createdUserId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "newUserEmail",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

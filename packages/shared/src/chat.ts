@@ -13,9 +13,11 @@ export type ChatContext = z.infer<typeof ChatContextSchema>;
  * backend validates it deeply with the AI SDK's `safeValidateUIMessages`
  * against the Generative UI tool schemas.
  */
-export const ChatRequestSchema = z.object({
-  id: z.string().min(1).max(100),
-  messages: z.array(z.unknown()).min(1).max(200),
-  context: ChatContextSchema.optional(),
-});
+export const ChatRequestSchema = z
+  .object({
+    id: z.string().min(1).max(100).describe('Conversation id; the same value for every turn.'),
+    messages: z.array(z.unknown()).min(1).max(200).describe('The whole conversation so far, as AI SDK UI messages.'),
+    context: ChatContextSchema.optional(),
+  })
+  .meta({ id: 'ChatRequest' });
 export type ChatRequest = z.infer<typeof ChatRequestSchema>;

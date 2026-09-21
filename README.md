@@ -5,7 +5,7 @@ A dashboard app that combines classic CRUD screens with **Generative UI**: an AI
 | Layer | Stack |
 |---|---|
 | Frontend (`/frontend`) | React 19, Vite 8 (client-side rendering), TanStack Router (file-based) + Query + Table, shadcn/ui (Radix, Tailwind v4), axios |
-| Backend (`/backend`) | NestJS 12 (ESM), Prisma 7 + PostgreSQL 17, Passport JWT, Vercel AI SDK 7 (`@ai-sdk/anthropic`) |
+| Backend (`/backend`) | NestJS 12 (ESM), Prisma 7 + PostgreSQL 17, Passport JWT, Vercel AI SDK 7 (`@ai-sdk/anthropic`), OpenAPI via `@nestjs/swagger` |
 | Shared (`/packages/shared`) | Zod schemas and types used by both sides: DTOs and the Generative UI tool contracts |
 
 ## Getting started
@@ -20,7 +20,7 @@ The fastest way to see the app, and the one to use when handing the project to s
 docker compose up --build         # or: pnpm docker:up
 ```
 
-That brings up Postgres, the API and the web app, applies migrations and seeds the demo accounts. When it settles, open <http://localhost:5173> and sign in with any account from [Demo accounts](#demo-accounts).
+That brings up Postgres, the API and the web app, applies migrations and seeds the demo accounts. When it settles, open <http://localhost:5173> and sign in with any account from [Demo accounts](#demo-accounts). The API documents itself at <http://localhost:5173/docs>.
 
 ```bash
 pnpm docker:down                  # stop
@@ -69,6 +69,31 @@ Created by the seed. Every one of them signs in with **`Password123!`**.
 | `sofia.reyes@example.com` | Sofia Reyes | USER |
 
 These are local demo credentials. Change them before the app is reachable by anyone else.
+
+## API docs
+
+**Swagger UI** is at <http://localhost:5173/docs>, with the raw document at `/docs/openapi.json`
+and `/docs/openapi.yaml`. It is generated from the very Zod schemas the endpoints validate with,
+so it cannot drift from the code.
+
+The API serves it, but it is published on the web app's origin, so **Try it out** reaches `/api`
+same-origin and the refresh cookie behaves as it does in the app. To call a guarded route: run
+`POST /api/auth/login`, copy `accessToken` out of the response, press **Authorize**, paste it.
+
+**Postman**: import `postman/gen-ui.postman_collection.json`. It covers every endpoint with the
+demo credentials already filled in. Signing in stores the access token in a collection variable
+that every other request sends, and a collection-level script signs in again whenever that
+variable is empty — so **Run collection** works top to bottom even though *Sign out* clears the
+token halfway. Two requests have real consequences and say so: *Change my password* changes the
+seeded account's password for good, and *Ask the assistant* spends provider tokens.
+
+That file is written by hand, for readability. If you would rather have one that is always
+current, import `http://localhost:5173/docs/openapi.json` into Postman instead.
+
+Adding an endpoint? The request side documents itself — `@Body({ schema })` and
+`@Query({ schema })` are read straight off the route. Write the prose in `@ApiOperation`, give the
+response shape with `@ApiOkResponse({ standardSchema })`, and list the failures with
+`@ApiErrorResponse(status, why)` from `backend/src/docs/api-error.ts`.
 
 ## Database
 
@@ -141,4 +166,7 @@ The assistant is available as a right-hand panel on every page (Ctrl/Cmd + J) an
 - Replace the development `JWT_ACCESS_SECRET` from `docker-compose.yml` with a real one (`openssl rand -base64 48`, at least 32 characters).
 - For split origins, set `CORS_ORIGIN` (comma-separated) and `VITE_API_BASE_URL`. The cookie stays `SameSite=Strict`, so the frontend and API must be on the same site (e.g. `app.example.com` + `api.example.com`).
 - There is **no rate limiting**. This is a student project and 429s were getting in the way; if the app is ever exposed publicly, put a limiter in front of `/api/auth/login` (or restore `@nestjs/throttler`, removed in this branch's history).
+- `/docs` is public. It only describes routes that are guarded anyway, but if you would rather
+  not publish the API's shape, drop the `setupSwagger(app)` call in `backend/src/main.ts` or put
+  the path behind your proxy's own auth.
 - The `users` search filter is an unanchored `ILIKE`. It has no index; add a `pg_trgm` GIN index if that listing gets large.

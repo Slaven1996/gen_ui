@@ -11,9 +11,11 @@ import { PASSWORD_MIN_LENGTH } from './users.js';
  * `email` — it is the login identifier, and changing it safely needs a
  * verification flow this app does not have. Admins cannot change it either.
  */
-export const UpdateProfileSchema = z.strictObject({
-  name: z.string().trim().min(1, 'Name is required').max(100),
-});
+export const UpdateProfileSchema = z
+  .strictObject({
+    name: z.string().trim().min(1, 'Name is required').max(100),
+  })
+  .meta({ id: 'UpdateProfile' });
 export type UpdateProfileDto = z.output<typeof UpdateProfileSchema>;
 
 export const ChangePasswordSchema = z
@@ -27,7 +29,8 @@ export const ChangePasswordSchema = z
   .refine((value) => value.currentPassword !== value.newPassword, {
     message: 'Choose a password different from your current one',
     path: ['newPassword'],
-  });
+  })
+  .meta({ id: 'ChangePassword' });
 export type ChangePasswordDto = z.output<typeof ChangePasswordSchema>;
 
 /** Codes the profile endpoints attach to their errors. */
