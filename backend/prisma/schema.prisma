@@ -36,6 +36,13 @@ model User {
   updatedAt     DateTime       @updatedAt @map("updated_at")
   refreshTokens RefreshToken[]
 
+  acknowledgedAlarms Alarm[]           @relation("AlarmAcknowledgedBy")
+  logbookEntries     LogbookEntry[]    @relation("LogbookAuthor")
+  auditLogs          AuditLog[]        @relation("AuditActor")
+  shiftAssignments   ShiftAssignment[] @relation("ShiftAssignee")
+  createdShifts      ShiftAssignment[] @relation("ShiftCreatedBy")
+  dashboards         Dashboard[]       @relation("DashboardOwner")
+
   // Supports the admin user listing: ORDER BY created_at DESC, filtered by
   // role/is_active. The `search` filter is an unanchored ILIKE and needs a
   // trigram (pg_trgm) index to be served by an index -- not added here because
@@ -68,4 +75,399 @@ model RefreshToken {
   @@index([userId])
   @@index([expiresAt])
   @@map("refresh_tokens")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Assets & devices
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum AssetType {
+  REGION
+  SITE
+  AREA
+  EQUIPMENT
+}
+
+enum DeviceStatus {
+  ONLINE
+  OFFLINE
+  MAINTENANCE
+  FAULT
+}
+
+enum DeviceProtocol {
+  MODBUS_TCP
+  OPC_UA
+  MQTT
+  IEC_104
+  DNP3
+  OTHER
+}
+
+enum TagDataType {
+  ANALOG
+  DIGITAL
+  COUNTER
+}
+
+enum MeasurementQuality {
+  GOOD
+  UNCERTAIN
+  BAD
+}
+
+/// A node of the asset tree: region > site > area > equipment.
+model Asset {
+  id          String    @id @default(uuid()) @db.Uuid
+  parentId    String?   @map("parent_id") @db.Uuid
+  parent      Asset?    @relation("AssetTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children    Asset[]   @relation("AssetTree")
+  /// Materialized path of ids, `/<root>/…/<self>/`, so "everything below X"
+  /// is one `LIKE '%/X/%'` at any depth. Maintained by AssetsService.
+  path        String
+  code        String    @unique
+  name        String
+  type        AssetType
+  description String?
+  latitude    Float?
+  longitude   Float?
+  address     String?
+  isActive    Boolean   @default(true) @map("is_active")
+  /// Free-form properties (commissioning date, capacity, …).
+  metadata    Json?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  devices        Device[]
+  alarms         Alarm[]
+  logbookEntries LogbookEntry[]
+
+  @@index([parentId])
+  @@index([type])
+  @@map("assets")
+}
+
+/// A physical unit that reports data: an RTU, PLC, gateway or smart sensor.
+model Device {
+  id              String         @id @default(uuid()) @db.Uuid
+  assetId         String         @map("asset_id") @db.Uuid
+  asset           Asset          @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  name            String
+  serialNumber    String         @unique @map("serial_number")
+  model           String?
+  manufacturer    String?
+  protocol        DeviceProtocol @default(MODBUS_TCP)
+  status          DeviceStatus   @default(OFFLINE)
+  firmwareVersion String?        @map("firmware_version")
+  ipAddress       String?        @map("ip_address")
+  installedAt     DateTime?      @map("installed_at")
+  lastSeenAt      DateTime?      @map("last_seen_at")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  tags Tag[]
+
+  @@index([assetId])
+  @@index([status])
+  @@map("devices")
+}
+
+/// A datapoint (signal) a device reports: a level, a flow, a pump running bit.
+model Tag {
+  id                 String      @id @default(uuid()) @db.Uuid
+  deviceId           String      @map("device_id") @db.Uuid
+  device             Device      @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  code               String
+  name               String
+  description        String?
+  unit               String?
+  dataType           TagDataType @default(ANALOG) @map("data_type")
+  minValue           Float?      @map("min_value")
+  maxValue           Float?      @map("max_value")
+  logIntervalSeconds Int         @default(60) @map("log_interval_seconds")
+  /// Latest reading, denormalized so lists and widgets need no time-series query.
+  lastValue          Float?      @map("last_value")
+  lastValueAt        DateTime?   @map("last_value_at")
+  isActive           Boolean     @default(true) @map("is_active")
+  createdAt          DateTime    @default(now()) @map("created_at")
+  updatedAt          DateTime    @updatedAt @map("updated_at")
+
+  measurements     Measurement[]
+  alarmDefinitions AlarmDefinition[]
+  alarms           Alarm[]
+
+  @@unique([deviceId, code])
+  @@map("tags")
+}
+
+/// Time-series readings. The composite key doubles as the (tag, time) index
+/// every chart query uses. A TimescaleDB hypertable is the upgrade path.
+model Measurement {
+  tagId   String             @map("tag_id") @db.Uuid
+  tag     Tag                @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  ts      DateTime           @db.Timestamptz(3)
+  value   Float
+  quality MeasurementQuality @default(GOOD)
+
+  @@id([tagId, ts])
+  @@map("measurements")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Alarms
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum AlarmSeverity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+  INFO
+}
+
+enum AlarmCondition {
+  ABOVE
+  BELOW
+  EQUAL
+  NOT_EQUAL
+}
+
+enum AlarmState {
+  ACTIVE
+  ACKNOWLEDGED
+  CLEARED
+  CLOSED
+}
+
+/// A rule evaluated against every new reading of its tag.
+model AlarmDefinition {
+  id          String         @id @default(uuid()) @db.Uuid
+  tagId       String         @map("tag_id") @db.Uuid
+  tag         Tag            @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  condition   AlarmCondition
+  threshold   Float
+  /// Hysteresis: how far back past the threshold the value must go to clear.
+  deadband    Float          @default(0)
+  severity    AlarmSeverity  @default(MEDIUM)
+  isEnabled   Boolean        @default(true) @map("is_enabled")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  alarms Alarm[]
+
+  @@index([tagId])
+  @@map("alarm_definitions")
+}
+
+/// One occurrence of a rule firing, from raise to clear and acknowledgement.
+/// `tagId`, `assetId` and `severity` are copied at raise time, so the history
+/// stays true after the rule or the asset tree changes and the alarm console
+/// can filter without joins.
+model Alarm {
+  id               String          @id @default(uuid()) @db.Uuid
+  definitionId     String          @map("definition_id") @db.Uuid
+  definition       AlarmDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+  tagId            String          @map("tag_id") @db.Uuid
+  tag              Tag             @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  assetId          String          @map("asset_id") @db.Uuid
+  asset            Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  severity         AlarmSeverity
+  state            AlarmState      @default(ACTIVE)
+  message          String
+  triggerValue     Float?          @map("trigger_value")
+  clearValue       Float?          @map("clear_value")
+  raisedAt         DateTime        @default(now()) @map("raised_at")
+  clearedAt        DateTime?       @map("cleared_at")
+  acknowledgedAt   DateTime?       @map("acknowledged_at")
+  acknowledgedById String?         @map("acknowledged_by_id") @db.Uuid
+  acknowledgedBy   User?           @relation("AlarmAcknowledgedBy", fields: [acknowledgedById], references: [id], onDelete: SetNull)
+  acknowledgeNote  String?         @map("acknowledge_note")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+
+  logbookEntries LogbookEntry[]
+
+  @@index([state, severity])
+  @@index([raisedAt])
+  @@index([assetId])
+  @@index([definitionId, clearedAt])
+  @@map("alarms")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Logbook & audit
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum LogbookCategory {
+  NOTE
+  ALARM
+  DEVICE
+  MAINTENANCE
+  SHIFT
+}
+
+enum LogSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum AuditEntityType {
+  ASSET
+  DEVICE
+  TAG
+  ALARM_DEFINITION
+  ALARM
+  LOGBOOK_ENTRY
+  SHIFT_TEMPLATE
+  SHIFT_ASSIGNMENT
+  DASHBOARD
+  USER
+}
+
+/// The operator logbook: notes people write and events the system records.
+model LogbookEntry {
+  id         String          @id @default(uuid()) @db.Uuid
+  category   LogbookCategory
+  severity   LogSeverity     @default(INFO)
+  title      String
+  body       String?
+  occurredAt DateTime        @default(now()) @map("occurred_at")
+  assetId    String?         @map("asset_id") @db.Uuid
+  asset      Asset?          @relation(fields: [assetId], references: [id], onDelete: SetNull)
+  alarmId    String?         @map("alarm_id") @db.Uuid
+  alarm      Alarm?          @relation(fields: [alarmId], references: [id], onDelete: SetNull)
+  /// `null` for system events.
+  authorId   String?         @map("author_id") @db.Uuid
+  author     User?           @relation("LogbookAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  createdAt  DateTime        @default(now()) @map("created_at")
+  updatedAt  DateTime        @updatedAt @map("updated_at")
+
+  @@index([occurredAt])
+  @@index([category, occurredAt])
+  @@index([assetId])
+  @@index([alarmId])
+  @@map("logbook_entries")
+}
+
+/// Append-only record of who changed what. The app never updates or deletes rows.
+model AuditLog {
+  id         String          @id @default(uuid()) @db.Uuid
+  actorId    String?         @map("actor_id") @db.Uuid
+  actor      User?           @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  /// `<entity>.<verb>`, e.g. `alarm.acknowledge`.
+  action     String
+  entityType AuditEntityType @map("entity_type")
+  entityId   String?         @map("entity_id") @db.Uuid
+  summary    String
+  changes    Json?
+  createdAt  DateTime        @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@index([entityType, entityId])
+  @@index([actorId])
+  @@map("audit_logs")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Shift scheduling
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum ShiftRole {
+  OPERATOR
+  SUPERVISOR
+  ON_CALL
+}
+
+/// A reusable shift pattern: "Night, 22:00, 8 hours".
+model ShiftTemplate {
+  id              String   @id @default(uuid()) @db.Uuid
+  name            String   @unique
+  /// Local time of day, `HH:mm`.
+  startTime       String   @map("start_time")
+  durationMinutes Int      @map("duration_minutes")
+  color           String
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  assignments ShiftAssignment[]
+
+  @@map("shift_templates")
+}
+
+/// One person on one shift. Start and end are stored as instants, so editing
+/// the template later never rewrites past schedules.
+model ShiftAssignment {
+  id          String        @id @default(uuid()) @db.Uuid
+  templateId  String        @map("template_id") @db.Uuid
+  template    ShiftTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  userId      String        @map("user_id") @db.Uuid
+  user        User          @relation("ShiftAssignee", fields: [userId], references: [id], onDelete: Cascade)
+  role        ShiftRole     @default(OPERATOR)
+  startsAt    DateTime      @map("starts_at")
+  endsAt      DateTime      @map("ends_at")
+  notes       String?
+  createdById String?       @map("created_by_id") @db.Uuid
+  createdBy   User?         @relation("ShiftCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  @@index([startsAt, endsAt])
+  @@index([userId, startsAt])
+  @@map("shift_assignments")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Dashboards
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum WidgetType {
+  KPI
+  TAG_VALUE
+  TIME_SERIES
+  ALARM_TABLE
+  ALARM_TREND
+  TOP_ALARMS
+  LOGBOOK_FEED
+  DEVICE_STATUS
+  ON_DUTY
+}
+
+model Dashboard {
+  id          String   @id @default(uuid()) @db.Uuid
+  ownerId     String   @map("owner_id") @db.Uuid
+  owner       User     @relation("DashboardOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  /// Readable by every signed-in user; only the owner (or an admin) edits it.
+  isShared    Boolean  @default(false) @map("is_shared")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  widgets DashboardWidget[]
+
+  @@index([ownerId])
+  @@index([isShared])
+  @@map("dashboards")
+}
+
+/// A card on a dashboard's 12-column grid. `config` is validated against the
+/// widget type's Zod schema (`WIDGET_CONFIG_SCHEMAS` in @gen-ui/shared).
+model DashboardWidget {
+  id          String     @id @default(uuid()) @db.Uuid
+  dashboardId String     @map("dashboard_id") @db.Uuid
+  dashboard   Dashboard  @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  type        WidgetType
+  title       String
+  position    Int
+  width       Int
+  height      Int
+  config      Json
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  @@index([dashboardId, position])
+  @@map("dashboard_widgets")
 }

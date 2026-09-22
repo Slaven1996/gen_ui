@@ -1,5 +1,6 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PROFILE_ERROR_CODES, type ChangePasswordDto, type PublicUser, type UpdateProfileDto } from '@gen-ui/shared';
+import { AuditService } from '../audit/audit.service.js';
 import { UnitOfWork } from '../prisma/unit-of-work.service.js';
 import { RefreshTokenService } from '../sessions/refresh-token.service.js';
 import { PasswordService } from '../users/password.service.js';
@@ -14,6 +15,7 @@ export class ProfileService {
     private readonly passwords: PasswordService,
     private readonly refreshTokens: RefreshTokenService,
     private readonly uow: UnitOfWork,
+    private readonly audit: AuditService,
   ) {}
 
   async update(actor: AuthUser, dto: UpdateProfileDto): Promise<PublicUser> {
@@ -41,6 +43,16 @@ export class ProfileService {
     return this.uow.run(async (tx) => {
       const updated = await this.users.updatePasswordHash(actor.id, passwordHash, tx);
       await this.refreshTokens.revokeAllForUser(actor.id, 'PASSWORD_CHANGED', tx);
+      await this.audit.record(
+        {
+          actorId: actor.id,
+          action: 'user.password_change',
+          entityType: 'USER',
+          entityId: actor.id,
+          summary: `${actor.name} changed their password; other sessions were signed out`,
+        },
+        tx,
+      );
       return updated;
     });
   }

@@ -60,7 +60,11 @@ services:
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
       AI_GATEWAY_API_KEY: ${AI_GATEWAY_API_KEY:-}
 
-      # Demo accounts from backend/prisma/seed/*.sql. Set false to skip.
+      # Simulated readings for ONLINE devices, so charts and alarms move in a demo.
+      SIMULATOR_ENABLED: ${SIMULATOR_ENABLED:-true}
+      SIMULATOR_INTERVAL_SECONDS: ${SIMULATOR_INTERVAL_SECONDS:-60}
+
+      # Demo data from backend/prisma/seed/*.sql. Set false to skip.
       SEED_ON_START: ${SEED_ON_START:-true}
     # Not published on purpose: the browser reaches the API through the
     # frontend's origin (http://localhost:5173/api), and leaving port 3000 free

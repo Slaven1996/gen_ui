@@ -1,5 +1,5 @@
 import { keepPreviousData, queryOptions } from '@tanstack/react-query';
-import type { ListUsersQueryInput, Paginated, PublicUser } from '@gen-ui/shared';
+import type { ListUsersQueryInput, Paginated, PublicUser, UserRef } from '@gen-ui/shared';
 import { http } from '@/lib/api/http';
 
 export const usersKeys = {
@@ -19,4 +19,12 @@ export const usersListQueryOptions = (params: ListUsersQueryInput) =>
     },
     // Keep the current page on screen while the next one loads.
     placeholderData: keepPreviousData,
+  });
+
+/** Active people by name, for pickers — open to every role. */
+export const userOptionsQueryOptions = () =>
+  queryOptions({
+    queryKey: [...usersKeys.all, 'options'] as const,
+    queryFn: async () => (await http.get<{ items: UserRef[] }>('/users/options')).data.items,
+    staleTime: 5 * 60_000,
   });

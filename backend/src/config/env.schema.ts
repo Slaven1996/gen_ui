@@ -70,6 +70,12 @@ export const EnvSchema = z
     AI_SEND_REASONING: booleanFlag(true),
     AI_REFUSAL_FALLBACK: booleanFlag(true),
 
+    /** Writes plausible readings for every tag of an ONLINE device, so charts and alarms move in a demo. */
+    SIMULATOR_ENABLED: booleanFlag(true),
+    SIMULATOR_INTERVAL_SECONDS: int(60, 5, 3600),
+    /** Measurements older than this are deleted by a daily job. */
+    TELEMETRY_RETENTION_DAYS: int(180, 1, 3650),
+
     ANTHROPIC_API_KEY: optionalString,
     OPENAI_API_KEY: optionalString,
     GOOGLE_GENERATIVE_AI_API_KEY: optionalString,

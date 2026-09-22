@@ -1,6 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { AUTH_ERROR_CODES, type AuthResponse, type LoginRequest } from '@gen-ui/shared';
+import { AuditService } from '../audit/audit.service.js';
 import { AppConfigService } from '../config/app-config.service.js';
 import {
   RefreshTokenService,
@@ -28,6 +29,7 @@ export class AuthService {
     private readonly refreshTokens: RefreshTokenService,
     private readonly jwt: JwtService,
     private readonly config: AppConfigService,
+    private readonly audit: AuditService,
   ) {}
 
   async login(credentials: LoginRequest, meta: ClientMeta): Promise<SessionGrant> {
@@ -42,6 +44,13 @@ export class AuthService {
 
     const user = await this.users.update(account.id, { lastLoginAt: new Date() });
     const refreshToken = await this.refreshTokens.issue(user.id, meta);
+    await this.audit.record({
+      actorId: user.id,
+      action: 'auth.login',
+      entityType: 'USER',
+      entityId: user.id,
+      summary: `${user.name} signed in`,
+    });
     return { body: await this.buildAuthResponse(user), refreshToken };
   }
 

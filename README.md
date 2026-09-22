@@ -70,6 +70,41 @@ Created by the seed. Every one of them signs in with **`Password123!`**.
 
 These are local demo credentials. Change them before the app is reachable by anyone else.
 
+## The monitoring domain
+
+The app monitors a small water utility (the seed data): a tree of **assets** (regions → sites → areas → equipment), the **devices** installed on them, and the **tags** (datapoints) those devices report. Readings land in **measurements**; **alarm rules** watch tags and raise **alarms**; people keep a **logbook**, work **shifts**, and build their own **dashboards**.
+
+| Page | API | What it is for |
+|---|---|---|
+| `/dashboard` | `/api/dashboards` | Customizable grid of widgets; own dashboards plus shared ones |
+| `/analytics` | `/api/analytics/*` | KPIs, alarms per day by severity, most frequent alarms |
+| `/alarms` | `/api/alarms` | The alarm console: filter, acknowledge (one or many), open an alarm's timeline |
+| `/alarm-rules` | `/api/alarm-definitions` | Threshold rules on tags (admins edit) |
+| `/logbook` | `/api/logbook` | Operator notes, maintenance, shift handovers — and system events |
+| `/shifts` | `/api/shifts/*` | Week plan, shift templates, who is on duty now |
+| `/assets`, `/assets/:id` | `/api/assets` | The asset tree; an asset page is built from embedded, pre-filtered views |
+| `/devices`, `/tags` | `/api/devices`, `/api/tags` | RTUs/PLCs/sensors and their datapoints with live values |
+| `/graphs` | `/api/telemetry/series`, `/stats` | Trend explorer: up to 8 tags, server-side buckets, one chart per unit |
+| `/audit` | `/api/audit-logs` | Who changed what (admins) |
+
+Admins configure (assets, devices, tags, rules, shift plans); everyone can acknowledge alarms, write in the logbook and build dashboards. The full database is drawn in [`docs/database-erd.drawio`](docs/database-erd.drawio) — open it in [diagrams.net](https://app.diagrams.net) or the VS Code *Draw.io Integration* extension.
+
+### One query, three uses
+
+Every list endpoint takes the same kind of query — `page`/`pageSize`, `sort=field` or `sort=-field`, comma-separated multi-value filters, a time window as `range=24h` (relative, so links stay live) or `from`/`to`, `search`, and `assetId` meaning "this asset and everything below it". Each is **one Zod schema in `@gen-ui/shared`**, used by:
+
+1. the API, to validate `@Query()`;
+2. the page, as its route's `validateSearch` — so `/alarms?state=ACTIVE,CLEARED&severity=CRITICAL&range=7d` and `GET /api/alarms?state=ACTIVE,CLEARED&severity=CRITICAL&range=7d` are the same query;
+3. the next phase's Generative UI tools, as their input.
+
+Tables and charts (`AlarmsTable`, `TelemetryChart`, `LogbookTable`, `TagsTable`, …) take that query as a prop and fetch their own data. A page feeds them from its URL; an embed (a dashboard widget, an asset page card, later a chat answer) passes a fixed query and adds **View full page** — a plain link to the page with the same query. A dashboard widget's `config` *is* such a query (`WIDGET_CONFIG_SCHEMAS`), and `features/dashboards/widget-registry.tsx` maps each widget type to its view and its full page; a GenUI tool emitting `{ type, config }` can render through that same registry.
+
+### Alarms, end to end
+
+A reading arrives (`POST /api/telemetry/measurements`, or the simulator) → the tag's latest value moves → every enabled rule on the tag is evaluated, with the rule rows locked so concurrent readings can't double-raise → a firing value raises an `ACTIVE` alarm; a value back past the threshold by the **deadband** clears it (`CLEARED`, or `CLOSED` if already acknowledged). Acknowledging moves `ACTIVE → ACKNOWLEDGED` / `CLEARED → CLOSED`. Every transition is written to the logbook (the alarm's timeline is `GET /api/logbook?alarmId=…`), and every user action to the audit log, in the same transaction as the change.
+
+**The simulator** (`SIMULATOR_ENABLED`, default on) writes a reading for every tag of an `ONLINE` device every `SIMULATOR_INTERVAL_SECONDS` through that same ingest path, with an occasional excursion that trips the seeded rules — so charts move and alarms come and go in a demo. Turn it off when real data flows in. Measurements older than `TELEMETRY_RETENTION_DAYS` (180) are pruned daily.
+
 ## API docs
 
 **Swagger UI** is at <http://localhost:5173/docs>, with the raw document at `/docs/openapi.json`
@@ -104,6 +139,10 @@ Seed **data** lives in `backend/prisma/seed/*.sql` as ordinary SQL. `backend/pri
 Make each file re-runnable (`ON CONFLICT ... DO NOTHING`, or `WHERE NOT EXISTS`): `pnpm db:seed` is expected to be safe to run more than once, and it runs on every container start unless you set `SEED_ON_START=false`.
 
 `id` and `updated_at` have to be set explicitly in SQL (`gen_random_uuid()`, `NOW()`) because Prisma generates those values in the client rather than in the database.
+
+The domain seed comes in three files: `002_assets.sql` (asset tree, devices, tags, alarm rules, shift templates — fixed, readable UUIDs such as `10000000-0000-4000-8000-000000000003` for the Riverside pumping station), `003_telemetry.sql` (14 days of 15-minute readings; a re-run tops them up to the current time) and `004_operations.sql` (alarm history consistent with the readings, logbook, a rotating shift plan from a week back to three weeks ahead, audit trail, two dashboards). Generated rows get deterministic ids from `md5`, so re-runs skip them. Shifts are planned in `Europe/Budapest` — change `SHIFT_TIME_ZONE` at the top of the shift section to plan in another zone.
+
+A few rules Prisma cannot express live in the migration as `CHECK` constraints (an asset is not its own parent, a shift ends after it starts, widget sizes are on the grid).
 
 ## Scripts (root)
 

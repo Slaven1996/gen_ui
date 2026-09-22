@@ -3,6 +3,7 @@ import { FullPageSpinner } from './components/layout/page';
 import { RouteError } from './components/layout/route-error';
 import { queryClient } from './lib/api/query-client';
 import { authStore } from './lib/auth/auth-store';
+import { parseSearch, stringifySearch } from './lib/search';
 import { routeTree } from './routeTree.gen';
 
 export const router = createRouter({
@@ -14,6 +15,9 @@ export const router = createRouter({
   defaultPendingComponent: FullPageSpinner,
   defaultErrorComponent: RouteError,
   scrollRestoration: true,
+  // Arrays in the URL as `a,b` — the same form the API reads.
+  parseSearch,
+  stringifySearch,
 });
 
 declare module '@tanstack/react-router' {

@@ -13,11 +13,13 @@ import {
   PaginatedUsersSchema,
   PublicUserSchema,
   UpdateUserSchema,
+  UserOptionsSchema,
   type CreateUserDto,
   type ListUsersQuery,
   type Paginated,
   type PublicUser,
   type UpdateUserDto,
+  type UserRef,
 } from '@gen-ui/shared';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
@@ -46,6 +48,19 @@ export class UsersController {
     return this.users.list(query);
   }
 
+  // Declared before `:id` so "options" is not taken for an id.
+  @Get('options')
+  @Roles(['ADMIN', 'USER'])
+  @ApiOperation({
+    summary: 'Active users for pickers',
+    description:
+      'Id and name of every active account, by name — for choosing people in shift plans and filters. Open to every signed-in user; carries nothing beyond names.',
+  })
+  @ApiOkResponse({ standardSchema: UserOptionsSchema })
+  async options(): Promise<{ items: UserRef[] }> {
+    return { items: await this.users.options() };
+  }
+
   @Get(':id')
   @ApiOperation({
     summary: 'Get one user',
@@ -67,8 +82,8 @@ export class UsersController {
   @ApiCreatedResponse({ standardSchema: PublicUserSchema })
   @ApiErrorResponse(400, 'A field is missing or invalid, e.g. a password under 12 characters.')
   @ApiErrorResponse(409, 'That email is already taken.')
-  create(@Body({ schema: CreateUserSchema }) dto: CreateUserDto): Promise<PublicUser> {
-    return this.users.create(dto);
+  create(@Body({ schema: CreateUserSchema }) dto: CreateUserDto, @CurrentUser() actor: AuthUser): Promise<PublicUser> {
+    return this.users.create(dto, actor);
   }
 
   @Patch(':id')

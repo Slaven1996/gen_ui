@@ -522,6 +522,2473 @@
               }
             }
           ]
+        },
+        {
+          "name": "Active users (for pickers)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/options",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "options"
+              ]
+            },
+            "description": "Id and name of every active account. Open to every role — the one users route that is not admin-only."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Assets",
+      "description": "The asset tree: regions, sites, areas, equipment. Every list endpoint in the app takes the same kind of query — `page`/`pageSize`, `sort=field` or `sort=-field`, comma-separated multi-value filters, `range` (relative) or `from`/`to`, and `search`. The web app uses exactly these params in its URLs.",
+      "item": [
+        {
+          "name": "List assets",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/assets?page=1&pageSize=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "assets"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                },
+                {
+                  "key": "sort",
+                  "value": "-name",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "pump",
+                  "disabled": true
+                },
+                {
+                  "key": "type",
+                  "value": "SITE,EQUIPMENT",
+                  "disabled": true,
+                  "description": "Comma-separated"
+                },
+                {
+                  "key": "ancestorId",
+                  "value": "10000000-0000-4000-8000-000000000001",
+                  "disabled": true,
+                  "description": "This asset and everything below it"
+                },
+                {
+                  "key": "parentId",
+                  "value": "10000000-0000-4000-8000-000000000003",
+                  "disabled": true,
+                  "description": "Direct children only"
+                }
+              ]
+            },
+            "description": "Optional filters are switched off — tick them in the Params tab."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "console.log(body.items.length + ' of ' + body.total + ' assets');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Asset tree",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/assets/tree",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "assets",
+                "tree"
+              ]
+            },
+            "description": "Every asset depth-first, with open alarms rolled up the tree."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get an asset",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/assets/10000000-0000-4000-8000-000000000003",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "assets",
+                "10000000-0000-4000-8000-000000000003"
+              ]
+            },
+            "description": "Includes `ancestors` for breadcrumbs."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create an asset",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/assets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "assets"
+              ]
+            },
+            "description": "Admin only. The code is stamped with a timestamp so the request stays re-runnable.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{newAssetCode}}\",\n  \"name\": \"Created from Postman\",\n  \"type\": \"AREA\",\n  \"parentId\": \"10000000-0000-4000-8000-000000000003\",\n  \"description\": \"Safe to delete\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('newAssetCode', 'PM-' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201', () => pm.response.to.have.status(201));",
+                  "",
+                  "pm.collectionVariables.set('createdAssetId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Move an asset",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/assets/{{createdAssetId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "assets",
+                "{{createdAssetId}}"
+              ]
+            },
+            "description": "A new `parentId` moves the asset together with its whole subtree.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"parentId\": \"10000000-0000-4000-8000-000000000006\",\n  \"description\": \"Moved under the Harbor station\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete an asset",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/assets/{{createdAssetId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "assets",
+                "{{createdAssetId}}"
+              ]
+            },
+            "description": "Only assets without children or devices."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Devices",
+      "item": [
+        {
+          "name": "List devices",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/devices?status=OFFLINE,FAULT",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "devices"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "OFFLINE,FAULT"
+                },
+                {
+                  "key": "assetId",
+                  "value": "10000000-0000-4000-8000-000000000001",
+                  "disabled": true
+                },
+                {
+                  "key": "protocol",
+                  "value": "MQTT",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "rtu",
+                  "disabled": true
+                },
+                {
+                  "key": "sort",
+                  "value": "-lastSeenAt",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Devices that are not reporting."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "console.log(body.items.length + ' of ' + body.total + ' devices');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get a device",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/devices/20000000-0000-4000-8000-000000000001",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "devices",
+                "20000000-0000-4000-8000-000000000001"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Register a device",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/devices",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "devices"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"assetId\": \"10000000-0000-4000-8000-000000000003\",\n  \"name\": \"Postman test logger\",\n  \"serialNumber\": \"{{newSerial}}\",\n  \"protocol\": \"MQTT\",\n  \"status\": \"OFFLINE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('newSerial', 'PM-' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201', () => pm.response.to.have.status(201));",
+                  "",
+                  "pm.collectionVariables.set('createdDeviceId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update a device",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/devices/{{createdDeviceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "devices",
+                "{{createdDeviceId}}"
+              ]
+            },
+            "description": "A status change is also written to the logbook.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"MAINTENANCE\",\n  \"firmwareVersion\": \"1.0.1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete a device",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/devices/{{createdDeviceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "devices",
+                "{{createdDeviceId}}"
+              ]
+            },
+            "description": "Only devices without tags."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Tags",
+      "item": [
+        {
+          "name": "List tags",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/tags?assetId=10000000-0000-4000-8000-000000000003&dataType=ANALOG",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tags"
+              ],
+              "query": [
+                {
+                  "key": "assetId",
+                  "value": "10000000-0000-4000-8000-000000000003"
+                },
+                {
+                  "key": "dataType",
+                  "value": "ANALOG"
+                },
+                {
+                  "key": "search",
+                  "value": "level",
+                  "disabled": true
+                },
+                {
+                  "key": "ids",
+                  "value": "30000000-0000-4000-8000-000000000015,30000000-0000-4000-8000-000000000004",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Datapoints with their latest value."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "console.log(body.items.length + ' of ' + body.total + ' tags');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get a tag",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/tags/30000000-0000-4000-8000-000000000015",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tags",
+                "30000000-0000-4000-8000-000000000015"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create a tag",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tags",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tags"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deviceId\": \"20000000-0000-4000-8000-000000000001\",\n  \"code\": \"{{newTagCode}}\",\n  \"name\": \"Postman test tag\",\n  \"unit\": \"%\",\n  \"dataType\": \"ANALOG\",\n  \"minValue\": 0,\n  \"maxValue\": 100\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('newTagCode', 'PM.' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201', () => pm.response.to.have.status(201));",
+                  "",
+                  "pm.collectionVariables.set('createdTagId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update a tag",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tags/{{createdTagId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tags",
+                "{{createdTagId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"logIntervalSeconds\": 30,\n  \"description\": \"Edited from Postman\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete a tag",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/tags/{{createdTagId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tags",
+                "{{createdTagId}}"
+              ]
+            },
+            "description": "Refused for tags with alarm rules or alarm history."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Telemetry",
+      "item": [
+        {
+          "name": "Time series",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/telemetry/series?tagIds=30000000-0000-4000-8000-000000000015,30000000-0000-4000-8000-000000000004&range=24h&interval=auto&aggregate=avg",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "telemetry",
+                "series"
+              ],
+              "query": [
+                {
+                  "key": "tagIds",
+                  "value": "30000000-0000-4000-8000-000000000015,30000000-0000-4000-8000-000000000004"
+                },
+                {
+                  "key": "range",
+                  "value": "24h"
+                },
+                {
+                  "key": "interval",
+                  "value": "auto"
+                },
+                {
+                  "key": "aggregate",
+                  "value": "avg"
+                },
+                {
+                  "key": "from",
+                  "value": "2026-09-01T00:00:00Z",
+                  "disabled": true
+                },
+                {
+                  "key": "to",
+                  "value": "2026-09-08T00:00:00Z",
+                  "disabled": true
+                },
+                {
+                  "key": "timeZone",
+                  "value": "Europe/Zagreb",
+                  "disabled": true,
+                  "description": "Where day buckets start"
+                }
+              ]
+            },
+            "description": "Bucketed and aggregated in the database; the response says which interval `auto` picked."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "console.log('interval ' + body.interval + ', ' + body.series.map((s) => s.points.length).join('/') + ' points');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Statistics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/telemetry/stats?tagIds=30000000-0000-4000-8000-000000000015,30000000-0000-4000-8000-000000000019&range=7d",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "telemetry",
+                "stats"
+              ],
+              "query": [
+                {
+                  "key": "tagIds",
+                  "value": "30000000-0000-4000-8000-000000000015,30000000-0000-4000-8000-000000000019"
+                },
+                {
+                  "key": "range",
+                  "value": "7d"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ingest readings",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/telemetry/measurements",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "telemetry",
+                "measurements"
+              ]
+            },
+            "description": "Admin only. Stores the reading, updates the tag’s latest value and evaluates alarm rules — the path real gateways (and the built-in simulator) use.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"measurements\": [\n    {\n      \"tagId\": \"30000000-0000-4000-8000-000000000003\",\n      \"value\": 260\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201', () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Alarm rules",
+      "item": [
+        {
+          "name": "List alarm rules",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/alarm-definitions?severity=CRITICAL,HIGH",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "alarm-definitions"
+              ],
+              "query": [
+                {
+                  "key": "severity",
+                  "value": "CRITICAL,HIGH"
+                },
+                {
+                  "key": "assetId",
+                  "value": "10000000-0000-4000-8000-000000000001",
+                  "disabled": true
+                },
+                {
+                  "key": "isEnabled",
+                  "value": "true",
+                  "disabled": true
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "console.log(body.items.length + ' of ' + body.total + ' rules');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get an alarm rule",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/alarm-definitions/40000000-0000-4000-8000-000000000001",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "alarm-definitions",
+                "40000000-0000-4000-8000-000000000001"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create an alarm rule",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/alarm-definitions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "alarm-definitions"
+              ]
+            },
+            "description": "The threshold is out of reach, so the rule never fires and can be deleted again.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tagId\": \"30000000-0000-4000-8000-000000000003\",\n  \"name\": \"Postman: impossible flow\",\n  \"condition\": \"ABOVE\",\n  \"threshold\": 100000,\n  \"deadband\": 10,\n  \"severity\": \"LOW\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201', () => pm.response.to.have.status(201));",
+                  "",
+                  "pm.collectionVariables.set('createdRuleId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update an alarm rule",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/alarm-definitions/{{createdRuleId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "alarm-definitions",
+                "{{createdRuleId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isEnabled\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete an alarm rule",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/alarm-definitions/{{createdRuleId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "alarm-definitions",
+                "{{createdRuleId}}"
+              ]
+            },
+            "description": "Only rules that never fired."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Alarms",
+      "description": "States: ACTIVE (present, unacknowledged), ACKNOWLEDGED (present, acknowledged), CLEARED (gone, unacknowledged), CLOSED (gone and acknowledged). **Acknowledge** and **Clear** change real alarms.",
+      "item": [
+        {
+          "name": "List alarms",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/alarms?state=ACTIVE,ACKNOWLEDGED,CLEARED",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "alarms"
+              ],
+              "query": [
+                {
+                  "key": "state",
+                  "value": "ACTIVE,ACKNOWLEDGED,CLEARED"
+                },
+                {
+                  "key": "range",
+                  "value": "7d",
+                  "disabled": true
+                },
+                {
+                  "key": "severity",
+                  "value": "CRITICAL,HIGH",
+                  "disabled": true
+                },
+                {
+                  "key": "assetId",
+                  "value": "10000000-0000-4000-8000-000000000001",
+                  "disabled": true
+                },
+                {
+                  "key": "acknowledged",
+                  "value": "false",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "level",
+                  "disabled": true
+                },
+                {
+                  "key": "sort",
+                  "value": "severity",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Open alarms. The first one is kept in `alarmId` for the requests below."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "console.log(body.items.length + ' of ' + body.total + ' alarms');",
+                  "if (body.items.length) pm.collectionVariables.set('alarmId', body.items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get an alarm",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/alarms/{{alarmId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "alarms",
+                "{{alarmId}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Acknowledge an alarm",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/alarms/{{alarmId}}/acknowledge",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "alarms",
+                "{{alarmId}}",
+                "acknowledge"
+              ]
+            },
+            "description": "409 when it is already acknowledged.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Seen from Postman\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 or 409', () => pm.expect([200, 409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Acknowledge several alarms",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/alarms/acknowledge",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "alarms",
+                "acknowledge"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ids\": [\n    \"{{alarmId}}\"\n  ],\n  \"note\": \"Bulk from Postman\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Clear an alarm by hand",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/alarms/{{alarmId}}/clear",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "alarms",
+                "{{alarmId}}",
+                "clear"
+              ]
+            },
+            "description": "Admin only. 409 when already cleared."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 or 409', () => pm.expect([200, 409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Logbook",
+      "item": [
+        {
+          "name": "List logbook entries",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/logbook?range=7d",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "logbook"
+              ],
+              "query": [
+                {
+                  "key": "range",
+                  "value": "7d"
+                },
+                {
+                  "key": "source",
+                  "value": "user",
+                  "disabled": true
+                },
+                {
+                  "key": "category",
+                  "value": "NOTE,SHIFT",
+                  "disabled": true
+                },
+                {
+                  "key": "assetId",
+                  "value": "10000000-0000-4000-8000-000000000003",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "pump",
+                  "disabled": true
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "console.log(body.items.length + ' of ' + body.total + ' entries');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "An alarm’s timeline",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/logbook?alarmId={{alarmId}}&sort=occurredAt",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "logbook"
+              ],
+              "query": [
+                {
+                  "key": "alarmId",
+                  "value": "{{alarmId}}"
+                },
+                {
+                  "key": "sort",
+                  "value": "occurredAt"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Write an entry",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/logbook",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "logbook"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"category\": \"NOTE\",\n  \"severity\": \"INFO\",\n  \"title\": \"Written from Postman\",\n  \"body\": \"Safe to delete.\",\n  \"assetId\": \"10000000-0000-4000-8000-000000000003\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201', () => pm.response.to.have.status(201));",
+                  "",
+                  "pm.collectionVariables.set('createdEntryId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get an entry",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/logbook/{{createdEntryId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "logbook",
+                "{{createdEntryId}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Edit an entry",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/logbook/{{createdEntryId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "logbook",
+                "{{createdEntryId}}"
+              ]
+            },
+            "description": "Only the author.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"severity\": \"WARNING\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete an entry",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/logbook/{{createdEntryId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "logbook",
+                "{{createdEntryId}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Audit log",
+      "item": [
+        {
+          "name": "List audit records",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/audit-logs?action=alarm.&range=7d",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "audit-logs"
+              ],
+              "query": [
+                {
+                  "key": "action",
+                  "value": "alarm.",
+                  "description": "Exact action or a prefix ending in \".\""
+                },
+                {
+                  "key": "range",
+                  "value": "7d"
+                },
+                {
+                  "key": "entityType",
+                  "value": "ASSET,DEVICE",
+                  "disabled": true
+                },
+                {
+                  "key": "actorId",
+                  "value": "{{userId}}",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Admin only."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "console.log(body.items.length + ' of ' + body.total + ' audit records');"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Shifts",
+      "item": [
+        {
+          "name": "List shift templates",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/shifts/templates",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "shifts",
+                "templates"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create a shift template",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/shifts/templates",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "shifts",
+                "templates"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{newTemplateName}}\",\n  \"startTime\": \"10:00\",\n  \"durationMinutes\": 240,\n  \"color\": \"#0ea5e9\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('newTemplateName', 'Postman ' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201', () => pm.response.to.have.status(201));",
+                  "",
+                  "pm.collectionVariables.set('createdTemplateId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List assignments (this week)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/shifts/assignments?from={{weekFrom}}&to={{weekTo}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "shifts",
+                "assignments"
+              ],
+              "query": [
+                {
+                  "key": "from",
+                  "value": "{{weekFrom}}"
+                },
+                {
+                  "key": "to",
+                  "value": "{{weekTo}}"
+                },
+                {
+                  "key": "userId",
+                  "value": "{{userId}}",
+                  "disabled": true
+                },
+                {
+                  "key": "role",
+                  "value": "SUPERVISOR,ON_CALL",
+                  "disabled": true
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const now = new Date();",
+                  "const monday = new Date(now); monday.setDate(now.getDate() - ((now.getDay() + 6) % 7)); monday.setHours(0, 0, 0, 0);",
+                  "pm.collectionVariables.set('weekFrom', monday.toISOString());",
+                  "pm.collectionVariables.set('weekTo', new Date(monday.getTime() + 7 * 864e5).toISOString());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "console.log(body.items.length + ' of ' + body.total + ' assignments');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Schedule someone (repeating)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/shifts/assignments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "shifts",
+                "assignments"
+              ]
+            },
+            "description": "Mondays, Wednesdays and Fridays for two weeks, well in the future so it never overlaps the seeded plan. All or nothing: any overlap is a 409.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"templateId\": \"{{createdTemplateId}}\",\n  \"userId\": \"{{userId}}\",\n  \"role\": \"OPERATOR\",\n  \"date\": \"{{shiftDate}}\",\n  \"timeZone\": \"Europe/Budapest\",\n  \"repeat\": {\n    \"until\": \"{{shiftUntil}}\",\n    \"weekdays\": [\n      1,\n      3,\n      5\n    ]\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// The signed-in user's id; set by Sign in, fetched here when the collection signed in on its own.",
+                  "if (!pm.collectionVariables.get('userId')) {",
+                  "  pm.sendRequest({ url: pm.variables.replaceIn('{{baseUrl}}/auth/me'), header: { Authorization: 'Bearer ' + pm.collectionVariables.get('accessToken') } }, (err, res) => {",
+                  "    if (!err) pm.collectionVariables.set('userId', res.json().id);",
+                  "  });",
+                  "}",
+                  "const start = new Date(Date.now() + (400 + Math.floor(Math.random() * 300)) * 864e5);",
+                  "pm.collectionVariables.set('shiftDate', start.toISOString().slice(0, 10));",
+                  "pm.collectionVariables.set('shiftUntil', new Date(start.getTime() + 13 * 864e5).toISOString().slice(0, 10));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201', () => pm.response.to.have.status(201));",
+                  "",
+                  "const items = pm.response.json().items;",
+                  "pm.collectionVariables.set('createdAssignmentId', items[0].id);",
+                  "pm.collectionVariables.set('createdAssignmentIds', JSON.stringify(items.map((item) => item.id)));",
+                  "console.log('Scheduled ' + items.length + ' shifts');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update an assignment",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/shifts/assignments/{{createdAssignmentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "shifts",
+                "assignments",
+                "{{createdAssignmentId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"SUPERVISOR\",\n  \"notes\": \"Covering from Postman\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Who is on duty",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/shifts/on-duty",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "shifts",
+                "on-duty"
+              ],
+              "query": [
+                {
+                  "key": "at",
+                  "value": "2026-09-21T12:00:00Z",
+                  "disabled": true
+                },
+                {
+                  "key": "role",
+                  "value": "SUPERVISOR,ON_CALL",
+                  "disabled": true
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Remove assignments",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/shifts/assignments/{{createdAssignmentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "shifts",
+                "assignments",
+                "{{createdAssignmentId}}"
+              ]
+            },
+            "description": "Removes the first scheduled shift; the test script removes the rest of the series so the template can be deleted."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204', () => pm.response.to.have.status(204));",
+                  "",
+                  "const rest = JSON.parse(pm.collectionVariables.get('createdAssignmentIds') || '[]').slice(1);",
+                  "rest.forEach((id) => pm.sendRequest({",
+                  "  url: pm.variables.replaceIn('{{baseUrl}}/shifts/assignments/') + id,",
+                  "  method: 'DELETE',",
+                  "  header: { Authorization: 'Bearer ' + pm.collectionVariables.get('accessToken') },",
+                  "}));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete a shift template",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/shifts/templates/{{createdTemplateId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "shifts",
+                "templates",
+                "{{createdTemplateId}}"
+              ]
+            },
+            "description": "Only templates with no assignments."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Analytics",
+      "item": [
+        {
+          "name": "Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/analytics/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "analytics",
+                "summary"
+              ],
+              "query": [
+                {
+                  "key": "assetId",
+                  "value": "10000000-0000-4000-8000-000000000001",
+                  "disabled": true
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Alarm trend",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/analytics/alarm-trend?range=7d&interval=day&timeZone=Europe/Zagreb",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "analytics",
+                "alarm-trend"
+              ],
+              "query": [
+                {
+                  "key": "range",
+                  "value": "7d"
+                },
+                {
+                  "key": "interval",
+                  "value": "day"
+                },
+                {
+                  "key": "timeZone",
+                  "value": "Europe/Zagreb"
+                },
+                {
+                  "key": "severity",
+                  "value": "CRITICAL,HIGH",
+                  "disabled": true
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Most frequent alarms",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/analytics/top-alarms?range=30d&groupBy=definition&limit=5",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "analytics",
+                "top-alarms"
+              ],
+              "query": [
+                {
+                  "key": "range",
+                  "value": "30d"
+                },
+                {
+                  "key": "groupBy",
+                  "value": "definition"
+                },
+                {
+                  "key": "limit",
+                  "value": "5"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Dashboards",
+      "description": "Each widget’s `config` is the query of the page it previews — `ALARM_TABLE` takes the `/alarms` filters, `TIME_SERIES` the `/telemetry/series` ones.",
+      "item": [
+        {
+          "name": "List dashboards",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/dashboards?scope=all",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboards"
+              ],
+              "query": [
+                {
+                  "key": "scope",
+                  "value": "all"
+                },
+                {
+                  "key": "search",
+                  "value": "overview",
+                  "disabled": true
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get a dashboard",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/dashboards/60000000-0000-4000-8000-000000000001",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboards",
+                "60000000-0000-4000-8000-000000000001"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create a dashboard",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/dashboards",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboards"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"From Postman\",\n  \"template\": \"operations\",\n  \"isShared\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201', () => pm.response.to.have.status(201));",
+                  "",
+                  "pm.collectionVariables.set('createdDashboardId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Rename or share",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/dashboards/{{createdDashboardId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboards",
+                "{{createdDashboardId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"From Postman (shared)\",\n  \"isShared\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Add a widget",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/dashboards/{{createdDashboardId}}/widgets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboards",
+                "{{createdDashboardId}}",
+                "widgets"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"ALARM_TABLE\",\n  \"title\": \"Critical alarms, last week\",\n  \"config\": {\n    \"severity\": [\n      \"CRITICAL\"\n    ],\n    \"range\": \"7d\",\n    \"pageSize\": 8\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201', () => pm.response.to.have.status(201));",
+                  "",
+                  "pm.collectionVariables.set('createdWidgetId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update a widget",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/dashboards/{{createdDashboardId}}/widgets/{{createdWidgetId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboards",
+                "{{createdDashboardId}}",
+                "widgets",
+                "{{createdWidgetId}}"
+              ]
+            },
+            "description": "The config is validated against the widget’s type.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"config\": {\n    \"severity\": [\n      \"CRITICAL\",\n      \"HIGH\"\n    ],\n    \"range\": \"30d\",\n    \"pageSize\": 10\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Arrange widgets",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/dashboards/{{createdDashboardId}}/layout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboards",
+                "{{createdDashboardId}}",
+                "layout"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"widgets\": [\n    {\n      \"id\": \"{{createdWidgetId}}\",\n      \"position\": 0,\n      \"width\": 12,\n      \"height\": 3\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Remove a widget",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/dashboards/{{createdDashboardId}}/widgets/{{createdWidgetId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboards",
+                "{{createdDashboardId}}",
+                "widgets",
+                "{{createdWidgetId}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete a dashboard",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/dashboards/{{createdDashboardId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboards",
+                "{{createdDashboardId}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -679,6 +3146,101 @@
     },
     {
       "key": "newUserEmail",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "newAssetCode",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "createdAssetId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "newSerial",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "createdDeviceId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "newTagCode",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "createdTagId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "createdRuleId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "alarmId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "createdEntryId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "newTemplateName",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "createdTemplateId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "weekFrom",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "weekTo",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "shiftDate",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "shiftUntil",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "createdAssignmentId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "createdAssignmentIds",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "createdDashboardId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "createdWidgetId",
       "value": "",
       "type": "string"
     }

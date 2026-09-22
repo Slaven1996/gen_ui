@@ -1,0 +1,213 @@
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import type {
+  CreateLogbookEntryDto,
+  ListLogbookQuery,
+  LogbookCategory,
+  LogbookEntry,
+  LogSeverity,
+  Paginated,
+  UpdateLogbookEntryDto,
+} from '@gen-ui/shared';
+import type { Prisma } from '../generated/prisma/client.js';
+import { assetRefSelect } from '../assets/asset.mapper.js';
+import { diff, AuditService } from '../audit/audit.service.js';
+import { insensitive, iso, orderBy, pageArgs, timeWindow, toPaginated, withinAsset } from '../common/list-query.js';
+import { PrismaService } from '../prisma/prisma.service.js';
+import type { Db } from '../prisma/transaction.js';
+import { UnitOfWork } from '../prisma/unit-of-work.service.js';
+import type { AuthUser } from '../users/user.mapper.js';
+
+const entrySelect = {
+  id: true,
+  category: true,
+  severity: true,
+  title: true,
+  body: true,
+  occurredAt: true,
+  alarmId: true,
+  authorId: true,
+  createdAt: true,
+  updatedAt: true,
+  asset: { select: assetRefSelect },
+  author: { select: { id: true, name: true } },
+} as const satisfies Prisma.LogbookEntrySelect;
+
+type EntryRecord = Prisma.LogbookEntryGetPayload<{ select: typeof entrySelect }>;
+
+const toEntry = (row: EntryRecord): LogbookEntry => ({
+  id: row.id,
+  category: row.category,
+  severity: row.severity,
+  title: row.title,
+  body: row.body,
+  occurredAt: iso(row.occurredAt),
+  asset: row.asset,
+  alarmId: row.alarmId,
+  author: row.author,
+  createdAt: iso(row.createdAt),
+  updatedAt: iso(row.updatedAt),
+});
+
+/** What the system writes: alarm transitions, device status changes. */
+export interface SystemEvent {
+  category: LogbookCategory;
+  severity: LogSeverity;
+  title: string;
+  body?: string | null;
+  assetId?: string | null;
+  alarmId?: string | null;
+  occurredAt?: Date;
+}
+
+@Injectable()
+export class LogbookService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly uow: UnitOfWork,
+    private readonly audit: AuditService,
+  ) {}
+
+  async list(query: ListLogbookQuery): Promise<Paginated<LogbookEntry>> {
+    const window = timeWindow(query);
+    const where: Prisma.LogbookEntryWhereInput = {
+      ...(query.search && { OR: [{ title: insensitive(query.search) }, { body: insensitive(query.search) }] }),
+      ...(query.category && { category: { in: query.category } }),
+      ...(query.severity && { severity: { in: query.severity } }),
+      ...(query.source === 'user' && { authorId: { not: null } }),
+      ...(query.source === 'system' && { authorId: null }),
+      ...(query.assetId && { asset: withinAsset(query.assetId) }),
+      ...(query.alarmId && { alarmId: query.alarmId }),
+      ...(query.authorId && { authorId: { in: query.authorId } }),
+      ...(window && { occurredAt: window }),
+    };
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.logbookEntry.findMany({
+        where,
+        select: entrySelect,
+        orderBy: orderBy(query.sort, {
+          occurredAt: (direction) => ({ occurredAt: direction }),
+          severity: (direction) => ({ severity: direction }),
+          category: (direction) => ({ category: direction }),
+        }),
+        ...pageArgs(query),
+      }),
+      this.prisma.logbookEntry.count({ where }),
+    ]);
+    return toPaginated(rows.map(toEntry), total, query);
+  }
+
+  async get(id: string): Promise<LogbookEntry> {
+    const row = await this.prisma.logbookEntry.findUnique({ where: { id }, select: entrySelect });
+    if (!row) throw new NotFoundException('Logbook entry not found');
+    return toEntry(row);
+  }
+
+  async create(dto: CreateLogbookEntryDto, actor: AuthUser): Promise<LogbookEntry> {
+    let assetId = dto.assetId;
+    if (dto.alarmId) {
+      const alarm = await this.prisma.alarm.findUnique({ where: { id: dto.alarmId }, select: { assetId: true } });
+      if (!alarm) throw new BadRequestException('Alarm not found');
+      assetId ??= alarm.assetId;
+    }
+    if (assetId && !(await this.prisma.asset.count({ where: { id: assetId } }))) {
+      throw new BadRequestException('Asset not found');
+    }
+
+    const row = await this.uow.run(async (tx) => {
+      const entry = await tx.logbookEntry.create({
+        data: {
+          category: dto.category,
+          severity: dto.severity,
+          title: dto.title,
+          body: dto.body,
+          occurredAt: dto.occurredAt ? new Date(dto.occurredAt) : new Date(),
+          assetId,
+          alarmId: dto.alarmId,
+          authorId: actor.id,
+        },
+        select: entrySelect,
+      });
+      await this.audit.record(
+        {
+          actorId: actor.id,
+          action: 'logbook.create',
+          entityType: 'LOGBOOK_ENTRY',
+          entityId: entry.id,
+          summary: `Wrote ${dto.category.toLowerCase()} “${dto.title}”`,
+        },
+        tx,
+      );
+      return entry;
+    });
+    return toEntry(row);
+  }
+
+  async update(id: string, dto: UpdateLogbookEntryDto, actor: AuthUser): Promise<LogbookEntry> {
+    const current = await this.prisma.logbookEntry.findUnique({ where: { id } });
+    if (!current) throw new NotFoundException('Logbook entry not found');
+    if (current.authorId !== actor.id) throw new ForbiddenException('Only the author can edit an entry');
+    if (dto.assetId && !(await this.prisma.asset.count({ where: { id: dto.assetId } }))) {
+      throw new BadRequestException('Asset not found');
+    }
+
+    const { occurredAt, ...fields } = dto;
+    const row = await this.uow.run(async (tx) => {
+      const entry = await tx.logbookEntry.update({
+        where: { id },
+        data: { ...fields, ...(occurredAt && { occurredAt: new Date(occurredAt) }) },
+        select: entrySelect,
+      });
+      await this.audit.record(
+        {
+          actorId: actor.id,
+          action: 'logbook.update',
+          entityType: 'LOGBOOK_ENTRY',
+          entityId: id,
+          summary: `Edited logbook entry “${entry.title}”`,
+          changes: diff(current, dto),
+        },
+        tx,
+      );
+      return entry;
+    });
+    return toEntry(row);
+  }
+
+  async remove(id: string, actor: AuthUser): Promise<void> {
+    const entry = await this.prisma.logbookEntry.findUnique({ where: { id } });
+    if (!entry) throw new NotFoundException('Logbook entry not found');
+    if (entry.authorId === null) throw new ForbiddenException('System events cannot be deleted');
+    if (entry.authorId !== actor.id && actor.role !== 'ADMIN') {
+      throw new ForbiddenException('Only the author or an admin can delete an entry');
+    }
+
+    await this.uow.run(async (tx) => {
+      await tx.logbookEntry.delete({ where: { id } });
+      await this.audit.record(
+        {
+          actorId: actor.id,
+          action: 'logbook.delete',
+          entityType: 'LOGBOOK_ENTRY',
+          entityId: id,
+          summary: `Deleted logbook entry “${entry.title}”`,
+        },
+        tx,
+      );
+    });
+  }
+
+  /** Called by other modules, inside their own transaction. */
+  async recordEvent(event: SystemEvent, db: Db = this.prisma): Promise<void> {
+    await db.logbookEntry.create({
+      data: {
+        category: event.category,
+        severity: event.severity,
+        title: event.title,
+        body: event.body ?? null,
+        assetId: event.assetId ?? null,
+        alarmId: event.alarmId ?? null,
+        occurredAt: event.occurredAt ?? new Date(),
+      },
+    });
+  }
+}

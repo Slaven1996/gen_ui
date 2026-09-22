@@ -12,10 +12,21 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as AuthenticatedAlarmRulesRouteImport } from './routes/_authenticated/alarm-rules'
+import { Route as AuthenticatedAlarmsRouteImport } from './routes/_authenticated/alarms'
+import { Route as AuthenticatedAnalyticsRouteImport } from './routes/_authenticated/analytics'
 import { Route as AuthenticatedAssistantRouteImport } from './routes/_authenticated/assistant'
+import { Route as AuthenticatedAuditRouteImport } from './routes/_authenticated/audit'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
+import { Route as AuthenticatedDevicesRouteImport } from './routes/_authenticated/devices'
+import { Route as AuthenticatedGraphsRouteImport } from './routes/_authenticated/graphs'
+import { Route as AuthenticatedLogbookRouteImport } from './routes/_authenticated/logbook'
 import { Route as AuthenticatedProfileRouteImport } from './routes/_authenticated/profile'
+import { Route as AuthenticatedShiftsRouteImport } from './routes/_authenticated/shifts'
+import { Route as AuthenticatedTagsRouteImport } from './routes/_authenticated/tags'
 import { Route as AuthenticatedUsersRouteImport } from './routes/_authenticated/users'
+import { Route as AuthenticatedAssetsIndexRouteImport } from './routes/_authenticated/assets.index'
+import { Route as AuthenticatedAssetsAssetIdRouteImport } from './routes/_authenticated/assets.$assetId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -31,9 +42,29 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedAlarmRulesRoute = AuthenticatedAlarmRulesRouteImport.update({
+  id: '/alarm-rules',
+  path: '/alarm-rules',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedAlarmsRoute = AuthenticatedAlarmsRouteImport.update({
+  id: '/alarms',
+  path: '/alarms',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedAnalyticsRoute = AuthenticatedAnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedAssistantRoute = AuthenticatedAssistantRouteImport.update({
   id: '/assistant',
   path: '/assistant',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedAuditRoute = AuthenticatedAuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
@@ -41,9 +72,34 @@ const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedDevicesRoute = AuthenticatedDevicesRouteImport.update({
+  id: '/devices',
+  path: '/devices',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedGraphsRoute = AuthenticatedGraphsRouteImport.update({
+  id: '/graphs',
+  path: '/graphs',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedLogbookRoute = AuthenticatedLogbookRouteImport.update({
+  id: '/logbook',
+  path: '/logbook',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedProfileRoute = AuthenticatedProfileRouteImport.update({
   id: '/profile',
   path: '/profile',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedShiftsRoute = AuthenticatedShiftsRouteImport.update({
+  id: '/shifts',
+  path: '/shifts',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedTagsRoute = AuthenticatedTagsRouteImport.update({
+  id: '/tags',
+  path: '/tags',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedUsersRoute = AuthenticatedUsersRouteImport.update({
@@ -51,48 +107,137 @@ const AuthenticatedUsersRoute = AuthenticatedUsersRouteImport.update({
   path: '/users',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedAssetsIndexRoute =
+  AuthenticatedAssetsIndexRouteImport.update({
+    id: '/assets/',
+    path: '/assets/',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedAssetsAssetIdRoute =
+  AuthenticatedAssetsAssetIdRouteImport.update({
+    id: '/assets/$assetId',
+    path: '/assets/$assetId',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/alarm-rules': typeof AuthenticatedAlarmRulesRoute
+  '/alarms': typeof AuthenticatedAlarmsRoute
+  '/analytics': typeof AuthenticatedAnalyticsRoute
   '/assistant': typeof AuthenticatedAssistantRoute
+  '/audit': typeof AuthenticatedAuditRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/devices': typeof AuthenticatedDevicesRoute
+  '/graphs': typeof AuthenticatedGraphsRoute
+  '/logbook': typeof AuthenticatedLogbookRoute
   '/profile': typeof AuthenticatedProfileRoute
+  '/shifts': typeof AuthenticatedShiftsRoute
+  '/tags': typeof AuthenticatedTagsRoute
   '/users': typeof AuthenticatedUsersRoute
+  '/assets/$assetId': typeof AuthenticatedAssetsAssetIdRoute
+  '/assets/': typeof AuthenticatedAssetsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/alarm-rules': typeof AuthenticatedAlarmRulesRoute
+  '/alarms': typeof AuthenticatedAlarmsRoute
+  '/analytics': typeof AuthenticatedAnalyticsRoute
   '/assistant': typeof AuthenticatedAssistantRoute
+  '/audit': typeof AuthenticatedAuditRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/devices': typeof AuthenticatedDevicesRoute
+  '/graphs': typeof AuthenticatedGraphsRoute
+  '/logbook': typeof AuthenticatedLogbookRoute
   '/profile': typeof AuthenticatedProfileRoute
+  '/shifts': typeof AuthenticatedShiftsRoute
+  '/tags': typeof AuthenticatedTagsRoute
   '/users': typeof AuthenticatedUsersRoute
+  '/assets/$assetId': typeof AuthenticatedAssetsAssetIdRoute
+  '/assets': typeof AuthenticatedAssetsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/login': typeof LoginRoute
+  '/_authenticated/alarm-rules': typeof AuthenticatedAlarmRulesRoute
+  '/_authenticated/alarms': typeof AuthenticatedAlarmsRoute
+  '/_authenticated/analytics': typeof AuthenticatedAnalyticsRoute
   '/_authenticated/assistant': typeof AuthenticatedAssistantRoute
+  '/_authenticated/audit': typeof AuthenticatedAuditRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/_authenticated/devices': typeof AuthenticatedDevicesRoute
+  '/_authenticated/graphs': typeof AuthenticatedGraphsRoute
+  '/_authenticated/logbook': typeof AuthenticatedLogbookRoute
   '/_authenticated/profile': typeof AuthenticatedProfileRoute
+  '/_authenticated/shifts': typeof AuthenticatedShiftsRoute
+  '/_authenticated/tags': typeof AuthenticatedTagsRoute
   '/_authenticated/users': typeof AuthenticatedUsersRoute
+  '/_authenticated/assets/$assetId': typeof AuthenticatedAssetsAssetIdRoute
+  '/_authenticated/assets/': typeof AuthenticatedAssetsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/login' | '/assistant' | '/dashboard' | '/profile' | '/users'
+    | '/'
+    | '/login'
+    | '/alarm-rules'
+    | '/alarms'
+    | '/analytics'
+    | '/assistant'
+    | '/audit'
+    | '/dashboard'
+    | '/devices'
+    | '/graphs'
+    | '/logbook'
+    | '/profile'
+    | '/shifts'
+    | '/tags'
+    | '/users'
+    | '/assets/$assetId'
+    | '/assets/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/assistant' | '/dashboard' | '/profile' | '/users'
+  to:
+    | '/'
+    | '/login'
+    | '/alarm-rules'
+    | '/alarms'
+    | '/analytics'
+    | '/assistant'
+    | '/audit'
+    | '/dashboard'
+    | '/devices'
+    | '/graphs'
+    | '/logbook'
+    | '/profile'
+    | '/shifts'
+    | '/tags'
+    | '/users'
+    | '/assets/$assetId'
+    | '/assets'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
     | '/login'
+    | '/_authenticated/alarm-rules'
+    | '/_authenticated/alarms'
+    | '/_authenticated/analytics'
     | '/_authenticated/assistant'
+    | '/_authenticated/audit'
     | '/_authenticated/dashboard'
+    | '/_authenticated/devices'
+    | '/_authenticated/graphs'
+    | '/_authenticated/logbook'
     | '/_authenticated/profile'
+    | '/_authenticated/shifts'
+    | '/_authenticated/tags'
     | '/_authenticated/users'
+    | '/_authenticated/assets/$assetId'
+    | '/_authenticated/assets/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -124,11 +269,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/alarm-rules': {
+      id: '/_authenticated/alarm-rules'
+      path: '/alarm-rules'
+      fullPath: '/alarm-rules'
+      preLoaderRoute: typeof AuthenticatedAlarmRulesRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/alarms': {
+      id: '/_authenticated/alarms'
+      path: '/alarms'
+      fullPath: '/alarms'
+      preLoaderRoute: typeof AuthenticatedAlarmsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/analytics': {
+      id: '/_authenticated/analytics'
+      path: '/analytics'
+      fullPath: '/analytics'
+      preLoaderRoute: typeof AuthenticatedAnalyticsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/assistant': {
       id: '/_authenticated/assistant'
       path: '/assistant'
       fullPath: '/assistant'
       preLoaderRoute: typeof AuthenticatedAssistantRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/audit': {
+      id: '/_authenticated/audit'
+      path: '/audit'
+      fullPath: '/audit'
+      preLoaderRoute: typeof AuthenticatedAuditRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/dashboard': {
@@ -138,11 +311,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDashboardRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/devices': {
+      id: '/_authenticated/devices'
+      path: '/devices'
+      fullPath: '/devices'
+      preLoaderRoute: typeof AuthenticatedDevicesRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/graphs': {
+      id: '/_authenticated/graphs'
+      path: '/graphs'
+      fullPath: '/graphs'
+      preLoaderRoute: typeof AuthenticatedGraphsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/logbook': {
+      id: '/_authenticated/logbook'
+      path: '/logbook'
+      fullPath: '/logbook'
+      preLoaderRoute: typeof AuthenticatedLogbookRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/profile': {
       id: '/_authenticated/profile'
       path: '/profile'
       fullPath: '/profile'
       preLoaderRoute: typeof AuthenticatedProfileRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/shifts': {
+      id: '/_authenticated/shifts'
+      path: '/shifts'
+      fullPath: '/shifts'
+      preLoaderRoute: typeof AuthenticatedShiftsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/tags': {
+      id: '/_authenticated/tags'
+      path: '/tags'
+      fullPath: '/tags'
+      preLoaderRoute: typeof AuthenticatedTagsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/users': {
@@ -152,21 +360,57 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedUsersRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/assets/': {
+      id: '/_authenticated/assets/'
+      path: '/assets'
+      fullPath: '/assets/'
+      preLoaderRoute: typeof AuthenticatedAssetsIndexRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/assets/$assetId': {
+      id: '/_authenticated/assets/$assetId'
+      path: '/assets/$assetId'
+      fullPath: '/assets/$assetId'
+      preLoaderRoute: typeof AuthenticatedAssetsAssetIdRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
   }
 }
 
 interface AuthenticatedRouteChildren {
+  AuthenticatedAlarmRulesRoute: typeof AuthenticatedAlarmRulesRoute
+  AuthenticatedAlarmsRoute: typeof AuthenticatedAlarmsRoute
+  AuthenticatedAnalyticsRoute: typeof AuthenticatedAnalyticsRoute
   AuthenticatedAssistantRoute: typeof AuthenticatedAssistantRoute
+  AuthenticatedAuditRoute: typeof AuthenticatedAuditRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
+  AuthenticatedDevicesRoute: typeof AuthenticatedDevicesRoute
+  AuthenticatedGraphsRoute: typeof AuthenticatedGraphsRoute
+  AuthenticatedLogbookRoute: typeof AuthenticatedLogbookRoute
   AuthenticatedProfileRoute: typeof AuthenticatedProfileRoute
+  AuthenticatedShiftsRoute: typeof AuthenticatedShiftsRoute
+  AuthenticatedTagsRoute: typeof AuthenticatedTagsRoute
   AuthenticatedUsersRoute: typeof AuthenticatedUsersRoute
+  AuthenticatedAssetsAssetIdRoute: typeof AuthenticatedAssetsAssetIdRoute
+  AuthenticatedAssetsIndexRoute: typeof AuthenticatedAssetsIndexRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
+  AuthenticatedAlarmRulesRoute: AuthenticatedAlarmRulesRoute,
+  AuthenticatedAlarmsRoute: AuthenticatedAlarmsRoute,
+  AuthenticatedAnalyticsRoute: AuthenticatedAnalyticsRoute,
   AuthenticatedAssistantRoute: AuthenticatedAssistantRoute,
+  AuthenticatedAuditRoute: AuthenticatedAuditRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
+  AuthenticatedDevicesRoute: AuthenticatedDevicesRoute,
+  AuthenticatedGraphsRoute: AuthenticatedGraphsRoute,
+  AuthenticatedLogbookRoute: AuthenticatedLogbookRoute,
   AuthenticatedProfileRoute: AuthenticatedProfileRoute,
+  AuthenticatedShiftsRoute: AuthenticatedShiftsRoute,
+  AuthenticatedTagsRoute: AuthenticatedTagsRoute,
   AuthenticatedUsersRoute: AuthenticatedUsersRoute,
+  AuthenticatedAssetsAssetIdRoute: AuthenticatedAssetsAssetIdRoute,
+  AuthenticatedAssetsIndexRoute: AuthenticatedAssetsIndexRoute,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(

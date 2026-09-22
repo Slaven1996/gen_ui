@@ -62,6 +62,14 @@ export class UsersRepository {
     return { items, total };
   }
 
+  listOptions(): Promise<Array<{ id: string; name: string }>> {
+    return this.prisma.user.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+  }
+
   create(data: { email: string; name: string; passwordHash: string; role: Role }): Promise<UserRecord> {
     return this.prisma.user.create({
       data: { ...data, email: data.email.toLowerCase() },

@@ -2,6 +2,7 @@ import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import { authStore } from '../auth/auth-store';
 import { refreshSession } from '../auth/refresh';
 import { tokenStore } from '../auth/token-store';
+import { serializeQuery } from '../search';
 import { API_BASE_URL } from './config';
 
 declare module 'axios' {
@@ -18,6 +19,8 @@ export const http = axios.create({
   baseURL: API_BASE_URL,
   // Only matters for split-origin deployments; same-origin requests send cookies anyway.
   withCredentials: true,
+  // `state=ACTIVE,CLEARED` rather than axios' default `state[]=…`, matching the API and the URLs.
+  paramsSerializer: { serialize: (params) => serializeQuery(params) },
 });
 
 http.interceptors.request.use(async (config) => {

@@ -22,6 +22,16 @@ so \`refresh\` and \`logout\` work without any extra setup.
 The seeded demo accounts all use the password \`Password123!\` — start with
 \`admin@example.com\`, which is the only role that may reach \`/${API_PREFIX}/users\`.
 
+### Lists
+
+Every list endpoint takes the same kind of query: \`page\` and \`pageSize\`,
+\`sort\` (one field, \`-\` prefix for descending, e.g. \`sort=-raisedAt\`),
+comma-separated multi-value filters (\`state=ACTIVE,ACKNOWLEDGED\`), a time
+window as \`range=24h\` (relative to now) or \`from\`/\`to\` (ISO 8601), and
+\`search\`. \`assetId\` filters include everything below that asset. The web
+app uses exactly these parameters in its own URLs, so a page URL can be
+turned into an API call by swapping the path.
+
 ### Errors
 
 Every failure comes back in one envelope: \`statusCode\`, \`message\`,
@@ -51,6 +61,17 @@ export function setupSwagger(app: INestApplication): void {
       .addTag('Auth', 'Signing in, rotating tokens, signing out')
       .addTag('Profile', 'The signed-in user’s own account')
       .addTag('Users', 'Admin-only user directory')
+      .addTag('Assets', 'The asset tree: regions, sites, areas, equipment')
+      .addTag('Devices', 'RTUs, PLCs and sensors installed on assets')
+      .addTag('Tags', 'Datapoints the devices report, with their latest value')
+      .addTag('Telemetry', 'Time series, statistics and ingestion')
+      .addTag('Alarms', 'The alarm console: list, acknowledge, clear')
+      .addTag('Alarm rules', 'Threshold rules evaluated on every reading')
+      .addTag('Logbook', 'Operator notes and system events')
+      .addTag('Audit log', 'Admin-only trail of who changed what')
+      .addTag('Shifts', 'Shift templates, schedules and who is on duty')
+      .addTag('Analytics', 'KPIs, alarm trends and frequent alarms')
+      .addTag('Dashboards', 'Customizable dashboards and their widgets')
       .addTag('Assistant', 'The Generative UI chat endpoint')
       .addTag('Health', 'Liveness and readiness probes')
       .build(),

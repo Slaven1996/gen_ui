@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { PublicUserSchema, RoleSchema } from './auth.js';
+import { itemsSchema, paginatedSchema, UserRefSchema } from './common/query.js';
 
 export const PASSWORD_MIN_LENGTH = 12;
 
@@ -43,22 +44,9 @@ export const ListUsersQuerySchema = z.object({
 export type ListUsersQueryInput = z.input<typeof ListUsersQuerySchema>;
 export type ListUsersQuery = z.output<typeof ListUsersQuerySchema>;
 
-export interface Paginated<T> {
-  items: T[];
-  total: number;
-  page: number;
-  pageSize: number;
-}
-
-/** The envelope every list endpoint returns, around whichever item schema. */
-export const paginatedSchema = <T extends z.ZodType>(item: T) =>
-  z.object({
-    items: z.array(item),
-    total: z.int().describe('Rows matching the filter, across every page.'),
-    page: z.int(),
-    pageSize: z.int(),
-  });
-
 export const PaginatedUsersSchema = paginatedSchema(PublicUserSchema).meta({
   id: 'PaginatedUsers',
 });
+
+/** Active users as pickers need them (shift planning, logbook filters) — open to every role. */
+export const UserOptionsSchema = itemsSchema(UserRefSchema).meta({ id: 'UserOptions' });
