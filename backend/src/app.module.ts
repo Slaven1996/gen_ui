@@ -1,25 +1,25 @@
 import { Module, StandardSchemaValidationPipe } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_PIPE } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
-import { AiModule } from './ai/ai.module.js';
-import { AlarmsModule } from './alarms/alarms.module.js';
-import { AnalyticsModule } from './analytics/analytics.module.js';
-import { AssetsModule } from './assets/assets.module.js';
-import { AuditModule } from './audit/audit.module.js';
-import { AuthModule } from './auth/auth.module.js';
-import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
-import { RolesGuard } from './auth/roles.guard.js';
 import { AllExceptionsFilter } from './common/all-exceptions.filter.js';
 import { AppConfigModule } from './config/app-config.module.js';
-import { DashboardsModule } from './dashboards/dashboards.module.js';
-import { HealthController } from './health/health.controller.js';
-import { LogbookModule } from './logbook/logbook.module.js';
+import { AiModule } from './features/ai/ai.module.js';
+import { AlarmsModule } from './features/alarms/alarms.module.js';
+import { AnalyticsModule } from './features/analytics/analytics.module.js';
+import { AssetsModule } from './features/assets/assets.module.js';
+import { AuditModule } from './features/audit/audit.module.js';
+import { AuthModule } from './features/auth/auth.module.js';
+import { JwtAuthGuard } from './features/auth/jwt-auth.guard.js';
+import { RolesGuard } from './features/auth/roles.guard.js';
+import { DashboardsModule } from './features/dashboards/dashboards.module.js';
+import { HealthController } from './features/health/health.controller.js';
+import { LogbookModule } from './features/logbook/logbook.module.js';
+import { ProfileModule } from './features/profile/profile.module.js';
+import { ShiftsModule } from './features/shifts/shifts.module.js';
+import { TelemetryModule } from './features/telemetry/telemetry.module.js';
+import { UsersModule } from './features/users/users.module.js';
 import { PrismaExceptionFilter } from './prisma/prisma-exception.filter.js';
 import { PrismaModule } from './prisma/prisma.module.js';
-import { ProfileModule } from './profile/profile.module.js';
-import { ShiftsModule } from './shifts/shifts.module.js';
-import { TelemetryModule } from './telemetry/telemetry.module.js';
-import { UsersModule } from './users/users.module.js';
 
 @Module({
   imports: [

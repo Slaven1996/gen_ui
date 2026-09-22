@@ -89,6 +89,10 @@ The app monitors a small water utility (the seed data): a tree of **assets** (re
 
 Admins configure (assets, devices, tags, rules, shift plans); everyone can acknowledge alarms, write in the logbook and build dashboards. The full database is drawn in [`docs/database-erd.drawio`](docs/database-erd.drawio) — open it in [diagrams.net](https://app.diagrams.net) or the VS Code *Draw.io Integration* extension.
 
+### Where the code lives
+
+Each module is a folder on both sides. `backend/src/features/<module>` holds its Nest module, controllers and services; `frontend/src/features/<module>` holds its tables, charts and dialogs, and the page that assembles them lives in `frontend/src/routes/_authenticated`. What every module shares stays at the root of `backend/src`: `common` (list-query helpers, decorators, the exception filter), `config`, `docs` and `prisma`.
+
 ### One query, three uses
 
 Every list endpoint takes the same kind of query — `page`/`pageSize`, `sort=field` or `sort=-field`, comma-separated multi-value filters, a time window as `range=24h` (relative, so links stay live) or `from`/`to`, `search`, and `assetId` meaning "this asset and everything below it". Each is **one Zod schema in `@gen-ui/shared`**, used by:
@@ -159,14 +163,14 @@ A few rules Prisma cannot express live in the migration as `CHECK` constraints (
 
 - **Access token**: a short-lived JWT (15 min by default) returned in the JSON body and kept **only in memory** (`frontend/src/lib/auth/token-store.ts`). It never touches Web Storage.
 - **Refresh token**: an opaque random value in an `httpOnly`, `SameSite=Strict` cookie scoped to `/api/auth`. Only its SHA-256 hash is stored.
-- **Rotation and reuse detection**: every refresh replaces the token. Replaying an old one outside a 10 s grace window revokes the whole login's token family (`backend/src/sessions/refresh-token.service.ts`).
+- **Rotation and reuse detection**: every refresh replaces the token. Replaying an old one outside a 10 s grace window revokes the whole login's token family (`backend/src/features/sessions/refresh-token.service.ts`).
 - **Silent refresh**: when the page loads, the app first tries `POST /auth/refresh`. The axios interceptor refreshes once and retries on a 401; concurrent requests share one refresh.
 - **Multiple tabs**: a Web Lock lets only one tab refresh at a time, and a `BroadcastChannel` shares the new token and logouts with the other tabs.
 - **Roles**: every route requires a valid token unless it's marked `@Public()`. `@Roles(['ADMIN'])` restricts access by role. There is no public sign-up; admins manage users at `/users`.
 
 ### Your own account
 
-`/profile` (also in the user menu) lets any signed-in user change their display name and password, backed by `/api/profile` (`backend/src/profile`).
+`/profile` (also in the user menu) lets any signed-in user change their display name and password, backed by `/api/profile` (`backend/src/features/profile`).
 
 Changing a password verifies the current one, then writes the new hash and revokes every refresh token for that account **in one transaction**. The tab that made the change is issued a fresh token pair, so it stays signed in while every other device is signed out.
 
@@ -174,12 +178,12 @@ Email is not editable: it is the sign-in identifier, and changing it safely need
 
 ## Generative UI
 
-1. The backend calls `streamText` with Zod-typed tools and pipes an AI SDK UI message stream (SSE) back to the client (`backend/src/ai`).
+1. The backend calls `streamText` with Zod-typed tools and pipes an AI SDK UI message stream (SSE) back to the client (`backend/src/features/ai`).
 2. The frontend's `useChat` receives typed tool parts. `features/assistant/genui/registry.tsx` maps each tool name to a component, which renders according to the part's state (`input-streaming` → skeleton or progressive render, `output-available` → the component, `output-error` → an alert).
 
 To add a component:
 1. Add its schema to `genUiToolSchemas` in `packages/shared/src/genui/tools.ts`.
-2. Implement the tool in `backend/src/ai/tools` and add it to `GenUiToolsFactory`.
+2. Implement the tool in `backend/src/features/ai/tools` and add it to `GenUiToolsFactory`.
 3. Register a renderer in `registry.tsx`.
 
 TypeScript fails the build if the backend tools and the shared contract drift apart, or if a tool has no renderer.
