@@ -1,6 +1,13 @@
 import { z } from 'zod';
 import { PublicUserSchema, RoleSchema } from './auth.js';
-import { itemsSchema, paginatedSchema, UserRefSchema } from './common/query.js';
+import {
+  itemsSchema,
+  pageParams,
+  paginatedSchema,
+  queryBoolean,
+  searchParam,
+  UserRefSchema,
+} from './common/query.js';
 
 export const PASSWORD_MIN_LENGTH = 12;
 
@@ -32,14 +39,10 @@ export type UpdateUserDto = z.output<typeof UpdateUserSchema>;
  * query parameter per property while it can still see those properties.
  */
 export const ListUsersQuerySchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).default(20),
-  search: z.string().trim().max(100).optional(),
+  ...pageParams(),
+  search: searchParam('email or name'),
   role: RoleSchema.optional(),
-  isActive: z
-    .enum(['true', 'false'])
-    .transform((value) => value === 'true')
-    .optional(),
+  isActive: queryBoolean().optional(),
 });
 export type ListUsersQueryInput = z.input<typeof ListUsersQuerySchema>;
 export type ListUsersQuery = z.output<typeof ListUsersQuerySchema>;

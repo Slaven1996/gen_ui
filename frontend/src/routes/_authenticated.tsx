@@ -7,9 +7,11 @@ import { AssistantPanel } from '@/features/assistant/assistant-panel';
 /** Pathless layout: everything under it requires a session and gets the app shell. */
 export const Route = createFileRoute('/_authenticated')({
   beforeLoad: ({ context, location }) => {
-    if (!context.auth.isAuthenticated()) {
-      throw redirect({ to: '/login', search: { redirect: location.href } });
-    }
+    if (context.auth.isAuthenticated()) return;
+    // Signing out forgets where you were: the next sign-in starts at the
+    // dashboard. A session that ended on its own still comes back here.
+    const signedOut = context.auth.lastSignOutReason() === 'signed-out';
+    throw redirect({ to: '/login', search: signedOut ? {} : { redirect: location.href } });
   },
   component: AuthenticatedLayout,
 });

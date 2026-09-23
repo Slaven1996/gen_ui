@@ -192,7 +192,7 @@ The assistant is available as a right-hand panel on every page (Ctrl/Cmd + J) an
 
 ### Model settings
 
-`AI_MODEL=claude-opus-5` by default (switch to `claude-sonnet-5` in `.env` to lower cost). Thinking is adaptive. Don't add `temperature`/`topP`/`budgetTokens` for these models, because they are rejected with a 400 error. `AI_REFUSAL_FALLBACK=true` enables Anthropic's server-side refusal fallback. `AI_PROVIDER` also accepts `openai`, `google` (install the matching `@ai-sdk/*` package) or `gateway`.
+`AI_MODEL=claude-opus-5` by default (switch to `claude-sonnet-5` in `.env` to lower cost). Thinking is adaptive. Don't add `temperature`/`topP`/`budgetTokens` for these models, because they are rejected with a 400 error. `AI_REFUSAL_FALLBACK=true` enables Anthropic's server-side refusal fallback. The only key the app needs is `ANTHROPIC_API_KEY`.
 
 ## Operations
 
@@ -205,7 +205,7 @@ The assistant is available as a right-hand panel on every page (Ctrl/Cmd + J) an
 ## Production notes
 
 - Serve the SPA and `/api` from the **same origin** behind a reverse proxy, set `COOKIE_SECURE=true` and `TRUST_PROXY`, and disable proxy buffering for `/api/ai/chat`. `frontend/nginx.conf` is a working example of all of this.
-- Set `NODE_ENV=production`. Configuration is validated at boot and fails fast: in production `COOKIE_SECURE` must be true and the API key for the selected `AI_PROVIDER` must be present.
+- Set `NODE_ENV=production`. Configuration is validated at boot and fails fast: in production `COOKIE_SECURE` must be true and `ANTHROPIC_API_KEY` must be present.
 - Replace the development `JWT_ACCESS_SECRET` from `docker-compose.yml` with a real one (`openssl rand -base64 48`, at least 32 characters).
 - For split origins, set `CORS_ORIGIN` (comma-separated) and `VITE_API_BASE_URL`. The cookie stays `SameSite=Strict`, so the frontend and API must be on the same site (e.g. `app.example.com` + `api.example.com`).
 - There is **no rate limiting**. This is a student project and 429s were getting in the way; if the app is ever exposed publicly, put a limiter in front of `/api/auth/login` (or restore `@nestjs/throttler`, removed in this branch's history).

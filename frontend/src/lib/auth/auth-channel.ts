@@ -31,7 +31,7 @@ export function listenForAuthMessages(): void {
     if (message.type === 'session') {
       authStore.applySession(message.session, message.expiresAt);
     } else if (message.type === 'logout') {
-      authStore.clearSession();
+      authStore.clearSession('signed-out');
     }
   });
 }

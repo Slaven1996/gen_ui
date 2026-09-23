@@ -20,7 +20,7 @@ export async function logout(): Promise<void> {
   try {
     await http.post('/auth/logout', undefined, { skipAuthRefresh: true });
   } finally {
-    authStore.clearSession();
+    authStore.clearSession('signed-out');
     broadcastLogout();
   }
 }

@@ -30,17 +30,17 @@ import { UsersService } from './users.service.js';
 @ApiTags('Users')
 @ApiBearerAuth('access-token')
 @ApiErrorResponse(401, AUTH_REQUIRED)
-@ApiErrorResponse(403, ADMIN_ONLY)
 @Controller('users')
 @Roles(['ADMIN'])
 export class UsersController {
   constructor(private readonly users: UsersService) {}
 
   @Get()
+  @Roles(['ADMIN', 'USER'])
   @ApiOperation({
     summary: 'List users',
     description:
-      '`search` matches email or name, case-insensitively, anywhere in the value. Results are one page at a time; `total` counts every match.',
+      '`search` matches email or name, case-insensitively, anywhere in the value. Results are one page at a time; `total` counts every match. Open to every signed-in user: the directory is readable by all, while creating and updating accounts stays with admins.',
   })
   @ApiOkResponse({ standardSchema: PaginatedUsersSchema })
   @ApiErrorResponse(400, 'A query parameter is out of range, e.g. `pageSize` above 100.')
@@ -62,9 +62,10 @@ export class UsersController {
   }
 
   @Get(':id')
+  @Roles(['ADMIN', 'USER'])
   @ApiOperation({
     summary: 'Get one user',
-    description: 'The same payload the list returns, for a single id.',
+    description: 'The same payload the list returns, for a single id. Open to every signed-in user, like the list.',
   })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ standardSchema: PublicUserSchema })
@@ -81,6 +82,7 @@ export class UsersController {
   })
   @ApiCreatedResponse({ standardSchema: PublicUserSchema })
   @ApiErrorResponse(400, 'A field is missing or invalid, e.g. a password under 12 characters.')
+  @ApiErrorResponse(403, ADMIN_ONLY)
   @ApiErrorResponse(409, 'That email is already taken.')
   create(@Body({ schema: CreateUserSchema }) dto: CreateUserDto, @CurrentUser() actor: AuthUser): Promise<PublicUser> {
     return this.users.create(dto, actor);

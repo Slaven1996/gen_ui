@@ -1,46 +1,36 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { createFileRoute, redirect } from '@tanstack/react-router';
-import { Search } from 'lucide-react';
-import { z } from 'zod';
-import { RoleSchema, type ListUsersQueryInput } from '@gen-ui/shared';
+import { createFileRoute, stripSearchParams } from '@tanstack/react-router';
+import type { z } from 'zod';
+import { ListUsersQuerySchema, RoleSchema } from '@gen-ui/shared';
 import { DataTable } from '@/components/data-table/data-table';
+import { SearchFilter } from '@/components/filters/search-filter';
 import { PageContainer, PageHeader } from '@/components/layout/page';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAssistantContext } from '@/features/assistant/assistant-context';
-import { buildAdminUserColumns } from '@/features/users/columns';
+import { buildAdminUserColumns, userColumns } from '@/features/users/columns';
 import { useUpdateUser } from '@/features/users/mutations';
 import { usersListQueryOptions } from '@/features/users/queries';
 import { CreateUserDialog } from '@/features/users/user-form-dialog';
 import { getErrorMessage } from '@/lib/api/errors';
 import { useAuth } from '@/lib/auth/auth-store';
+import { defaultsOf, searchSchema } from '@/lib/search';
 
-/** Table state lives in the URL, so filters and pages are shareable and survive reloads. */
-const usersSearchSchema = z.object({
-  page: z.number().int().min(1).default(1).catch(1),
-  pageSize: z.number().int().min(5).max(100).default(20).catch(20),
-  search: z.string().max(100).default('').catch(''),
-  role: RoleSchema.optional().catch(undefined),
-});
-type UsersSearch = z.output<typeof usersSearchSchema>;
+type UsersSearch = z.output<typeof ListUsersQuerySchema>;
 
-const toApiParams = ({ page, pageSize, search, role }: UsersSearch): ListUsersQueryInput => ({
-  page,
-  pageSize,
-  ...(search && { search }),
-  ...(role && { role }),
-});
-
+/**
+ * Table state lives in the URL, so filters and pages are shareable and survive
+ * reloads — but only the parts that differ from the defaults, so arriving from
+ * the sidebar leaves a bare `/users`. The directory is open to everyone;
+ * changing accounts is not.
+ */
 export const Route = createFileRoute('/_authenticated/users')({
   staticData: { title: 'Users' },
-  validateSearch: usersSearchSchema,
-  beforeLoad: ({ context }) => {
-    if (context.auth.getSnapshot().user?.role !== 'ADMIN') throw redirect({ to: '/dashboard' });
-  },
+  validateSearch: searchSchema(ListUsersQuerySchema),
+  search: { middlewares: [stripSearchParams(defaultsOf(ListUsersQuerySchema))] },
   loaderDeps: ({ search }) => search,
-  loader: ({ context, deps }) => context.queryClient.ensureQueryData(usersListQueryOptions(toApiParams(deps))),
+  loader: ({ context, deps }) => context.queryClient.ensureQueryData(usersListQueryOptions(deps)),
   component: UsersPage,
 });
 
@@ -48,22 +38,25 @@ function UsersPage() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const { user: currentUser } = useAuth();
-  const users = useQuery(usersListQueryOptions(toApiParams(search)));
+  const isAdmin = currentUser?.role === 'ADMIN';
+  const users = useQuery(usersListQueryOptions(search));
   const updateUser = useUpdateUser();
 
   const columns = useMemo(
     () =>
-      buildAdminUserColumns({
-        currentUserId: currentUser?.id,
-        onUpdate: (user, patch) => updateUser.mutate({ id: user.id, patch }),
-      }),
-    [currentUser?.id, updateUser.mutate],
+      isAdmin
+        ? buildAdminUserColumns({
+            currentUserId: currentUser?.id,
+            onUpdate: (user, patch) => updateUser.mutate({ id: user.id, patch }),
+          })
+        : userColumns,
+    [isAdmin, currentUser?.id, updateUser.mutate],
   );
 
   useAssistantContext({
     title: 'Users',
     summary: [
-      `Admin user management. Page ${search.page}`,
+      `The people with an account here. Page ${search.page}`,
       users.data && `${users.data.total} users match`,
       search.search && `search "${search.search}"`,
       search.role && `role ${search.role}`,
@@ -79,12 +72,20 @@ function UsersPage() {
     <PageContainer>
       <PageHeader
         title="Users"
-        description="Add teammates, change roles and deactivate accounts."
-        actions={<CreateUserDialog />}
+        description={
+          isAdmin
+            ? 'Add teammates, change roles and deactivate accounts.'
+            : 'Everyone with access to this app.'
+        }
+        actions={isAdmin && <CreateUserDialog />}
       />
 
       <div className="flex flex-wrap items-center gap-2">
-        <SearchInput value={search.search} onChange={(value) => updateSearch({ search: value, page: 1 })} />
+        <SearchFilter
+          value={search.search}
+          onChange={(value) => updateSearch({ search: value, page: 1 })}
+          placeholder="Search name or email"
+        />
         <Select
           value={search.role ?? 'ALL'}
           onValueChange={(value) =>
@@ -123,31 +124,5 @@ function UsersPage() {
         />
       )}
     </PageContainer>
-  );
-}
-
-/** Debounced so typing doesn't fire a request per keystroke. */
-function SearchInput({ value, onChange }: { value: string; onChange: (value: string) => void }) {
-  const [draft, setDraft] = useState(value);
-
-  useEffect(() => setDraft(value), [value]);
-
-  useEffect(() => {
-    if (draft.trim() === value) return;
-    const timer = window.setTimeout(() => onChange(draft.trim()), 300);
-    return () => window.clearTimeout(timer);
-  }, [draft, value, onChange]);
-
-  return (
-    <div className="relative w-full max-w-xs">
-      <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-      <Input
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        placeholder="Search name or email"
-        aria-label="Search users"
-        className="pl-8"
-      />
-    </div>
   );
 }

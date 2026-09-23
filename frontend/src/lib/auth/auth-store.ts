@@ -4,6 +4,9 @@ import { tokenStore } from './token-store';
 
 export type AuthStatus = 'unknown' | 'authenticated' | 'anonymous';
 
+/** Why a session ended: one is the user's own doing, the other happens to them. */
+export type SignOutReason = 'signed-out' | 'expired';
+
 export interface AuthSnapshot {
   status: AuthStatus;
   user: PublicUser | null;
@@ -12,6 +15,7 @@ export interface AuthSnapshot {
 type Listener = () => void;
 
 let snapshot: AuthSnapshot = { status: 'unknown', user: null };
+let signOutReason: SignOutReason = 'expired';
 const listeners = new Set<Listener>();
 const signedOutListeners = new Set<Listener>();
 
@@ -45,6 +49,7 @@ export const authStore = {
   /** Apply a login/refresh result (or one received from another tab). */
   applySession(session: AuthResponse, expiresAtMs = Date.now() + session.expiresIn * 1000): void {
     tokenStore.set(session.accessToken, expiresAtMs);
+    signOutReason = 'expired';
     emit({ status: 'authenticated', user: session.user });
     markReady();
   },
@@ -59,13 +64,20 @@ export const authStore = {
   },
 
   /** Drop the in-memory session. Fires `onSignedOut` listeners if a user was signed in. */
-  clearSession(): void {
+  clearSession(reason: SignOutReason = 'expired'): void {
     const wasAuthenticated = snapshot.status === 'authenticated';
+    signOutReason = reason;
     tokenStore.clear();
     emit({ status: 'anonymous', user: null });
     markReady();
     if (wasAuthenticated) signedOutListeners.forEach((listener) => listener());
   },
+
+  /**
+   * How the last session ended, so the sign-in screen knows whether to come
+   * back to the page the user was on. Reset by the next `applySession`.
+   */
+  lastSignOutReason: (): SignOutReason => signOutReason,
 
   /** App-level cleanup hook (cache, chat, navigation) — registered once in main.tsx. */
   onSignedOut(listener: Listener): () => void {

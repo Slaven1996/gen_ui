@@ -75,7 +75,7 @@ const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
     items: [
       { to: '/alarm-rules', label: 'Alarm rules', icon: Settings2 },
       { to: '/audit', label: 'Audit log', icon: History, roles: ['ADMIN'] },
-      { to: '/users', label: 'Users', icon: Users, roles: ['ADMIN'] },
+      { to: '/users', label: 'Users', icon: Users },
     ],
   },
   {
