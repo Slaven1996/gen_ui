@@ -16,3 +16,9 @@ Dockerfile
 docker-compose*.yml
 **/*.md
 postman
+# Local-only folders that are never part of a build.
+ref
+docs
+.playwright-mcp
+**/coverage
+**/.vite

@@ -1,13 +1,18 @@
 #!/bin/sh
 set -e
 
+# The runtime image carries no pnpm, so the CLIs are called directly.
+cd /repo/backend
+
 echo "› Applying database migrations…"
-pnpm --filter backend db:deploy
+./node_modules/.bin/prisma migrate deploy
 
 if [ "${SEED_ON_START:-true}" = "true" ]; then
   echo "› Seeding (idempotent)…"
-  pnpm --filter backend db:seed
+  # Same runner as `pnpm db:seed`; Node strips the types itself, so the image
+  # does not need tsx.
+  node prisma/seed.ts
 fi
 
 echo "› Starting API…"
-exec node backend/dist/main.js
+exec node dist/main.js
