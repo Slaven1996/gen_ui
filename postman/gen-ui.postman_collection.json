@@ -2994,7 +2994,7 @@
     },
     {
       "name": "Assistant",
-      "description": "**Spends provider tokens on every call.** Needs `ANTHROPIC_API_KEY` (or the key for whatever `AI_PROVIDER` is set to); without one the endpoint answers 503.",
+      "description": "**Asking spends provider tokens on every call.** Needs `ANTHROPIC_API_KEY`; without it the chat answers 503. Conversations are saved per user: the requests below share one conversation id.",
       "item": [
         {
           "name": "Ask the assistant",
@@ -3020,10 +3020,10 @@
                 "chat"
               ]
             },
-            "description": "Replies as an AI SDK UI message stream over SSE, so Postman shows `data:` frames arriving rather than one JSON body. Some frames are tool calls that the web app renders as React components.\n\n`messages` carries the whole conversation each turn; keep `id` stable across turns.",
+            "description": "Replies as an AI SDK UI message stream over SSE, so Postman shows `data:` frames arriving rather than one JSON body. Some frames are tool calls that the web app renders as React components (set `generateUi` to false for a Markdown-only answer).\n\nThe server keeps the conversation: send only the new `message` (its id is a fresh `{{$guid}}` on every send) and keep `id` the same across turns. `\"trigger\": \"regenerate-message\"` without a message answers the last question again.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"id\": \"postman-conversation\",\n  \"messages\": [\n    {\n      \"id\": \"m1\",\n      \"role\": \"user\",\n      \"parts\": [\n        {\n          \"type\": \"text\",\n          \"text\": \"How many users are there, by role?\"\n        }\n      ]\n    }\n  ],\n  \"context\": {\n    \"pathname\": \"/users\",\n    \"title\": \"Users\",\n    \"summary\": \"The admin user directory.\"\n  }\n}",
+              "raw": "{\n  \"id\": \"5b0c8f3e-2d4a-4c1b-9e6f-7a8b9c0d1e2f\",\n  \"trigger\": \"submit-message\",\n  \"message\": {\n    \"id\": \"{{$guid}}\",\n    \"role\": \"user\",\n    \"parts\": [\n      {\n        \"type\": \"text\",\n        \"text\": \"Get me all admins, and also users named John.\"\n      }\n    ]\n  },\n  \"context\": {\n    \"pathname\": \"/users\",\n    \"title\": \"Users\",\n    \"summary\": \"The people with an account here.\"\n  },\n  \"generateUi\": true\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3032,6 +3032,69 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "Saved conversation",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/ai/conversations/latest",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ai",
+                "conversations",
+                "latest"
+              ]
+            },
+            "description": "Your most recent conversation, every message with its parts, as the web app restores it. `conversation` is null when there is none. Free: no model call."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('has a conversation field', () => pm.expect(pm.response.json()).to.have.property('conversation'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Clear the conversation",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/ai/conversations/5b0c8f3e-2d4a-4c1b-9e6f-7a8b9c0d1e2f",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ai",
+                "conversations",
+                "5b0c8f3e-2d4a-4c1b-9e6f-7a8b9c0d1e2f"
+              ]
+            },
+            "description": "Deletes the conversation used by \"Ask the assistant\" for good. 204 even when there was nothing to delete."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
         }
       ]
     },

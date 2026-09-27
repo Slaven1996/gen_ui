@@ -42,6 +42,7 @@ model User {
   shiftAssignments   ShiftAssignment[] @relation("ShiftAssignee")
   createdShifts      ShiftAssignment[] @relation("ShiftCreatedBy")
   dashboards         Dashboard[]       @relation("DashboardOwner")
+  conversations      Conversation[]    @relation("ConversationOwner")
 
   // Supports the admin user listing: ORDER BY created_at DESC, filtered by
   // role/is_active. The `search` filter is an unanchored ILIKE and needs a
@@ -470,4 +471,26 @@ model DashboardWidget {
 
   @@index([dashboardId, position])
   @@map("dashboard_widgets")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Assistant
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// A saved chat with the assistant. `messages` holds the AI SDK's UI messages
+/// with their parts (text, reasoning, tool calls with input and output), so
+/// the web app renders a reopened conversation exactly as it first did.
+model Conversation {
+  /// Created by the browser when the chat starts; the row by its first message.
+  id        String   @id @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  user      User     @relation("ConversationOwner", fields: [userId], references: [id], onDelete: Cascade)
+  /// The first question, trimmed.
+  title     String
+  messages  Json
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([userId, updatedAt(sort: Desc)])
+  @@map("conversations")
 }

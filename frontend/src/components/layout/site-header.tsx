@@ -4,7 +4,7 @@ import { Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { SidebarTrigger } from '@/components/ui/sidebar';
-import { toggleAssistant, useAssistantOpen } from '@/features/assistant/assistant-panel-state';
+import { toggleAssistant, useAssistantOpen } from '@/features/assistant/assistant-preferences';
 
 export function SiteHeader() {
   const assistantOpen = useAssistantOpen();

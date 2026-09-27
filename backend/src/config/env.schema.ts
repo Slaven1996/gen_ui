@@ -18,9 +18,6 @@ const booleanFlag = (fallback: boolean) =>
 const int = (fallback: number, min = 0, max = Number.MAX_SAFE_INTEGER) =>
   z.preprocess(blankToUndefined, z.coerce.number().int().min(min).max(max).default(fallback));
 
-export const AI_PROVIDERS = ['anthropic', 'openai', 'google', 'gateway'] as const;
-export type AiProvider = (typeof AI_PROVIDERS)[number];
-
 export const EnvSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -59,7 +56,6 @@ export const EnvSchema = z
         : [],
     ),
 
-    AI_PROVIDER: z.preprocess(blankToUndefined, z.enum(AI_PROVIDERS).default('anthropic')),
     AI_MODEL: z.preprocess(blankToUndefined, z.string().min(1).default('claude-opus-5')),
     AI_MAX_OUTPUT_TOKENS: int(64_000, 256, 128_000),
     AI_MAX_STEPS: int(5, 1, 20),
@@ -76,10 +72,8 @@ export const EnvSchema = z
     /** Measurements older than this are deleted by a daily job. */
     TELEMETRY_RETENTION_DAYS: int(180, 1, 3650),
 
+    /** The assistant's only provider. Without it the chat answers 503 and the rest of the app runs. */
     ANTHROPIC_API_KEY: optionalString,
-    OPENAI_API_KEY: optionalString,
-    GOOGLE_GENERATIVE_AI_API_KEY: optionalString,
-    AI_GATEWAY_API_KEY: optionalString,
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== 'production') return;
@@ -91,27 +85,16 @@ export const EnvSchema = z
         message: 'must be true in production',
       });
     }
-    if (!aiApiKeyFor(env)) {
+    if (!env.ANTHROPIC_API_KEY) {
       ctx.addIssue({
         code: 'custom',
-        path: [AI_KEY_VARS[env.AI_PROVIDER]],
-        message: `is required when AI_PROVIDER=${env.AI_PROVIDER} in production`,
+        path: ['ANTHROPIC_API_KEY'],
+        message: 'is required in production',
       });
     }
   });
 
 export type Env = z.output<typeof EnvSchema>;
-
-export const AI_KEY_VARS = {
-  anthropic: 'ANTHROPIC_API_KEY',
-  openai: 'OPENAI_API_KEY',
-  google: 'GOOGLE_GENERATIVE_AI_API_KEY',
-  gateway: 'AI_GATEWAY_API_KEY',
-} as const satisfies Record<AiProvider, keyof Env>;
-
-export function aiApiKeyFor(env: Pick<Env, 'AI_PROVIDER' | (typeof AI_KEY_VARS)[AiProvider]>) {
-  return env[AI_KEY_VARS[env.AI_PROVIDER]];
-}
 
 /** `ConfigModule.forRoot({ validate })` hook: fail fast with a readable list of problems. */
 export function validateEnv(raw: Record<string, unknown>): Env {

@@ -3,17 +3,14 @@ import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, stripSearchParams } from '@tanstack/react-router';
 import type { z } from 'zod';
 import { ListUsersQuerySchema, RoleSchema } from '@gen-ui/shared';
-import { DataTable } from '@/components/data-table/data-table';
 import { SearchFilter } from '@/components/filters/search-filter';
 import { PageContainer, PageHeader } from '@/components/layout/page';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAssistantContext } from '@/features/assistant/assistant-context';
-import { buildAdminUserColumns, userColumns } from '@/features/users/columns';
 import { useUpdateUser } from '@/features/users/mutations';
 import { usersListQueryOptions } from '@/features/users/queries';
 import { CreateUserDialog } from '@/features/users/user-form-dialog';
-import { getErrorMessage } from '@/lib/api/errors';
+import { UsersTable, type UserActions } from '@/features/users/users-table';
 import { useAuth } from '@/lib/auth/auth-store';
 import { defaultsOf, searchSchema } from '@/lib/search';
 
@@ -39,17 +36,18 @@ function UsersPage() {
   const navigate = Route.useNavigate();
   const { user: currentUser } = useAuth();
   const isAdmin = currentUser?.role === 'ADMIN';
+  // The table's own query: this reads the same cache entry, it doesn't fetch twice.
   const users = useQuery(usersListQueryOptions(search));
   const updateUser = useUpdateUser();
 
-  const columns = useMemo(
+  const actions = useMemo<UserActions | undefined>(
     () =>
       isAdmin
-        ? buildAdminUserColumns({
+        ? {
             currentUserId: currentUser?.id,
             onUpdate: (user, patch) => updateUser.mutate({ id: user.id, patch }),
-          })
-        : userColumns,
+          }
+        : undefined,
     [isAdmin, currentUser?.id, updateUser.mutate],
   );
 
@@ -103,26 +101,7 @@ function UsersPage() {
         </Select>
       </div>
 
-      {users.isError ? (
-        <Alert variant="destructive">
-          <AlertDescription>{getErrorMessage(users.error)}</AlertDescription>
-        </Alert>
-      ) : (
-        <DataTable
-          columns={columns}
-          data={users.data?.items ?? []}
-          getRowId={(user) => user.id}
-          isLoading={users.isPending}
-          isFetching={users.isPlaceholderData}
-          emptyMessage="No users match these filters."
-          pagination={{
-            pageIndex: search.page - 1,
-            pageSize: search.pageSize,
-            rowCount: users.data?.total ?? 0,
-            onPaginationChange: ({ pageIndex, pageSize }) => updateSearch({ page: pageIndex + 1, pageSize }),
-          }}
-        />
-      )}
+      <UsersTable query={search} onQueryChange={(next) => navigate({ search: next, replace: true })} actions={actions} />
     </PageContainer>
   );
 }

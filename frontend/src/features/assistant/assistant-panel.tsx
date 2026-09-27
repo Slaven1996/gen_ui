@@ -1,11 +1,10 @@
 import { Link, useRouterState } from '@tanstack/react-router';
-import { Maximize2, RotateCcw, X } from 'lucide-react';
+import { Maximize2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { setAssistantOpen, useAssistantOpen } from './assistant-panel-state';
+import { setAssistantOpen, useAssistantOpen } from './assistant-preferences';
 import { ChatThread } from './chat-thread';
-import { resetChat } from './chat-store';
 
 /** Right-hand assistant, available on every signed-in page (hidden on /assistant itself). */
 export function AssistantPanel() {
@@ -44,9 +43,6 @@ function PanelBody() {
     <>
       <div className="flex h-14 shrink-0 items-center gap-1 border-b px-3">
         <h2 className="mr-auto text-sm font-medium">Assistant</h2>
-        <Button variant="ghost" size="icon" className="size-8" onClick={resetChat} aria-label="New conversation">
-          <RotateCcw />
-        </Button>
         <Button variant="ghost" size="icon" className="size-8" asChild>
           <Link to="/assistant" aria-label="Open full page">
             <Maximize2 />

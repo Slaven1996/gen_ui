@@ -53,7 +53,8 @@ services:
       JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-900}
 
       # Chat answers 503 until the Anthropic key is set; everything else works.
-      AI_MODEL: ${AI_MODEL:-claude-opus-5}
+      # AI_MODEL: ${AI_MODEL:-claude-haiku-4-5}
+      AI_MODEL: ${AI_MODEL:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
 
       # Simulated readings for ONLINE devices, so charts and alarms move in a demo.

@@ -178,13 +178,23 @@ Email is not editable: it is the sign-in identifier, and changing it safely need
 
 ## Generative UI
 
-1. The backend calls `streamText` with Zod-typed tools and pipes an AI SDK UI message stream (SSE) back to the client (`backend/src/features/ai`).
-2. The frontend's `useChat` receives typed tool parts. `features/assistant/genui/registry.tsx` maps each tool name to a component, which renders according to the part's state (`input-streaming` → skeleton or progressive render, `output-available` → the component, `output-error` → an alert).
+Ask "all admins, and also users named John" and the answer contains two live users tables: the same `UsersTable` component as the Users page, each with **Open in new tab**, which opens `/users` with that table's filters. The full flow, with diagrams, is in [`docs/ai-assistant-flow.md`](docs/ai-assistant-flow.md).
 
-To add a component:
-1. Add its schema to `genUiToolSchemas` in `packages/shared/src/genui/tools.ts`.
-2. Implement the tool in `backend/src/features/ai/tools` and add it to `GenUiToolsFactory`.
-3. Register a renderer in `registry.tsx`.
+1. The backend calls `streamText` with the tools the user's role may use and pipes an AI SDK UI message stream (SSE) back to the client (`backend/src/features/ai`).
+2. **Tools call services, never controllers or repositories.** A tool is an inbound adapter like a controller, so the chat gets the same rules and mapping as the REST API. Guards don't run for tool calls, so each tool declares its roles in `TOOL_ROLES` (the chat's `@Roles`).
+3. A tool's input is a page query: apart from its `title`, every field of `listUsers` is a `/users` URL parameter. The chat renders the tool call as that page's table, which fetches its own data, and links to the page with the same query.
+4. `features/assistant/tool-parts.tsx` maps each tool to its view, according to the part's state (`input-streaming` → skeleton, input complete → the table, `output-error` → an alert).
+
+**The system prompt is generic.** It holds the app's pages, the rules for using tools and the out-of-scope refusal, and never names a tool. What a tool does and how to fill its fields lives in its `description` and field `.describe()` texts in `packages/shared/src/assistant.ts`, which Claude receives with the tool.
+
+**Generate UI components** (a switch above the message box, on by default): turned off, the assistant still looks data up but answers in Markdown, and each lookup shows as one line with the same link. Each answer keeps the mode it was given in.
+
+**Conversations are saved** per user in the `conversations` table, with the AI SDK's messages (parts included) as JSONB. The client sends only its new message; the server holds the history, saves it before the model runs and again when the stream ends (also after Stop). Reopening the app restores the thread and its tables, which show current data. **Clear chat** deletes it for good. Each turn sends the whole conversation to Claude, so a long chat costs more per answer.
+
+To add a domain:
+1. Add its tool schema to `genUiToolSchemas` in `packages/shared/src/assistant.ts`, with a description on every field.
+2. Implement the tool in `backend/src/features/ai/ai.tools.ts`, calling that domain's service, and add its `TOOL_ROLES` line.
+3. Add a renderer in `tool-parts.tsx` that wraps the domain's existing table.
 
 TypeScript fails the build if the backend tools and the shared contract drift apart, or if a tool has no renderer.
 

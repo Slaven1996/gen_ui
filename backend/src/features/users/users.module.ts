@@ -9,6 +9,6 @@ import { UsersService } from './users.service.js';
   imports: [SessionsModule],
   controllers: [UsersController],
   providers: [UsersService, UsersRepository, PasswordService],
-  exports: [UsersRepository, PasswordService],
+  exports: [UsersService, UsersRepository, PasswordService],
 })
 export class UsersModule {}

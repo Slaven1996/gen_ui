@@ -1,30 +1,65 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { useChat, type Chat } from '@ai-sdk/react';
-import { ArrowUp, Square } from 'lucide-react';
+import { ArrowUp, Square, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import type { GenUIMessage } from '@gen-ui/shared';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { useAuth } from '@/lib/auth/auth-store';
+import { getErrorMessage } from '@/lib/api/errors';
 import { cn } from '@/lib/utils';
+import { setGenerateUi, useGenerateUi } from './assistant-preferences';
 import { ChatMessage } from './chat-message';
-import { useChatInstance } from './chat-store';
+import { clearChat, loadChat, useChatInstance } from './chat-store';
 
-const BASE_SUGGESTIONS = [
-  'Show these as stat cards: 1,284 active users (+3.2%), $48.2k revenue (+12%), 2.1% churn (−0.4%)',
-  'Chart monthly signups as bars: Jan 120, Feb 180, Mar 240, Apr 210, May 300, Jun 340',
-];
-const ADMIN_SUGGESTIONS = ['List all admin accounts'];
-
+/** The conversation, restored from the server the first time it is shown. */
 export function ChatThread({ className }: { className?: string }) {
   const chat = useChatInstance();
-  // Remount on reset so the hook binds to the new conversation.
+  const [loadError, setLoadError] = useState<unknown>(null);
+
+  useEffect(() => {
+    if (!chat) loadChat().catch(setLoadError);
+  }, [chat]);
+
+  const retry = () => {
+    setLoadError(null);
+    loadChat().catch(setLoadError);
+  };
+
+  if (!chat) {
+    return (
+      <div className={cn('flex h-full min-h-0 flex-col gap-3 p-4', className)}>
+        {loadError ? (
+          <div className="space-y-2 text-sm" role="alert">
+            <p className="text-destructive">{getErrorMessage(loadError, 'The conversation could not be loaded.')}</p>
+            <Button size="sm" variant="outline" onClick={retry}>
+              Try again
+            </Button>
+          </div>
+        ) : (
+          <>
+            <Skeleton className="h-10 w-2/3 self-end" />
+            <Skeleton className="h-24" />
+          </>
+        )}
+      </div>
+    );
+  }
+
+  // Remount when the conversation changes (cleared, another user) so the hook binds to it.
   return <ChatThreadView key={chat.id} chat={chat} className={className} />;
 }
 
 function ChatThreadView({ chat, className }: { chat: Chat<GenUIMessage>; className?: string }) {
   const { messages, sendMessage, status, stop, error, regenerate, clearError } = useChat({ chat });
-  const { user } = useAuth();
+  const generateUi = useGenerateUi();
+  const toggleId = useId();
   const [input, setInput] = useState('');
+  const [confirmingClear, setConfirmingClear] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const busy = status === 'submitted' || status === 'streaming';
 
@@ -52,29 +87,22 @@ function ChatThreadView({ chat, className }: { chat: Chat<GenUIMessage>; classNa
     }
   };
 
-  const suggestions = user?.role === 'ADMIN' ? [...BASE_SUGGESTIONS, ...ADMIN_SUGGESTIONS] : BASE_SUGGESTIONS;
+  const onClear = () => {
+    setClearing(true);
+    // On success the thread remounts on the new, empty conversation.
+    clearChat().catch((failure: unknown) => {
+      toast.error(getErrorMessage(failure));
+      setClearing(false);
+    });
+  };
 
   return (
     <div className={cn('flex h-full min-h-0 flex-col', className)}>
       <div ref={scrollRef} className="flex-1 space-y-5 overflow-y-auto px-4 py-4" aria-live="polite">
         {messages.length === 0 ? (
-          <div className="space-y-3 pt-6">
-            <p className="text-sm text-muted-foreground">
-              Ask about your data. Answers can include live cards, charts and tables.
-            </p>
-            <div className="flex flex-col gap-2">
-              {suggestions.map((suggestion) => (
-                <button
-                  key={suggestion}
-                  type="button"
-                  onClick={() => send(suggestion)}
-                  className="rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                >
-                  {suggestion}
-                </button>
-              ))}
-            </div>
-          </div>
+          <p className="pt-6 text-sm text-muted-foreground">
+            Ask about the data in this app. Answers can include live tables.
+          </p>
         ) : (
           messages.map((message) => <ChatMessage key={message.id} message={message} />)
         )}
@@ -98,8 +126,28 @@ function ChatThreadView({ chat, className }: { chat: Chat<GenUIMessage>; classNa
         )}
       </div>
 
-      <form onSubmit={onSubmit} className="border-t p-3">
-        <div className="flex items-end gap-2">
+      <div className="space-y-2 border-t p-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Switch id={toggleId} checked={generateUi} onCheckedChange={setGenerateUi} />
+            <Label htmlFor={toggleId} className="text-xs font-normal">
+              Generate UI components
+            </Label>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs text-muted-foreground"
+            disabled={busy || messages.length === 0}
+            onClick={() => setConfirmingClear(true)}
+          >
+            <Trash2 />
+            Clear chat
+          </Button>
+        </div>
+
+        <form onSubmit={onSubmit} className="flex items-end gap-2">
           <Textarea
             value={input}
             onChange={(event) => setInput(event.target.value)}
@@ -118,8 +166,18 @@ function ChatThreadView({ chat, className }: { chat: Chat<GenUIMessage>; classNa
               <ArrowUp />
             </Button>
           )}
-        </div>
-      </form>
+        </form>
+      </div>
+
+      <ConfirmDialog
+        open={confirmingClear}
+        onOpenChange={setConfirmingClear}
+        title="Clear this chat?"
+        description="The whole conversation is deleted for good, on every device."
+        confirmLabel="Clear chat"
+        pending={clearing}
+        onConfirm={onClear}
+      />
     </div>
   );
 }
