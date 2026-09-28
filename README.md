@@ -1,6 +1,6 @@
 # Gen UI
 
-A dashboard app that combines classic CRUD screens with **Generative UI**: an AI assistant whose answers can include real React components (stat cards, charts, tables) streamed into the page.
+A dashboard app that combines classic CRUD screens with **Generative UI**: an AI assistant whose answers can include the app's own React components (live, paged tables) streamed into the page.
 
 | Layer | Stack |
 |---|---|
@@ -20,7 +20,7 @@ The fastest way to see the app, and the one to use when handing the project to s
 docker compose up --build         # or: pnpm docker:up
 ```
 
-That brings up Postgres, the API and the web app, applies migrations and seeds the demo accounts. When it settles, open <http://localhost:5173> and sign in with any account from [Demo accounts](#demo-accounts). The API documents itself at <http://localhost:5173/docs>.
+That brings up Postgres (which creates the schema from `backend/prisma/init.sql`), the API (which seeds the demo data) and the web app. When it settles, open <http://localhost:5173> and sign in with any account from [Demo accounts](#demo-accounts). The API documents itself at <http://localhost:5173/docs>.
 
 ```bash
 pnpm docker:down                  # stop
@@ -46,8 +46,7 @@ cp frontend/.env.example frontend/.env
 # In backend/.env set JWT_ACCESS_SECRET (openssl rand -base64 48)
 # and ANTHROPIC_API_KEY (optional until you use the assistant)
 
-pnpm db:up                        # Postgres in Docker on localhost:5434
-pnpm db:migrate                   # apply migrations
+pnpm db:up                        # Postgres in Docker on localhost:5434; a new volume gets the schema
 pnpm db:seed                      # load backend/prisma/seed/*.sql
 pnpm dev                          # API on :3000, web app on http://localhost:5173
 ```
@@ -87,7 +86,7 @@ The app monitors a small water utility (the seed data): a tree of **assets** (re
 | `/graphs` | `/api/telemetry/series`, `/stats` | Trend explorer: up to 8 tags, server-side buckets, one chart per unit |
 | `/audit` | `/api/audit-logs` | Who changed what (admins) |
 
-Admins configure (assets, devices, tags, rules, shift plans); everyone can acknowledge alarms, write in the logbook and build dashboards. The full database is drawn in [`docs/database-erd.drawio`](docs/database-erd.drawio) — open it in [diagrams.net](https://app.diagrams.net) or the VS Code *Draw.io Integration* extension.
+Admins configure (assets, devices, tags, rules, shift plans); everyone can acknowledge alarms, write in the logbook and build dashboards. The entities, their attributes, operations and associations are drawn as a UML class diagram in [`docs/class-diagram.drawio`](docs/class-diagram.drawio) — open it in [diagrams.net](https://app.diagrams.net) or the VS Code *Draw.io Integration* extension. The tables themselves are in [`backend/prisma/init.sql`](backend/prisma/init.sql).
 
 ### Where the code lives
 
@@ -136,7 +135,9 @@ response shape with `@ApiOkResponse({ standardSchema })`, and list the failures 
 
 ## Database
 
-Migrations are plain Prisma migrations in `backend/prisma/migrations`. In Docker they are applied on start; locally, run `pnpm db:migrate`.
+**The schema is one SQL file, `backend/prisma/init.sql`**: every enum, table, index, foreign key and `CHECK` constraint. There are no migrations. The Postgres container runs the file once, when its data volume is empty (it is mounted into `/docker-entrypoint-initdb.d`), so a fresh `docker compose up` or `pnpm db:up` creates the whole database. Its healthcheck goes over TCP, which Postgres only opens once the file has run, so the API never starts against a half-built database.
+
+`backend/prisma/schema.prisma` describes the same tables for the Prisma client. To change the schema, edit both, run `pnpm --filter backend db:generate`, then rebuild the local database with `pnpm db:reset` (it drops the database volume and starts Postgres again) and `pnpm db:seed`. `pnpm docker:clean` does the same for the whole stack.
 
 Seed **data** lives in `backend/prisma/seed/*.sql` as ordinary SQL. `backend/prisma/seed.ts` is only a runner: it executes every `.sql` file in filename order, each in its own transaction. To seed a new entity, add a file — `002_orders.sql`, `003_invoices.sql` — and write `INSERT`s. Nothing in the runner changes.
 
@@ -146,7 +147,7 @@ Make each file re-runnable (`ON CONFLICT ... DO NOTHING`, or `WHERE NOT EXISTS`)
 
 The domain seed comes in three files: `002_assets.sql` (asset tree, devices, tags, alarm rules, shift templates — fixed, readable UUIDs such as `10000000-0000-4000-8000-000000000003` for the Riverside pumping station), `003_telemetry.sql` (14 days of 15-minute readings; a re-run tops them up to the current time) and `004_operations.sql` (alarm history consistent with the readings, logbook, a rotating shift plan from a week back to three weeks ahead, audit trail, two dashboards). Generated rows get deterministic ids from `md5`, so re-runs skip them. Shifts are planned in `Europe/Budapest` — change `SHIFT_TIME_ZONE` at the top of the shift section to plan in another zone.
 
-A few rules Prisma cannot express live in the migration as `CHECK` constraints (an asset is not its own parent, a shift ends after it starts, widget sizes are on the grid).
+A few rules Prisma cannot express live in `init.sql` as `CHECK` constraints (an asset is not its own parent, a shift ends after it starts, widget sizes are on the grid).
 
 ## Scripts (root)
 
@@ -156,8 +157,9 @@ A few rules Prisma cannot express live in the migration as `CHECK` constraints (
 | `pnpm docker:down` / `docker:clean` | Stop the stack / stop it and drop the database volume |
 | `pnpm dev` | Builds `shared`, then runs shared (watch), API and web app in parallel |
 | `pnpm build` / `pnpm typecheck` / `pnpm lint` / `pnpm test` | Across all workspaces |
-| `pnpm db:up` / `db:down` | Start / stop only the Postgres container |
-| `pnpm db:migrate` / `db:seed` / `db:studio` | Prisma migrate dev / seed / Studio |
+| `pnpm db:up` / `db:down` | Start / stop only the Postgres container (a new volume gets `init.sql`) |
+| `pnpm db:reset` | Drop the database volume and recreate the schema from `init.sql` (then `pnpm db:seed`) |
+| `pnpm db:seed` / `db:studio` | Load the demo data / Prisma Studio |
 
 ## Authentication
 
@@ -178,7 +180,9 @@ Email is not editable: it is the sign-in identifier, and changing it safely need
 
 ## Generative UI
 
-Ask "all admins, and also users named John" and the answer contains two live users tables: the same `UsersTable` component as the Users page, each with **Open in new tab**, which opens `/users` with that table's filters. The full flow, with diagrams, is in [`docs/ai-assistant-flow.md`](docs/ai-assistant-flow.md).
+Ask "all admins, and also users named John" and the answer contains two live users tables: the same `UsersTable` component as the Users page, with every column and, for admins, the same row actions (make admin, deactivate, reactivate). Each has **Open in new tab**, which opens `/users` with that table's filters; the new tab starts with the assistant panel closed. The full flow, with diagrams, is in [`docs/ai-assistant-flow.md`](docs/ai-assistant-flow.md).
+
+**What is AI-driven, and what isn't.** Claude decides only three things: whether to answer, refuse or look something up; which tool to call with which filters (the tool *input*); and the wording of the answer. Everything else is ordinary code: authorization, validation, the database query, which component draws a tool call, and the data in that component (fetched through the REST API, like its page). The numbered flow at the top of `backend/src/features/ai/ai.service.ts` marks each step `[app]` or `[AI]`.
 
 1. The backend calls `streamText` with the tools the user's role may use and pipes an AI SDK UI message stream (SSE) back to the client (`backend/src/features/ai`).
 2. **Tools call services, never controllers or repositories.** A tool is an inbound adapter like a controller, so the chat gets the same rules and mapping as the REST API. Guards don't run for tool calls, so each tool declares its roles in `TOOL_ROLES` (the chat's `@Roles`).
@@ -194,15 +198,25 @@ Ask "all admins, and also users named John" and the answer contains two live use
 To add a domain:
 1. Add its tool schema to `genUiToolSchemas` in `packages/shared/src/assistant.ts`, with a description on every field.
 2. Implement the tool in `backend/src/features/ai/ai.tools.ts`, calling that domain's service, and add its `TOOL_ROLES` line.
-3. Add a renderer in `tool-parts.tsx` that wraps the domain's existing table.
+3. Add a renderer in `tool-parts.tsx` that wraps the domain's existing table. Role-based row actions belong inside that table (as `useUserActions` does in `users-table.tsx`), so the page and the chat show the same ones.
 
 TypeScript fails the build if the backend tools and the shared contract drift apart, or if a tool has no renderer.
 
 The assistant is available as a right-hand panel on every page (Ctrl/Cmd + J) and as a full page at `/assistant`. Both show the same conversation. Pages can describe themselves to the assistant with `useAssistantContext()`.
 
-### Model settings
+### Model and effort
 
-`AI_MODEL=claude-opus-5` by default (switch to `claude-sonnet-5` in `.env` to lower cost). Thinking is adaptive. Don't add `temperature`/`topP`/`budgetTokens` for these models, because they are rejected with a 400 error. `AI_REFUSAL_FALLBACK=true` enables Anthropic's server-side refusal fallback. The only key the app needs is `ANTHROPIC_API_KEY`.
+Two pickers above the message box choose, per message, **which Claude model answers** and **how hard it works**. Both are remembered in the browser and sent with each request, and every answer is labelled with the model and effort that produced it.
+
+| Model | Id | Effort levels | Thinking |
+|---|---|---|---|
+| Claude Opus 5 (default) | `claude-opus-5` | low · medium · high (default) · extra-high · max | adaptive |
+| Claude Sonnet 5 | `claude-sonnet-5` | same | adaptive |
+| Claude Haiku 4.5 (cheapest) | `claude-haiku-4-5` | none, so the picker hides | none |
+
+The list lives in `ASSISTANT_MODELS` (`packages/shared/src/assistant.ts`), and the server rejects any other id. Claude 3 Opus, 3.5 Sonnet and 3 Haiku are retired by Anthropic (they return 404) and never had effort levels, so each tier uses its current model. Lower effort is faster and cheaper; for simple lookups like these, low or medium is usually enough.
+
+Don't add `temperature`/`topP`/`budgetTokens`: the Claude 5 models reject them with a 400. `AI_REFUSAL_FALLBACK=true` enables Anthropic's server-side refusal fallback on Claude Opus 5, and `AI_MAX_OUTPUT_TOKENS` caps answer length (Haiku 4.5 at most 64000). The only key the app needs is `ANTHROPIC_API_KEY`.
 
 ## Operations
 

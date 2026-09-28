@@ -1,2 +1,0 @@
--- AlterEnum
-ALTER TYPE "RevokeReason" ADD VALUE 'PASSWORD_CHANGED';

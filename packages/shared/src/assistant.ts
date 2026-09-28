@@ -2,6 +2,29 @@ import type { UIMessage } from 'ai';
 import { z } from 'zod';
 import { PublicUserSchema, RoleSchema } from './auth.js';
 
+// ─── Models ─────────────────────────────────────────────────────────────────
+
+/**
+ * The Claude models the chat offers, one per tier. The user picks one in the
+ * chat, and the server accepts only these ids. Models with `effort` think
+ * adaptively and take an effort level; Claude Haiku 4.5 does neither, and
+ * the server sends it neither option.
+ */
+export const AssistantModelSchema = z.enum(['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5']);
+export type AssistantModel = z.infer<typeof AssistantModelSchema>;
+
+export const ASSISTANT_MODELS: Record<AssistantModel, { label: string; effort: boolean }> = {
+  'claude-opus-5': { label: 'Claude Opus 5', effort: true },
+  'claude-sonnet-5': { label: 'Claude Sonnet 5', effort: true },
+  'claude-haiku-4-5': { label: 'Claude Haiku 4.5', effort: false },
+};
+export const DEFAULT_ASSISTANT_MODEL: AssistantModel = 'claude-opus-5';
+
+/** How hard the model works on an answer: lower is faster and cheaper. `high` is Anthropic's default. */
+export const EffortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
+export type Effort = z.infer<typeof EffortSchema>;
+export const DEFAULT_EFFORT: Effort = 'high';
+
 // ─── Requests ───────────────────────────────────────────────────────────────
 
 /** What the current page tells the assistant about itself. */
@@ -36,6 +59,10 @@ export const ChatRequestSchema = z
       .boolean()
       .default(true)
       .describe('false: answer in Markdown only; tool results are not rendered as components.'),
+    model: AssistantModelSchema.default(DEFAULT_ASSISTANT_MODEL).describe('The Claude model that answers.'),
+    effort: EffortSchema.optional().describe(
+      `Effort level, default \`${DEFAULT_EFFORT}\`. Ignored by models without one (Claude Haiku 4.5).`,
+    ),
   })
   .meta({ id: 'ChatRequest' });
 export type ChatRequest = z.infer<typeof ChatRequestSchema>;
@@ -67,6 +94,10 @@ export interface LatestConversation {
  * Tool contracts. The backend attaches `execute` to these schemas and hands
  * them to the model; the frontend renders each tool call with a component
  * keyed by tool name. Keeping them here keeps both sides type-synced.
+ *
+ * The only AI-driven part of a tool call is its input: Claude decides whether
+ * to call a tool and fills these fields from the user's words. Running the
+ * query (backend) and drawing the result (frontend) are ordinary code.
  *
  * Everything the model needs to know about a tool lives here too: in its
  * `description` and in each field's `.describe()`, which the model receives
@@ -120,7 +151,10 @@ export type GenUIToolName = keyof GenUITools;
 
 /** Per-message metadata streamed on `start` / `finish`, and saved with the message. */
 export interface GenUIMetadata {
+  /** The model id that answered (older messages may hold ids no longer offered). */
   model?: string;
+  /** The effort level it answered with; absent for models without one. */
+  effort?: Effort;
   createdAt?: number;
   /** The mode the answer was given in; the chat keeps rendering it that way. */
   generateUi?: boolean;

@@ -8,7 +8,14 @@ import { authStore } from '@/lib/auth/auth-store';
 import { refreshSession } from '@/lib/auth/refresh';
 import { tokenStore } from '@/lib/auth/token-store';
 import { getAssistantContext } from './assistant-context';
-import { getGenerateUi } from './assistant-preferences';
+import { getAssistantEffort, getAssistantModel, getGenerateUi } from './assistant-preferences';
+
+/*
+ * The browser side of the chat. Nothing here is AI-driven: it restores the
+ * saved conversation, sends each new question with the user's settings
+ * (model, effort, components on/off, the current page), and hands the
+ * streamed answer to `useChat`, which rebuilds the message parts as they arrive.
+ */
 
 /**
  * `fetch` for the streaming chat endpoint (axios can't consume streams):
@@ -49,7 +56,8 @@ function createChat(conversationId = newConversationId(), saved: GenUIMessage[] 
     transport: new DefaultChatTransport<GenUIMessage>({
       api: `${API_BASE_URL}/ai/chat`,
       fetch: authFetch,
-      // The server keeps the conversation, so only what is new goes up.
+      // The server keeps the conversation, so only what is new goes up, with
+      // the settings as they are right now (`ChatRequestSchema` in @gen-ui/shared).
       prepareSendMessagesRequest: ({ id, messages, trigger }) => ({
         body: {
           id,
@@ -57,6 +65,8 @@ function createChat(conversationId = newConversationId(), saved: GenUIMessage[] 
           message: trigger === 'submit-message' ? messages.at(-1) : undefined,
           context: getAssistantContext(),
           generateUi: getGenerateUi(),
+          model: getAssistantModel(),
+          effort: getAssistantEffort(),
         },
       }),
     }),

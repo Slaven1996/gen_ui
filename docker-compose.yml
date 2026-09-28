@@ -1,7 +1,8 @@
 name: gen-ui
 
 # `docker compose up --build` brings up the whole stack with no prior setup:
-# database, API (migrated + seeded) and the web app on http://localhost:5173.
+# the database (schema from backend/prisma/init.sql), the API (which seeds the
+# demo data) and the web app on http://localhost:5173.
 #
 # Every value below has a development default, so this file works straight from
 # a fresh clone. Override anything by exporting it or by passing your own env
@@ -19,8 +20,12 @@ services:
       - '${POSTGRES_PORT:-5434}:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # The whole schema in one file. Postgres runs it once, when the volume
+      # is empty; after changing it, rebuild the database with `pnpm db:reset`
+      # (or `pnpm docker:clean` for the whole stack).
+      - ./backend/prisma/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
       interval: 5s
       timeout: 5s
       retries: 10
@@ -53,8 +58,6 @@ services:
       JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-900}
 
       # Chat answers 503 until the Anthropic key is set; everything else works.
-      # AI_MODEL: ${AI_MODEL:-claude-haiku-4-5}
-      AI_MODEL: ${AI_MODEL:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
 
       # Simulated readings for ONLINE devices, so charts and alarms move in a demo.

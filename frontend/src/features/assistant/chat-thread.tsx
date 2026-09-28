@@ -2,16 +2,30 @@ import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent 
 import { useChat, type Chat } from '@ai-sdk/react';
 import { ArrowUp, Square, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import type { GenUIMessage } from '@gen-ui/shared';
+import {
+  ASSISTANT_MODELS,
+  AssistantModelSchema,
+  EffortSchema,
+  type Effort,
+  type GenUIMessage,
+} from '@gen-ui/shared';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { getErrorMessage } from '@/lib/api/errors';
 import { cn } from '@/lib/utils';
-import { setGenerateUi, useGenerateUi } from './assistant-preferences';
+import {
+  setAssistantEffort,
+  setAssistantModel,
+  setGenerateUi,
+  useAssistantEffort,
+  useAssistantModel,
+  useGenerateUi,
+} from './assistant-preferences';
 import { ChatMessage } from './chat-message';
 import { clearChat, loadChat, useChatInstance } from './chat-store';
 
@@ -127,6 +141,7 @@ function ChatThreadView({ chat, className }: { chat: Chat<GenUIMessage>; classNa
       </div>
 
       <div className="space-y-2 border-t p-3">
+        <ModelSettings />
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Switch id={toggleId} checked={generateUi} onCheckedChange={setGenerateUi} />
@@ -178,6 +193,59 @@ function ChatThreadView({ chat, className }: { chat: Chat<GenUIMessage>; classNa
         pending={clearing}
         onConfirm={onClear}
       />
+    </div>
+  );
+}
+
+const EFFORT_LABELS: Record<Effort, string> = {
+  low: 'Low effort',
+  medium: 'Medium effort',
+  high: 'High effort',
+  xhigh: 'Extra-high effort',
+  max: 'Max effort',
+};
+
+/**
+ * Which Claude model answers the next message, and how hard it works. Both
+ * are remembered in this browser and sent with every request. The effort
+ * picker is hidden for a model without effort levels (Claude Haiku 4.5).
+ */
+function ModelSettings() {
+  const model = useAssistantModel();
+  const effort = useAssistantEffort();
+  const { effort: hasEffort } = ASSISTANT_MODELS[model];
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Select value={model} onValueChange={(value) => setAssistantModel(AssistantModelSchema.parse(value))}>
+        <SelectTrigger size="sm" className="text-xs" aria-label="Model">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {AssistantModelSchema.options.map((id) => (
+            <SelectItem key={id} value={id} className="text-xs">
+              {ASSISTANT_MODELS[id].label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      {hasEffort ? (
+        <Select value={effort} onValueChange={(value) => setAssistantEffort(EffortSchema.parse(value))}>
+          <SelectTrigger size="sm" className="text-xs" aria-label="Effort level">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {EffortSchema.options.map((level) => (
+              <SelectItem key={level} value={level} className="text-xs">
+                {EFFORT_LABELS[level]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : (
+        <span className="text-xs text-muted-foreground">No effort levels</span>
+      )}
     </div>
   );
 }

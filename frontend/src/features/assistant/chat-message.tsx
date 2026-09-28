@@ -1,10 +1,14 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { isStaticToolUIPart, isTextUIPart } from 'ai';
-import type { GenUIMessage } from '@gen-ui/shared';
+import { ASSISTANT_MODELS, AssistantModelSchema, type GenUIMessage, type GenUIMetadata } from '@gen-ui/shared';
 import { ToolPartView, ToolStatusLine } from './tool-parts';
 
-/** One message, rendered purely from its parts, so a restored conversation looks as it did. */
+/**
+ * One message, rendered purely from its parts, so a restored conversation
+ * looks as it did. The parts come from the model [AI]: its text, its
+ * reasoning summary, and its tool calls. How each part looks is fixed [app].
+ */
 export function ChatMessage({ message }: { message: GenUIMessage }) {
   if (message.role === 'user') {
     const text = message.parts
@@ -22,6 +26,7 @@ export function ChatMessage({ message }: { message: GenUIMessage }) {
 
   // An answer keeps the mode it was given in, whatever the toggle says now.
   const generateUi = message.metadata?.generateUi !== false;
+  const model = answeredBy(message.metadata);
 
   return (
     <div className="space-y-3">
@@ -45,8 +50,17 @@ export function ChatMessage({ message }: { message: GenUIMessage }) {
       {message.metadata?.finishReason === 'length' && (
         <p className="text-xs text-muted-foreground">The response hit the length limit and was cut short.</p>
       )}
+      {model && <p className="text-[11px] text-muted-foreground">{model}</p>}
     </div>
   );
+}
+
+/** "Claude Opus 5 · high effort", from the metadata saved with the answer. */
+function answeredBy(metadata: GenUIMetadata | undefined): string | undefined {
+  if (!metadata?.model) return undefined;
+  const known = AssistantModelSchema.safeParse(metadata.model);
+  const name = known.success ? ASSISTANT_MODELS[known.data].label : metadata.model;
+  return metadata.effort ? `${name} · ${metadata.effort} effort` : name;
 }
 
 function Reasoning({ text }: { text: string }) {

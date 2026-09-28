@@ -39,14 +39,17 @@ export class AiController {
   @ApiOperation({
     summary: 'Ask the assistant',
     description:
-      'Continues your saved conversation `id` (a new id starts one): send only the new `message`, or `trigger: "regenerate-message"` to answer the last question again. Streams an AI SDK UI message stream over SSE, so the reply arrives as `data:` frames rather than one JSON body — Swagger UI shows it as raw text. Parts of the answer are tool calls the web app renders as React components unless `generateUi` is false. Every call spends provider tokens.',
+      'Continues your saved conversation `id` (a new id starts one): send only the new `message`, or `trigger: "regenerate-message"` to answer the last question again. `model` picks the Claude model and `effort` its effort level (ignored by Claude Haiku 4.5). Streams an AI SDK UI message stream over SSE, so the reply arrives as `data:` frames rather than one JSON body — Swagger UI shows it as raw text. Parts of the answer are tool calls the web app renders as React components unless `generateUi` is false. Every call spends provider tokens.',
   })
   @ApiResponse({
     status: 201,
     description: 'The stream. Ends when the model stops, or as soon as the client disconnects.',
     content: { 'text/event-stream': { schema: { type: 'string' } } },
   })
-  @ApiErrorResponse(400, 'The envelope is malformed, a message fails the tool contract, or the conversation is full.')
+  @ApiErrorResponse(
+    400,
+    'The envelope is malformed (for example an unknown `model`), a message fails the tool contract, or the conversation is full.',
+  )
   @ApiErrorResponse(404, 'The conversation belongs to someone else.')
   @ApiErrorResponse(503, 'ANTHROPIC_API_KEY is not configured.')
   async chat(

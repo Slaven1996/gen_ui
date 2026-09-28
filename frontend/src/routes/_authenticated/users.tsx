@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, stripSearchParams } from '@tanstack/react-router';
 import type { z } from 'zod';
@@ -7,10 +6,9 @@ import { SearchFilter } from '@/components/filters/search-filter';
 import { PageContainer, PageHeader } from '@/components/layout/page';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAssistantContext } from '@/features/assistant/assistant-context';
-import { useUpdateUser } from '@/features/users/mutations';
 import { usersListQueryOptions } from '@/features/users/queries';
 import { CreateUserDialog } from '@/features/users/user-form-dialog';
-import { UsersTable, type UserActions } from '@/features/users/users-table';
+import { UsersTable } from '@/features/users/users-table';
 import { useAuth } from '@/lib/auth/auth-store';
 import { defaultsOf, searchSchema } from '@/lib/search';
 
@@ -38,18 +36,6 @@ function UsersPage() {
   const isAdmin = currentUser?.role === 'ADMIN';
   // The table's own query: this reads the same cache entry, it doesn't fetch twice.
   const users = useQuery(usersListQueryOptions(search));
-  const updateUser = useUpdateUser();
-
-  const actions = useMemo<UserActions | undefined>(
-    () =>
-      isAdmin
-        ? {
-            currentUserId: currentUser?.id,
-            onUpdate: (user, patch) => updateUser.mutate({ id: user.id, patch }),
-          }
-        : undefined,
-    [isAdmin, currentUser?.id, updateUser.mutate],
-  );
 
   useAssistantContext({
     title: 'Users',
@@ -101,7 +87,8 @@ function UsersPage() {
         </Select>
       </div>
 
-      <UsersTable query={search} onQueryChange={(next) => navigate({ search: next, replace: true })} actions={actions} />
+      {/* Row actions for admins come with the table, the same as in assistant answers. */}
+      <UsersTable query={search} onQueryChange={(next) => navigate({ search: next, replace: true })} />
     </PageContainer>
   );
 }

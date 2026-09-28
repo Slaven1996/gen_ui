@@ -8,6 +8,15 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ViewCard, ViewFullPageLink } from '@/components/view-card';
 import { UsersTable } from '@/features/users/users-table';
 
+/*
+ * Generative UI, the rendering half. A tool part in a message is what Claude
+ * decided [AI]: which tool, with which input (e.g. `{ title: 'Admins',
+ * role: 'ADMIN' }`). Turning it into a component is fixed code [app]: the
+ * registry below maps each tool to a domain view, and that view loads its own
+ * data through the REST API, exactly as its page does. The model never
+ * produces markup or rows for the screen.
+ */
+
 export type GenUIToolPart = ToolUIPart<GenUITools>;
 
 type Input<N extends GenUIToolName> = GenUITools[N]['input'];
@@ -31,14 +40,18 @@ interface ToolRenderer<N extends GenUIToolName> {
 /** A users call as a `/users` query: every field but the title. */
 const usersQuery = ({ title: _title, ...filters }: Input<'listUsers'>) => filters;
 
-/** The Users page's own table, with the call's filters, five rows a page. */
+/**
+ * The Users page's own table with the call's filters, five rows a page: the
+ * same columns, and the same row actions for admins.
+ */
 function UsersBody({ input }: { input: Input<'listUsers'> }) {
-  return <UsersTable query={ListUsersQuerySchema.parse({ ...usersQuery(input), pageSize: 5 })} compact />;
+  return <UsersTable query={ListUsersQuerySchema.parse({ ...usersQuery(input), pageSize: 5 })} dense />;
 }
 
 /**
  * Tool name → how its calls render. A new tool adds one entry, usually
- * wrapping its domain's existing table; TypeScript flags a tool without one.
+ * wrapping its domain's existing table (which brings its own role-based row
+ * actions); TypeScript flags a tool without one.
  */
 const RENDERERS: { [N in GenUIToolName]: ToolRenderer<N> } = {
   listUsers: {

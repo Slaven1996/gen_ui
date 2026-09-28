@@ -16,7 +16,7 @@
     "test": "pnpm -r test",
     "db:up": "docker compose up -d --wait postgres",
     "db:down": "docker compose stop postgres",
-    "db:migrate": "pnpm --filter backend db:migrate",
+    "db:reset": "docker compose rm -sfv postgres && docker volume rm gen-ui_pgdata && docker compose up -d --wait postgres",
     "db:seed": "pnpm --filter backend db:seed",
     "db:studio": "pnpm --filter backend db:studio",
     "docker:up": "docker compose up --build -d",

@@ -11,9 +11,9 @@ flowchart TD
   subgraph FE1["1 · Frontend: send"]
     U(["User: 'Get me all admins, and also users named John'"])
     TH["ChatThread · sendMessage(text)"]
-    PREF{{"Toggle 'Generate UI components'<br/>assistant-preferences · default on"}}
+    PREF{{"Settings · assistant-preferences<br/>model · effort · 'Generate UI components'"}}
     CTX["useAssistantContext()<br/>pathname · page title · summary"]
-    TR["chat-store transport<br/>body: id, trigger, the new message only,<br/>context, generateUi"]
+    TR["chat-store transport<br/>body: id, trigger, the new message only,<br/>context, generateUi, model, effort"]
     AF["authFetch<br/>Bearer access token · refresh + retry once on 401"]
     U --> TH --> TR
     PREF --> TR
@@ -34,7 +34,7 @@ flowchart TD
     SAVE1["save the conversation<br/>the question survives a failed model call"]
     PROMPT["buildInstructions<br/>generic rules + app map + guardrail<br/>+ components or text-only section<br/>+ session: user, role, page"]
     ROLES["AiTools.activeFor(user)<br/>TOOL_ROLES · the chat's @Roles"]
-    CALL["streamText<br/>model · instructions · history · tools<br/>activeTools · stopWhen AI_MAX_STEPS · abortSignal"]
+    CALL["streamText<br/>chosen model · effort + adaptive thinking (not Haiku)<br/>instructions · history · tools<br/>activeTools · stopWhen AI_MAX_STEPS · abortSignal"]
     GUARD --> CTRL --> KEY
     KEY -- no --> E503
     KEY -- yes --> HIST --> MERGE --> VAL --> SAVE1
@@ -73,7 +73,7 @@ flowchart TD
   RES -- "next step: results go back to Claude" --> LLM
 
   subgraph BE3["5 · Backend: stream and save"]
-    UIS["toUIMessageStream<br/>message ids · metadata: model, createdAt, generateUi, finishReason"]
+    UIS["toUIMessageStream<br/>message ids · metadata: model, effort, createdAt, generateUi, finishReason"]
     SSE["pipeUIMessageStreamToResponse<br/>Server-Sent Events"]
     ONEND["onEnd: save the full conversation<br/>also after Stop"]
     UIS --> SSE
@@ -95,7 +95,7 @@ flowchart TD
     RSN["reasoning → collapsed Reasoning"]
     MODE{"message.metadata.generateUi"}
     SKEL["input-streaming → skeleton"]
-    VIEW["input complete → card titled 'Admins'<br/>UsersTable built from the tool input<br/>Open in new tab ↗ /users?role=ADMIN"]
+    VIEW["input complete → card titled 'Admins'<br/>UsersTable built from the tool input<br/>every column · row actions for admins<br/>Open in new tab ↗ /users?role=ADMIN"]
     ERR["output-error → alert"]
     LINE["components off → one muted line<br/>'Admins · 2 found · Open in new tab ↗'"]
     CHAT --> KIND
@@ -112,9 +112,25 @@ flowchart TD
 ```
 
 **Reading it:**
+- **Only the `3 · Claude` box is AI-driven.** Everything else is ordinary, deterministic code; see [Who decides what](#who-decides-what).
 - **Two data paths reach `UsersService`.** The tool's `execute` gives Claude up to 20 rows to reason over. The table in the chat fetches its own data through the REST API, exactly like the Users page, so it pages, sorts and authorizes the same way.
 - **The tool input is a page query.** Apart from `title`, every field of `listUsers` is also a `/users` URL parameter. That is why "Open in new tab" can reproduce the table as a full page.
 - **Parallel calls.** Claude can emit several tool calls in one step; each renders as its own titled table, in order.
+- **Actions work in the chat.** For an admin, the chat table has the page's row actions. A change refreshes every users table on screen; the rows Claude read earlier stay as they were in the conversation.
+
+## Who decides what
+
+| Step | Decided by | Where |
+|---|---|---|
+| Which model and effort answer | the user (pickers) | `assistant-preferences.ts` → request body |
+| Which tools may be offered | code: role map | `TOOL_ROLES` in `ai.tools.ts` |
+| Answer, refuse (off topic) or look something up | **Claude** | steered by `system-prompt.ts` |
+| Which tool, with which filters, how many in parallel | **Claude** | steered by the tool descriptions in `assistant.ts` |
+| Validating the tool input and running the query | code | AI SDK + `ListUsersQuerySchema` → `UsersService` |
+| The wording of the answer | **Claude** | from the tool results |
+| Which component draws a tool call, and its data | code | `tool-parts.tsx` registry; the table fetches via the REST API |
+| Row actions in that component | code: the user's role | `useUserActions` in `users-table.tsx` |
+| Saving and restoring the conversation | code | `conversations.service.ts`, `chat-store.ts` |
 
 ## 2. Conversation lifecycle: open, restore, clear, sign out
 
@@ -164,7 +180,7 @@ A tool is an inbound adapter, like a controller: both translate an outside reque
 
 1. **Contract:** add the tool's schema to `genUiToolSchemas` in `packages/shared/src/assistant.ts`, with a `description` and a `.describe()` on every field. That text is how Claude learns the tool.
 2. **Tool:** add it in `backend/src/features/ai/ai.tools.ts`, calling that domain's service, plus one `TOOL_ROLES` line. Import the domain's module in `ai.module.ts`.
-3. **Renderer:** add an entry in `frontend/src/features/assistant/tool-parts.tsx` that wraps the domain's existing table and links to its page.
+3. **Renderer:** add an entry in `frontend/src/features/assistant/tool-parts.tsx` that wraps the domain's existing table and links to its page. Keep role-based row actions inside the table itself, so the chat gets the same ones as the page.
 
 The system prompt doesn't change. TypeScript fails the build if the backend tools and the shared contract drift apart, or if a tool has no renderer.
 
@@ -172,14 +188,14 @@ The system prompt doesn't change. TypeScript fails the build if the backend tool
 
 | Step | File |
 |---|---|
-| Toggle, panel open state | `frontend/src/features/assistant/assistant-preferences.ts` |
+| Model, effort, components toggle, panel open state (per tab) | `frontend/src/features/assistant/assistant-preferences.ts` |
 | Load, send, clear, auth | `frontend/src/features/assistant/chat-store.ts` |
-| Thread, toolbar, composer | `frontend/src/features/assistant/chat-thread.tsx` |
+| Thread, model/effort pickers, toolbar, composer | `frontend/src/features/assistant/chat-thread.tsx` |
 | Render parts, Markdown | `frontend/src/features/assistant/chat-message.tsx` |
 | Tool → component registry | `frontend/src/features/assistant/tool-parts.tsx` |
 | "Open in new tab" link | `frontend/src/components/view-card.tsx` |
 | The users table (page and chat) | `frontend/src/features/users/users-table.tsx` |
-| Contract: request, tools, messages | `packages/shared/src/assistant.ts` |
+| Contract: models, request, tools, messages | `packages/shared/src/assistant.ts` |
 | Endpoints | `backend/src/features/ai/ai.controller.ts` |
 | Model call, stream, save | `backend/src/features/ai/ai.service.ts` |
 | Saved conversations | `backend/src/features/ai/conversations.service.ts` |

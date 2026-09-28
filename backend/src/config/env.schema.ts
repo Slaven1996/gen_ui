@@ -56,13 +56,8 @@ export const EnvSchema = z
         : [],
     ),
 
-    AI_MODEL: z.preprocess(blankToUndefined, z.string().min(1).default('claude-opus-5')),
     AI_MAX_OUTPUT_TOKENS: int(64_000, 256, 128_000),
     AI_MAX_STEPS: int(5, 1, 20),
-    AI_EFFORT: z.preprocess(
-      blankToUndefined,
-      z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
-    ),
     AI_SEND_REASONING: booleanFlag(true),
     AI_REFUSAL_FALLBACK: booleanFlag(true),
 

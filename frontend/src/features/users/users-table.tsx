@@ -17,18 +17,38 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useViewQuery } from '@/hooks/use-view-query';
 import { getErrorMessage } from '@/lib/api/errors';
+import { useAuth } from '@/lib/auth/auth-store';
+import { useUpdateUser } from './mutations';
 import { usersListQueryOptions } from './queries';
 
 const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
 const formatDate = (iso: string | null) => (iso ? dateFormat.format(new Date(iso)) : 'Never');
 
 /** Admin row actions; without them the table is read-only. */
-export interface UserActions {
-  currentUserId: string | undefined;
+interface UserActions {
+  currentUserId: string;
   onUpdate: (user: PublicUser, patch: UpdateUserDto) => void;
 }
 
-function userColumns({ actions, compact }: { actions?: UserActions; compact: boolean }): ColumnDef<PublicUser>[] {
+/**
+ * Row actions for admins, wherever the table is shown: the Users page or an
+ * assistant answer. Everyone else gets a read-only table. The API enforces
+ * the same rule (changing a user is admin-only); this only decides what to show.
+ */
+function useUserActions(): UserActions | undefined {
+  const { user } = useAuth();
+  const { mutate } = useUpdateUser();
+  const adminId = user?.role === 'ADMIN' ? user.id : undefined;
+  return useMemo<UserActions | undefined>(
+    () =>
+      adminId
+        ? { currentUserId: adminId, onUpdate: (target, patch) => mutate({ id: target.id, patch }) }
+        : undefined,
+    [adminId, mutate],
+  );
+}
+
+function userColumns(actions: UserActions | undefined): ColumnDef<PublicUser>[] {
   const columns: ColumnDef<PublicUser>[] = [
     {
       accessorKey: 'name',
@@ -59,15 +79,11 @@ function userColumns({ actions, compact }: { actions?: UserActions; compact: boo
           <span className="text-sm text-muted-foreground">Deactivated</span>
         ),
     },
-    ...(compact
-      ? []
-      : [
-          {
-            accessorKey: 'lastLoginAt',
-            header: 'Last sign-in',
-            cell: ({ row }) => <span className="text-sm tabular-nums">{formatDate(row.original.lastLoginAt)}</span>,
-          } satisfies ColumnDef<PublicUser>,
-        ]),
+    {
+      accessorKey: 'lastLoginAt',
+      header: 'Last sign-in',
+      cell: ({ row }) => <span className="text-sm tabular-nums">{formatDate(row.original.lastLoginAt)}</span>,
+    },
   ];
   if (!actions) return columns;
   return [
@@ -114,23 +130,24 @@ function UserRowActions({ user, actions: { currentUserId, onUpdate } }: { user: 
 }
 
 /**
- * Users as a standalone view: the `/users` page (query in the URL, admin
- * actions) and the assistant's answers (a fixed query, paged locally).
+ * Users as a standalone view, the same everywhere: the `/users` page (query
+ * in the URL) and the assistant's answers (a fixed query, paged locally,
+ * `dense`). Every column, and admin row actions for admins. A change made in
+ * one place refreshes every users table on screen.
  */
 export function UsersTable({
   query,
   onQueryChange,
-  actions,
-  compact = false,
+  dense = false,
 }: {
   query: ListUsersQuery;
   onQueryChange?: (next: ListUsersQuery) => void;
-  actions?: UserActions;
-  compact?: boolean;
+  dense?: boolean;
 }) {
   const [current, update] = useViewQuery(query, onQueryChange);
   const users = useQuery(usersListQueryOptions(current));
-  const columns = useMemo(() => userColumns({ actions, compact }), [actions, compact]);
+  const actions = useUserActions();
+  const columns = useMemo(() => userColumns(actions), [actions]);
 
   if (users.isError) {
     return (
@@ -147,7 +164,7 @@ export function UsersTable({
       getRowId={(user) => user.id}
       isLoading={users.isPending}
       isFetching={users.isPlaceholderData}
-      dense={compact}
+      dense={dense}
       emptyMessage="No users match these filters."
       pagination={{
         pageIndex: current.page - 1,

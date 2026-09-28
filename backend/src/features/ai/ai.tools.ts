@@ -29,20 +29,25 @@ const TOOL_ROLES = {
  * rules and mapping as the REST API. Tools never call a controller or a
  * repository. A new domain adds its tool here, with its contract in
  * @gen-ui/shared, and injects that domain's service.
+ *
+ * [AI]  Claude decides to call a tool and writes its input (the filters).
+ * [app] Everything in `execute` is ordinary code: the input is validated by
+ *       the SDK against the shared schema, then again as a page query, and
+ *       the service runs the same query the REST endpoint would.
  */
 @Injectable()
 export class AiTools {
   constructor(private readonly users: UsersService) {}
 
+  /** A fresh tool set per request; `execute` is what the AI SDK runs for each call. */
   create() {
     return {
       listUsers: tool({
         ...genUiToolSchemas.listUsers,
         // `title` only labels the table; the rest is the `/users` query.
         execute: async ({ title: _title, ...filters }) => {
-          console.log('FILTERI');
-          console.log(filters);
           const page = await this.users.list(ListUsersQuerySchema.parse({ ...filters, pageSize: ROWS_FOR_MODEL }));
+          // What Claude reads back: enough to answer "how many" and name a few.
           return {
             total: page.total,
             users: page.items.map(({ name, email, role, isActive, lastLoginAt }) => ({

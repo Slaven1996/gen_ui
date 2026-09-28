@@ -8,8 +8,8 @@
 # shared by every install below and by later builds.
 
 FROM node:24-bookworm-slim AS base
-# Prisma's schema engine (used by `migrate deploy`) links against OpenSSL, which
-# the slim image does not ship.
+# Prisma's native engines link against OpenSSL, which the slim image does not
+# ship.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends openssl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
@@ -50,8 +50,10 @@ ENV NODE_ENV=production
 COPY --from=prod-deps /repo /repo
 COPY --from=build /repo/packages/shared/dist packages/shared/dist
 COPY --from=build /repo/backend/dist backend/dist
-# Migrations and the SQL seed files, read at container start.
-COPY backend/prisma backend/prisma
+# The seed runner and its SQL files, run at container start. The schema
+# (prisma/init.sql) is not copied: the Postgres container applies it.
+COPY backend/prisma/seed.ts backend/prisma/
+COPY backend/prisma/seed backend/prisma/seed
 
 EXPOSE 3000
 

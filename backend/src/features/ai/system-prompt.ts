@@ -2,6 +2,10 @@ import type { ChatContext } from '@gen-ui/shared';
 import type { AuthUser } from '../users/user.mapper.js';
 
 /*
+ * The system prompt: Claude's standing instructions. Together with the tool
+ * descriptions it steers every AI-driven decision (step 5 in ai.service.ts):
+ * whether to answer, refuse or call tools, and how to phrase the answer.
+ *
  * Generic on purpose: this prompt never names a tool or a domain. What each
  * tool does, and how to fill its fields, lives in that tool's description and
  * field descriptions (@gen-ui/shared), which the model receives with the tool

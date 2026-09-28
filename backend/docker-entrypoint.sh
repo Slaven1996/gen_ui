@@ -4,8 +4,9 @@ set -e
 # The runtime image carries no pnpm, so the CLIs are called directly.
 cd /repo/backend
 
-echo "› Applying database migrations…"
-./node_modules/.bin/prisma migrate deploy
+# No schema step: the Postgres container creates every table from
+# backend/prisma/init.sql when its volume is first initialised, and compose
+# starts this container only once that database is healthy.
 
 if [ "${SEED_ON_START:-true}" = "true" ]; then
   echo "› Seeding (idempotent)…"
