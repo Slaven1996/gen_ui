@@ -4,8 +4,8 @@ A dashboard app that combines classic CRUD screens with **Generative UI**: an AI
 
 | Layer | Stack |
 |---|---|
-| Frontend (`/frontend`) | React 19, Vite 8 (client-side rendering), TanStack Router (file-based) + Query + Table, shadcn/ui (Radix, Tailwind v4), axios |
-| Backend (`/backend`) | NestJS 12 (ESM), Prisma 7 + PostgreSQL 17, Passport JWT, Vercel AI SDK 7 (`@ai-sdk/anthropic`), OpenAPI via `@nestjs/swagger` |
+| Frontend (`/frontend`) | React 19, Vite 8 (client-side rendering), TanStack Router (file-based) + Query + Table, shadcn/ui (Radix, Tailwind v4), axios, Socket.IO client |
+| Backend (`/backend`) | NestJS 12 (ESM), Prisma 7 + PostgreSQL 17, Passport JWT, Vercel AI SDK 7 (`@ai-sdk/anthropic`), WebSockets (`@nestjs/websockets` + Socket.IO), OpenAPI via `@nestjs/swagger` |
 | Shared (`/packages/shared`) | Zod schemas and types used by both sides: DTOs and the Generative UI tool contracts |
 
 ## Getting started
@@ -92,6 +92,8 @@ Admins configure (assets, devices, tags, rules, shift plans); everyone can ackno
 
 Each module is a folder on both sides. `backend/src/features/<module>` holds its Nest module, controllers and services; `frontend/src/features/<module>` holds its tables, charts and dialogs, and the page that assembles them lives in `frontend/src/routes/_authenticated`. What every module shares stays at the root of `backend/src`: `common` (list-query helpers, decorators, the exception filter), `config`, `docs` and `prisma`.
 
+`@gen-ui/shared` runs from its compiled `dist` (so `pnpm dev` builds it first and then watches it). Editors don't need that build: `frontend/tsconfig.app.json` and `backend/tsconfig.json` list the package as a TypeScript **project reference**, so the editor reads its source, and a new export is visible in both apps the moment it is saved. `tsc -b` (the frontend build) builds the package itself when it is out of date.
+
 ### One query, three uses
 
 Every list endpoint takes the same kind of query — `page`/`pageSize`, `sort=field` or `sort=-field`, comma-separated multi-value filters, a time window as `range=24h` (relative, so links stay live) or `from`/`to`, `search`, and `assetId` meaning "this asset and everything below it". Each is **one Zod schema in `@gen-ui/shared`**, used by:
@@ -107,6 +109,18 @@ Tables and charts (`AlarmsTable`, `TelemetryChart`, `LogbookTable`, `TagsTable`,
 A reading arrives (`POST /api/telemetry/measurements`, or the simulator) → the tag's latest value moves → every enabled rule on the tag is evaluated, with the rule rows locked so concurrent readings can't double-raise → a firing value raises an `ACTIVE` alarm; a value back past the threshold by the **deadband** clears it (`CLEARED`, or `CLOSED` if already acknowledged). Acknowledging moves `ACTIVE → ACKNOWLEDGED` / `CLEARED → CLOSED`. Every transition is written to the logbook (the alarm's timeline is `GET /api/logbook?alarmId=…`), and every user action to the audit log, in the same transaction as the change.
 
 **The simulator** (`SIMULATOR_ENABLED`, default on) writes a reading for every tag of an `ONLINE` device every `SIMULATOR_INTERVAL_SECONDS` through that same ingest path, with an occasional excursion that trips the seeded rules — so charts move and alarms come and go in a demo. Turn it off when real data flows in. Measurements older than `TELEMETRY_RETENTION_DAYS` (180) are pruned daily.
+
+### Real-time notifications
+
+The bell in the header shows alarm notifications the moment the server sends them, over a **WebSocket** — nothing polls. Every signed-in tab opens one Socket.IO connection (namespace `/notifications`, path `/api/socket.io`, WebSocket transport only), so it travels through the Vite proxy and nginx like the rest of `/api`, on the web app's own origin.
+
+- **Server:** `backend/src/features/notifications`. `NotificationsGateway` (`@WebSocketGateway`) checks the access token in the socket handshake exactly as the REST guard does (signature, expiry, active account) and refuses the connection otherwise. A producer calls `NotificationsGateway.broadcast(notification)`; the payload is `AppNotificationSchema` in `packages/shared/src/notifications.ts`.
+- **Browser:** `frontend/src/features/notifications`. The app shell opens the socket after sign-in and closes it on sign-out; a reconnect sends a fresh token. The bell counts unread notifications, lists the latest 50 (severity, text, asset link, time), and marks them read when its popover closes. The list lives in the tab's memory.
+- **Demo alarms (temporary):** until real alarms are wired in, `MockAlarmNotifier` runs every 20 s and, when `Math.random() > 0.5`, pushes a made-up alarm on a random analog tag (marked *Demo alarm*; nothing is stored). `MOCK_ALARM_NOTIFICATIONS=false` turns it off. To go live, have the alarm evaluator broadcast each alarm it raises, after its transaction commits, and delete the mock.
+
+### Users
+
+`/users` filters by name or email, role, **status** (active / deactivated) and **last sign-in**: *All*, *Never signed in*, or *Exact date* with a date picker. They are URL and API parameters like every other list filter: `GET /api/users?status=DEACTIVATED&lastSignIn=never`, or `lastSignIn=2026-05-03` for a day. That day is read in `timeZone`, which the web app sets to the browser's zone, so the filter matches the date the *Last sign-in* column shows.
 
 ## API docs
 
@@ -156,6 +170,7 @@ A few rules Prisma cannot express live in `init.sql` as `CHECK` constraints (an 
 | `pnpm docker:up` / `docker:logs` | Build and start the whole stack in Docker, detached / in the foreground |
 | `pnpm docker:down` / `docker:clean` | Stop the stack / stop it and drop the database volume |
 | `pnpm dev` | Builds `shared`, then runs shared (watch), API and web app in parallel |
+| `pnpm --filter @gen-ui/shared build` | Rebuild the shared package's `dist`, which the running apps import |
 | `pnpm build` / `pnpm typecheck` / `pnpm lint` / `pnpm test` | Across all workspaces |
 | `pnpm db:up` / `db:down` | Start / stop only the Postgres container (a new volume gets `init.sql`) |
 | `pnpm db:reset` | Drop the database volume and recreate the schema from `init.sql` (then `pnpm db:seed`) |
@@ -186,7 +201,7 @@ Ask "all admins, and also users named John" and the answer contains two live use
 
 1. The backend calls `streamText` with the tools the user's role may use and pipes an AI SDK UI message stream (SSE) back to the client (`backend/src/features/ai`).
 2. **Tools call services, never controllers or repositories.** A tool is an inbound adapter like a controller, so the chat gets the same rules and mapping as the REST API. Guards don't run for tool calls, so each tool declares its roles in `TOOL_ROLES` (the chat's `@Roles`).
-3. A tool's input is a page query: apart from its `title`, every field of `listUsers` is a `/users` URL parameter. The chat renders the tool call as that page's table, which fetches its own data, and links to the page with the same query.
+3. A tool's input is a page query: apart from its `title`, every field of `listUsers` (`search`, `role`, `status`, `lastSignIn`) is a `/users` URL parameter. The chat renders the tool call as that page's table, which fetches its own data, and links to the page with the same query. "Deactivated users who never signed in" becomes `status: DEACTIVATED, lastSignIn: never`; "who signed in yesterday" becomes a date, because each request tells Claude today's date in the user's time zone.
 4. `features/assistant/tool-parts.tsx` maps each tool to its view, according to the part's state (`input-streaming` → skeleton, input complete → the table, `output-error` → an alert).
 
 **The system prompt is generic.** It holds the app's pages, the rules for using tools and the out-of-scope refusal, and never names a tool. What a tool does and how to fill its fields lives in its `description` and field `.describe()` texts in `packages/shared/src/assistant.ts`, which Claude receives with the tool.
@@ -210,11 +225,11 @@ Two pickers above the message box choose, per message, **which Claude model answ
 
 | Model | Id | Effort levels | Thinking |
 |---|---|---|---|
-| Claude Opus 5 (default) | `claude-opus-5` | low · medium · high (default) · extra-high · max | adaptive |
+| Claude Opus 5 | `claude-opus-5` | low · medium · high (default) · extra-high · max | adaptive |
 | Claude Sonnet 5 | `claude-sonnet-5` | same | adaptive |
-| Claude Haiku 4.5 (cheapest) | `claude-haiku-4-5` | none, so the picker hides | none |
+| Claude Haiku 4.5 (default, cheapest) | `claude-haiku-4-5` | none, so the picker hides | none |
 
-The list lives in `ASSISTANT_MODELS` (`packages/shared/src/assistant.ts`), and the server rejects any other id. Claude 3 Opus, 3.5 Sonnet and 3 Haiku are retired by Anthropic (they return 404) and never had effort levels, so each tier uses its current model. Lower effort is faster and cheaper; for simple lookups like these, low or medium is usually enough.
+The list lives in `ASSISTANT_MODELS` (`packages/shared/src/assistant.ts`), and the server rejects any other id. `DEFAULT_ASSISTANT_MODEL` (Haiku) is what the picker starts on and what the server uses when a request names no model; a model picked earlier stays picked in that browser. Claude 3 Opus, 3.5 Sonnet and 3 Haiku are retired by Anthropic (they return 404) and never had effort levels, so each tier uses its current model. Lower effort is faster and cheaper; for simple lookups like these, low or medium is usually enough.
 
 Don't add `temperature`/`topP`/`budgetTokens`: the Claude 5 models reject them with a 400. `AI_REFUSAL_FALLBACK=true` enables Anthropic's server-side refusal fallback on Claude Opus 5, and `AI_MAX_OUTPUT_TOKENS` caps answer length (Haiku 4.5 at most 64000). The only key the app needs is `ANTHROPIC_API_KEY`.
 
@@ -228,7 +243,8 @@ Don't add `temperature`/`topP`/`budgetTokens`: the Claude 5 models reject them w
 
 ## Production notes
 
-- Serve the SPA and `/api` from the **same origin** behind a reverse proxy, set `COOKIE_SECURE=true` and `TRUST_PROXY`, and disable proxy buffering for `/api/ai/chat`. `frontend/nginx.conf` is a working example of all of this.
+- Serve the SPA and `/api` from the **same origin** behind a reverse proxy, set `COOKIE_SECURE=true` and `TRUST_PROXY`, disable proxy buffering for `/api/ai/chat`, and pass WebSocket upgrades (`Upgrade`/`Connection` headers) for `/api/socket.io`. `frontend/nginx.conf` is a working example of all of this.
+- Notifications go to every connected tab of one API process. Behind several API instances, add the Socket.IO Redis adapter so a broadcast reaches them all.
 - Set `NODE_ENV=production`. Configuration is validated at boot and fails fast: in production `COOKIE_SECURE` must be true and `ANTHROPIC_API_KEY` must be present.
 - Replace the development `JWT_ACCESS_SECRET` from `docker-compose.yml` with a real one (`openssl rand -base64 48`, at least 32 characters).
 - For split origins, set `CORS_ORIGIN` (comma-separated) and `VITE_API_BASE_URL`. The cookie stays `SameSite=Strict`, so the frontend and API must be on the same site (e.g. `app.example.com` + `api.example.com`).

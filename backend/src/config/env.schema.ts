@@ -67,6 +67,9 @@ export const EnvSchema = z
     /** Measurements older than this are deleted by a daily job. */
     TELEMETRY_RETENTION_DAYS: int(180, 1, 3650),
 
+    /** Temporary demo: a made-up alarm notification every 20 s, half of the time, over the notifications socket. */
+    MOCK_ALARM_NOTIFICATIONS: booleanFlag(true),
+
     /** The assistant's only provider. Without it the chat answers 503 and the rest of the app runs. */
     ANTHROPIC_API_KEY: optionalString,
   })

@@ -1,7 +1,8 @@
 /**
  * Wall-clock time in an IANA zone → UTC instant, with nothing but `Intl`.
  * Shift templates say "22:00"; that has to mean 22:00 in the planner's zone on
- * each date, whichever side of a DST change the date falls on.
+ * each date, whichever side of a DST change the date falls on. The same goes
+ * for "signed in on 3 May": the viewer's 3 May, not UTC's.
  */
 
 /** How far `timeZone` is ahead of UTC at `instant`, in ms. */
@@ -29,6 +30,24 @@ export function zonedTimeToUtc(date: string, time: string, timeZone: string): Da
   // The second pass corrects the guess when the first lands across a DST change.
   const first = wallClock - zoneOffset(wallClock, timeZone);
   return new Date(wallClock - zoneOffset(first, timeZone));
+}
+
+/** The calendar date `days` after `date` (YYYY-MM-DD). */
+function addDays(date: string, days: number): string {
+  const cursor = new Date(`${date}T00:00:00Z`);
+  cursor.setUTCDate(cursor.getUTCDate() + days);
+  return cursor.toISOString().slice(0, 10);
+}
+
+/**
+ * The instants one calendar day covers in `timeZone`: from its midnight
+ * (inclusive) to the next day's (exclusive). 23 or 25 hours across a DST change.
+ */
+export function zonedDay(date: string, timeZone: string): { start: Date; end: Date } {
+  return {
+    start: zonedTimeToUtc(date, '00:00', timeZone),
+    end: zonedTimeToUtc(addDays(date, 1), '00:00', timeZone),
+  };
 }
 
 /** Calendar dates from `start` to `end` inclusive (YYYY-MM-DD), keeping those on `weekdays` (0 = Sunday). */

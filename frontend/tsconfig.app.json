@@ -25,5 +25,8 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src"]
+  "include": ["src"],
+  // @gen-ui/shared resolves to its dist. As a reference, the editor reads its
+  // source instead (no rebuild needed to see a change), and `tsc -b` builds it first.
+  "references": [{ "path": "../packages/shared" }]
 }

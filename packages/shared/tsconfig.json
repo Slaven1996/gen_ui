@@ -1,6 +1,10 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    // A project reference target (see frontend/tsconfig.app.json and
+    // backend/tsconfig.json): the editor then reads this package's source
+    // instead of its possibly stale dist, and `tsc -b` builds it first.
+    "composite": true,
     "rootDir": "./src",
     "outDir": "./dist",
     "types": []

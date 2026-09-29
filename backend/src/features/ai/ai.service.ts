@@ -98,7 +98,9 @@ export class AiService {
     if (!this.anthropic) {
       throw new ServiceUnavailableException('AI is not configured. Set ANTHROPIC_API_KEY in backend/.env.');
     }
-    const tools = this.tools.create();
+    // Dates the user mentions ("signed in yesterday") are days in their zone.
+    const timeZone = request.context?.timeZone ?? 'UTC';
+    const tools = this.tools.create({ timeZone });
     const effort = effortFor(request);
 
     // 1–3 [app] The conversation this turn continues: extended, validated, saved.
@@ -111,7 +113,7 @@ export class AiService {
     // reads the results, and so on until it stops calling tools.
     const result = streamText({
       model: this.anthropic(request.model),
-      instructions: buildInstructions({ user, context: request.context, generateUi: request.generateUi }),
+      instructions: buildInstructions({ user, context: request.context, timeZone, generateUi: request.generateUi }),
       messages: await convertToModelMessages(forModel(messages, request.model), { tools }),
       tools,
       // The role check: the model is never offered a tool this user may not use.

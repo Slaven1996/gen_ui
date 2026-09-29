@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import type { Role } from '@gen-ui/shared';
+import type { LastSignInFilter, Role, UserStatus } from '@gen-ui/shared';
+import { zonedDay } from '../../common/zoned-time.js';
 import type { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import type { Db } from '../../prisma/transaction.js';
@@ -10,7 +11,17 @@ export interface UserListFilter {
   pageSize: number;
   search?: string;
   role?: Role;
-  isActive?: boolean;
+  status?: UserStatus;
+  /** `never`, or the day (in `timeZone`) the last sign-in fell on. */
+  lastSignIn?: LastSignInFilter;
+  timeZone: string;
+}
+
+/** The `last_login_at` condition for a last sign-in filter: no sign-in yet, or within that local day. */
+function lastLoginWhere(filter: LastSignInFilter, timeZone: string): Prisma.UserWhereInput['lastLoginAt'] {
+  if (filter === 'never') return null;
+  const day = zonedDay(filter, timeZone);
+  return { gte: day.start, lt: day.end };
 }
 
 /** All user queries live here so every read goes through `publicUserSelect`. */
@@ -41,7 +52,8 @@ export class UsersRepository {
   async list(filter: UserListFilter): Promise<{ items: UserRecord[]; total: number }> {
     const where: Prisma.UserWhereInput = {
       ...(filter.role && { role: filter.role }),
-      ...(filter.isActive !== undefined && { isActive: filter.isActive }),
+      ...(filter.status && { isActive: filter.status === 'ACTIVE' }),
+      ...(filter.lastSignIn && { lastLoginAt: lastLoginWhere(filter.lastSignIn, filter.timeZone) }),
       ...(filter.search && {
         OR: [
           { email: { contains: filter.search, mode: 'insensitive' } },

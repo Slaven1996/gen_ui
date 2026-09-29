@@ -1,11 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, stripSearchParams } from '@tanstack/react-router';
 import type { z } from 'zod';
-import { ListUsersQuerySchema, RoleSchema } from '@gen-ui/shared';
+import { ListUsersQuerySchema, type Role, type UserStatus } from '@gen-ui/shared';
+import { FilterBar } from '@/components/filters/filter-bar';
+import type { FilterOption } from '@/components/filters/multi-select-filter';
 import { SearchFilter } from '@/components/filters/search-filter';
+import { SelectFilter } from '@/components/filters/select-filter';
 import { PageContainer, PageHeader } from '@/components/layout/page';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAssistantContext } from '@/features/assistant/assistant-context';
+import { LastSignInFilter } from '@/features/users/last-sign-in-filter';
 import { usersListQueryOptions } from '@/features/users/queries';
 import { CreateUserDialog } from '@/features/users/user-form-dialog';
 import { UsersTable } from '@/features/users/users-table';
@@ -13,6 +16,16 @@ import { useAuth } from '@/lib/auth/auth-store';
 import { defaultsOf, searchSchema } from '@/lib/search';
 
 type UsersSearch = z.output<typeof ListUsersQuerySchema>;
+
+const ROLE_OPTIONS: FilterOption<Role>[] = [
+  { value: 'ADMIN', label: 'Admins' },
+  { value: 'USER', label: 'Users' },
+];
+
+const STATUS_OPTIONS: FilterOption<UserStatus>[] = [
+  { value: 'ACTIVE', label: 'Active' },
+  { value: 'DEACTIVATED', label: 'Deactivated' },
+];
 
 /**
  * Table state lives in the URL, so filters and pages are shareable and survive
@@ -44,13 +57,16 @@ function UsersPage() {
       users.data && `${users.data.total} users match`,
       search.search && `search "${search.search}"`,
       search.role && `role ${search.role}`,
+      search.status && `status ${search.status}`,
+      search.lastSignIn && `last sign-in ${search.lastSignIn}`,
     ]
       .filter(Boolean)
       .join(', '),
   });
 
-  const updateSearch = (patch: Partial<UsersSearch>) =>
-    navigate({ search: (previous) => ({ ...previous, ...patch }), replace: true });
+  // Any filter change starts again from the first page.
+  const setFilters = (patch: Partial<UsersSearch>) =>
+    navigate({ search: (previous) => ({ ...previous, ...patch, page: 1 }), replace: true });
 
   return (
     <PageContainer>
@@ -64,28 +80,33 @@ function UsersPage() {
         actions={isAdmin && <CreateUserDialog />}
       />
 
-      <div className="flex flex-wrap items-center gap-2">
+      <FilterBar
+        canReset={Boolean(search.search || search.role || search.status || search.lastSignIn)}
+        onReset={() => navigate({ search: {}, replace: true })}
+      >
         <SearchFilter
           value={search.search}
-          onChange={(value) => updateSearch({ search: value, page: 1 })}
+          onChange={(value) => setFilters({ search: value })}
           placeholder="Search name or email"
         />
-        <Select
-          value={search.role ?? 'ALL'}
-          onValueChange={(value) =>
-            updateSearch({ role: value === 'ALL' ? undefined : RoleSchema.parse(value), page: 1 })
-          }
-        >
-          <SelectTrigger className="w-36" aria-label="Filter by role">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">All roles</SelectItem>
-            <SelectItem value="ADMIN">Admins</SelectItem>
-            <SelectItem value="USER">Users</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+        <SelectFilter
+          label="Role"
+          allLabel="All roles"
+          options={ROLE_OPTIONS}
+          value={search.role}
+          onChange={(role) => setFilters({ role })}
+          className="w-36"
+        />
+        <SelectFilter
+          label="Status"
+          allLabel="All statuses"
+          options={STATUS_OPTIONS}
+          value={search.status}
+          onChange={(status) => setFilters({ status })}
+          className="w-36"
+        />
+        <LastSignInFilter value={search.lastSignIn} onChange={(lastSignIn) => setFilters({ lastSignIn })} />
+      </FilterBar>
 
       {/* Row actions for admins come with the table, the same as in assistant answers. */}
       <UsersTable query={search} onQueryChange={(next) => navigate({ search: next, replace: true })} />

@@ -4,6 +4,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
 import './index.css';
 import { resetChat } from './features/assistant/chat-store';
+import { resetNotifications } from './features/notifications/notifications-store';
 import { queryClient } from './lib/api/query-client';
 import { authStore } from './lib/auth/auth-store';
 import { bootstrapAuth } from './lib/auth/bootstrap';
@@ -14,6 +15,7 @@ bootstrapAuth();
 // Signed out (explicitly, by expiry, or from another tab): drop all user-scoped state.
 authStore.onSignedOut(() => {
   resetChat();
+  resetNotifications();
   // Clear the cache once the router has left the protected page — clearing while
   // its queries are still mounted would make them refetch without a token.
   // (login() clears it again, so nothing can leak to the next user regardless.)

@@ -39,14 +39,19 @@ const TOOL_ROLES = {
 export class AiTools {
   constructor(private readonly users: UsersService) {}
 
-  /** A fresh tool set per request; `execute` is what the AI SDK runs for each call. */
-  create() {
+  /**
+   * A fresh tool set per request; `execute` is what the AI SDK runs for each
+   * call. `timeZone` is the user's, so a date Claude takes from their words
+   * ("signed in yesterday") means the same day the web app's table shows.
+   */
+  create({ timeZone }: { timeZone: string }) {
     return {
       listUsers: tool({
         ...genUiToolSchemas.listUsers,
         // `title` only labels the table; the rest is the `/users` query.
         execute: async ({ title: _title, ...filters }) => {
-          const page = await this.users.list(ListUsersQuerySchema.parse({ ...filters, pageSize: ROWS_FOR_MODEL }));
+          const query = ListUsersQuerySchema.parse({ ...filters, timeZone, pageSize: ROWS_FOR_MODEL });
+          const page = await this.users.list(query);
           // What Claude reads back: enough to answer "how many" and name a few.
           return {
             total: page.total,

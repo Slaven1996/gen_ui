@@ -1,6 +1,8 @@
 import type { UIMessage } from 'ai';
 import { z } from 'zod';
 import { PublicUserSchema, RoleSchema } from './auth.js';
+import { timeZoneParam } from './common/query.js';
+import { LastSignInFilterSchema, UserStatusSchema } from './users.js';
 
 // ─── Models ─────────────────────────────────────────────────────────────────
 
@@ -18,7 +20,11 @@ export const ASSISTANT_MODELS: Record<AssistantModel, { label: string; effort: b
   'claude-sonnet-5': { label: 'Claude Sonnet 5', effort: true },
   'claude-haiku-4-5': { label: 'Claude Haiku 4.5', effort: false },
 };
-export const DEFAULT_ASSISTANT_MODEL: AssistantModel = 'claude-opus-5';
+/**
+ * The cheapest model: the one the picker starts on, and the one the server
+ * uses when a request names none. Lookups like "all admins" don't need more.
+ */
+export const DEFAULT_ASSISTANT_MODEL: AssistantModel = 'claude-haiku-4-5';
 
 /** How hard the model works on an answer: lower is faster and cheaper. `high` is Anthropic's default. */
 export const EffortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
@@ -27,11 +33,14 @@ export const DEFAULT_EFFORT: Effort = 'high';
 
 // ─── Requests ───────────────────────────────────────────────────────────────
 
-/** What the current page tells the assistant about itself. */
+/** What the current page tells the assistant about itself, and where the user is. */
 export const ChatContextSchema = z.object({
   pathname: z.string().max(500),
   title: z.string().max(200).optional(),
   summary: z.string().max(2000).optional(),
+  timeZone: timeZoneParam().describe(
+    "The browser's IANA time zone. \"Today\" and any date the user mentions are days there.",
+  ),
 });
 export type ChatContext = z.infer<typeof ChatContextSchema>;
 
@@ -118,10 +127,12 @@ export const ListUsersToolInputSchema = z.object({
       "Part of a name or email, case-insensitive. 'users named John' → 'John'; 'gmail addresses' → 'gmail'. Omit to list everyone.",
     ),
   role: RoleSchema.optional().describe('ADMIN for admins or administrators, USER for regular users. Omit for both.'),
-  isActive: z
-    .boolean()
-    .optional()
-    .describe('false for deactivated or disabled accounts, true for active ones only. Omit for both.'),
+  status: UserStatusSchema.optional().describe(
+    'DEACTIVATED for deactivated or disabled accounts, ACTIVE for active ones only. Omit for both.',
+  ),
+  lastSignIn: LastSignInFilterSchema.optional().describe(
+    "'never' for accounts that have never signed in. A date (YYYY-MM-DD) for accounts whose last sign-in was on that day: 'signed in today' → today's date, 'last logged in on 3 May' → that date. Omit when sign-ins don't matter.",
+  ),
 });
 
 export const ListUsersToolOutputSchema = z.object({
@@ -131,7 +142,7 @@ export const ListUsersToolOutputSchema = z.object({
 
 export const genUiToolSchemas = {
   listUsers: {
-    description: "Find this app's user accounts by name or email, role and status.",
+    description: "Find this app's user accounts by name or email, role, status and last sign-in.",
     inputSchema: ListUsersToolInputSchema,
     outputSchema: ListUsersToolOutputSchema,
   },

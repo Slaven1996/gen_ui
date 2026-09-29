@@ -12,7 +12,7 @@ flowchart TD
     U(["User: 'Get me all admins, and also users named John'"])
     TH["ChatThread · sendMessage(text)"]
     PREF{{"Settings · assistant-preferences<br/>model · effort · 'Generate UI components'"}}
-    CTX["useAssistantContext()<br/>pathname · page title · summary"]
+    CTX["useAssistantContext()<br/>pathname · page title · summary · browser time zone"]
     TR["chat-store transport<br/>body: id, trigger, the new message only,<br/>context, generateUi, model, effort"]
     AF["authFetch<br/>Bearer access token · refresh + retry once on 401"]
     U --> TH --> TR
@@ -32,7 +32,7 @@ flowchart TD
     MERGE["submit: append the message<br/>regenerate: drop a trailing answer<br/>max 200 messages"]
     VAL["safeValidateUIMessages against the tool schemas<br/>last message must be the user's"]
     SAVE1["save the conversation<br/>the question survives a failed model call"]
-    PROMPT["buildInstructions<br/>generic rules + app map + guardrail<br/>+ components or text-only section<br/>+ session: user, role, page"]
+    PROMPT["buildInstructions<br/>generic rules + app map + guardrail<br/>+ components or text-only section<br/>+ session: user, role, today in their time zone, page"]
     ROLES["AiTools.activeFor(user)<br/>TOOL_ROLES · the chat's @Roles"]
     CALL["streamText<br/>chosen model · effort + adaptive thinking (not Haiku)<br/>instructions · history · tools<br/>activeTools · stopWhen AI_MAX_STEPS · abortSignal"]
     GUARD --> CTRL --> KEY
@@ -61,7 +61,7 @@ flowchart TD
   CALLS -- "SDK runs each execute" --> EXEC
 
   subgraph BE2["4 · Backend: tool execution, once per call"]
-    EXEC["AiTools · listUsers.execute<br/>ListUsersQuerySchema.parse(filters, pageSize 20)"]
+    EXEC["AiTools · listUsers.execute<br/>ListUsersQuerySchema.parse(filters, user's time zone, pageSize 20)"]
     SVC["UsersService.list"]
     REPO["UsersRepository.list · Prisma"]
     DB[("PostgreSQL · users")]
@@ -114,7 +114,8 @@ flowchart TD
 **Reading it:**
 - **Only the `3 · Claude` box is AI-driven.** Everything else is ordinary, deterministic code; see [Who decides what](#who-decides-what).
 - **Two data paths reach `UsersService`.** The tool's `execute` gives Claude up to 20 rows to reason over. The table in the chat fetches its own data through the REST API, exactly like the Users page, so it pages, sorts and authorizes the same way.
-- **The tool input is a page query.** Apart from `title`, every field of `listUsers` is also a `/users` URL parameter. That is why "Open in new tab" can reproduce the table as a full page.
+- **The tool input is a page query.** Apart from `title`, every field of `listUsers` (`search`, `role`, `status`, `lastSignIn`) is also a `/users` URL parameter. That is why "Open in new tab" can reproduce the table as a full page.
+- **Dates are the user's.** The request carries the browser's time zone. The prompt's session block states today's date there, so Claude can turn "signed in yesterday" into `lastSignIn: 2026-09-28`, and the tool, the chat table and the Users page all read that date as the same local day.
 - **Parallel calls.** Claude can emit several tool calls in one step; each renders as its own titled table, in order.
 - **Actions work in the chat.** For an admin, the chat table has the page's row actions. A change refreshes every users table on screen; the rows Claude read earlier stay as they were in the conversation.
 

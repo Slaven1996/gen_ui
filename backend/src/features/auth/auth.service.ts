@@ -78,6 +78,27 @@ export class AuthService {
     if (presented) await this.refreshTokens.revokeFamilyOf(presented, 'LOGOUT');
   }
 
+  /**
+   * The account behind an access token, for callers outside HTTP (the
+   * notifications socket) where the Passport guard doesn't run. The same
+   * checks as `JwtStrategy`: signature, algorithm, issuer, audience, expiry,
+   * and an account that still exists and is active.
+   */
+  async userFromAccessToken(token: string): Promise<UserRecord> {
+    const payload = await this.jwt
+      .verifyAsync<AccessTokenPayload>(token, {
+        algorithms: ['HS256'],
+        issuer: this.config.get('JWT_ISSUER'),
+        audience: this.config.get('JWT_AUDIENCE'),
+      })
+      .catch(() => {
+        throw new UnauthorizedException();
+      });
+    const user = await this.users.findById(payload.sub);
+    if (!user?.isActive) throw new UnauthorizedException();
+    return user;
+  }
+
   private async buildAuthResponse(user: UserRecord): Promise<AuthResponse> {
     const payload: AccessTokenPayload = { sub: user.id, role: user.role };
     return {

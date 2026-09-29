@@ -10,3 +10,4 @@ export * from './logbook.js';
 export * from './shifts.js';
 export * from './analytics.js';
 export * from './dashboards.js';
+export * from './notifications.js';

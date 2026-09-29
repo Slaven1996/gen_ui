@@ -4,8 +4,8 @@ import {
   itemsSchema,
   pageParams,
   paginatedSchema,
-  queryBoolean,
   searchParam,
+  timeZoneParam,
   UserRefSchema,
 } from './common/query.js';
 
@@ -33,6 +33,18 @@ export const UpdateUserSchema = z
   .meta({ id: 'UpdateUser' });
 export type UpdateUserDto = z.output<typeof UpdateUserSchema>;
 
+/** An account's status as the Users page shows it; stored as `is_active`. */
+export const USER_STATUSES = ['ACTIVE', 'DEACTIVATED'] as const;
+export const UserStatusSchema = z.enum(USER_STATUSES);
+export type UserStatus = z.infer<typeof UserStatusSchema>;
+
+/**
+ * The last sign-in filter: `never` (no sign-in yet), or a calendar day
+ * (YYYY-MM-DD) the last sign-in fell on. Leaving it out means "any".
+ */
+export const LastSignInFilterSchema = z.union([z.literal('never'), z.iso.date()]);
+export type LastSignInFilter = z.infer<typeof LastSignInFilterSchema>;
+
 /**
  * No `.meta({ id })` here on purpose: an identified schema is emitted as a
  * single `$ref`, and the OpenAPI generator can only expand an object into one
@@ -42,7 +54,11 @@ export const ListUsersQuerySchema = z.object({
   ...pageParams(),
   search: searchParam('email or name'),
   role: RoleSchema.optional(),
-  isActive: queryBoolean().optional(),
+  status: UserStatusSchema.optional().describe('Only active, or only deactivated, accounts.'),
+  lastSignIn: LastSignInFilterSchema.optional().describe(
+    '`never`: accounts that have never signed in. A date (YYYY-MM-DD): accounts whose last sign-in fell on that day in `timeZone`.',
+  ),
+  timeZone: timeZoneParam().describe('IANA time zone a `lastSignIn` date is a day in, e.g. Europe/Zagreb.'),
 });
 export type ListUsersQueryInput = z.input<typeof ListUsersQuerySchema>;
 export type ListUsersQuery = z.output<typeof ListUsersQuerySchema>;

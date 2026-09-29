@@ -1,4 +1,5 @@
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 import cookieParser from 'cookie-parser';
 import type { NextFunction, Request, Response } from 'express';
 import helmet from 'helmet';
@@ -21,6 +22,8 @@ export function configureApp(app: NestExpressApplication): NestExpressApplicatio
     app.enableCors({ origin: origins, credentials: true });
   }
 
+  // WebSocket gateways (notifications) run on Socket.IO, on the same HTTP server.
+  app.useWebSocketAdapter(new IoAdapter(app));
   app.enableShutdownHooks();
   return app;
 }

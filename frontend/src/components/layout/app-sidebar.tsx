@@ -20,7 +20,6 @@ import type { Role } from '@gen-ui/shared';
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -34,7 +33,6 @@ import {
 import { summaryQueryOptions } from '@/features/analytics/api';
 import { useAuth } from '@/lib/auth/auth-store';
 import type { FileRouteTypes } from '@/routeTree.gen';
-import { NavUser } from './nav-user';
 
 interface NavItem {
   to: FileRouteTypes['to'];
@@ -143,9 +141,7 @@ export function AppSidebar() {
         })}
       </SidebarContent>
 
-      <SidebarFooter>
-        <NavUser />
-      </SidebarFooter>
+      {/* The account menu lives top right in the header (UserMenu). */}
       <SidebarRail />
     </Sidebar>
   );

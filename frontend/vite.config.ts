@@ -24,7 +24,8 @@ export default defineConfig(({ mode }) => {
         // Same-origin API in dev: the refresh cookie (SameSite=Strict, Path=/api/auth)
         // just works, and SSE chat streams pass straight through.
         // changeOrigin stays false so the backend's Origin check sees the browser's host.
-        '/api': { target: env.DEV_API_TARGET || 'http://localhost:3000', changeOrigin: false },
+        // `ws`: the notifications WebSocket (/api/socket.io) goes through too.
+        '/api': { target: env.DEV_API_TARGET || 'http://localhost:3000', changeOrigin: false, ws: true },
         // Swagger UI, so http://localhost:5173/docs works in dev too.
         '/docs': { target: env.DEV_API_TARGET || 'http://localhost:3000', changeOrigin: false },
       },

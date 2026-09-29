@@ -40,7 +40,7 @@ export class UsersController {
   @ApiOperation({
     summary: 'List users',
     description:
-      '`search` matches email or name, case-insensitively, anywhere in the value. Results are one page at a time; `total` counts every match. Open to every signed-in user: the directory is readable by all, while creating and updating accounts stays with admins.',
+      '`search` matches email or name, case-insensitively, anywhere in the value. `status` keeps only active or only deactivated accounts. `lastSignIn=never` keeps accounts that have never signed in; `lastSignIn=2026-05-03` keeps those whose last sign-in fell on that day in `timeZone` (default UTC). Results are one page at a time; `total` counts every match. Open to every signed-in user: the directory is readable by all, while creating and updating accounts stays with admins.',
   })
   @ApiOkResponse({ standardSchema: PaginatedUsersSchema })
   @ApiErrorResponse(400, 'A query parameter is out of range, e.g. `pageSize` above 100.')

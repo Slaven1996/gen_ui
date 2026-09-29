@@ -14,6 +14,7 @@ import { RolesGuard } from './features/auth/roles.guard.js';
 import { DashboardsModule } from './features/dashboards/dashboards.module.js';
 import { HealthController } from './features/health/health.controller.js';
 import { LogbookModule } from './features/logbook/logbook.module.js';
+import { NotificationsModule } from './features/notifications/notifications.module.js';
 import { ProfileModule } from './features/profile/profile.module.js';
 import { ShiftsModule } from './features/shifts/shifts.module.js';
 import { TelemetryModule } from './features/telemetry/telemetry.module.js';
@@ -37,6 +38,7 @@ import { PrismaModule } from './prisma/prisma.module.js';
     ShiftsModule,
     AnalyticsModule,
     DashboardsModule,
+    NotificationsModule,
     AiModule,
   ],
   controllers: [HealthController],
