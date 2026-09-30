@@ -1437,6 +1437,12 @@
                   "value": "CRITICAL,HIGH"
                 },
                 {
+                  "key": "search",
+                  "value": "Riverside",
+                  "description": "Rule name, tag name or code, or an asset above the tag",
+                  "disabled": true
+                },
+                {
                   "key": "assetId",
                   "value": "10000000-0000-4000-8000-000000000001",
                   "disabled": true
@@ -2118,10 +2124,16 @@
                   "key": "actorId",
                   "value": "{{userId}}",
                   "disabled": true
+                },
+                {
+                  "key": "actor",
+                  "value": "ava",
+                  "description": "Part of the actor's name or email",
+                  "disabled": true
                 }
               ]
             },
-            "description": "Admin only."
+            "description": "Admin only. `actorId` picks people by id; `actor` matches part of a name or email."
           },
           "response": [],
           "event": [

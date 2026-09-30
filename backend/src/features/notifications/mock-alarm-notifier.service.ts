@@ -8,14 +8,16 @@ import { formatReading } from '../alarms/alarm.mapper.js';
 import { assetRefSelect } from '../assets/asset.mapper.js';
 import { NotificationsGateway } from './notifications.gateway.js';
 
-const EVERY_MS = 20_000;
+const EVERY_MS = 60_000;
+/** Chance that a tick pushes an alarm: 40% do, 60% stay quiet. */
+const CHANCE = 0.4;
 
 const pick = <T>(items: readonly T[]): T => items[Math.floor(Math.random() * items.length)];
 
 /**
  * TEMPORARY — stands in for real alarm notifications, to show the socket at
- * work. Every 20 s it flips a coin (`Math.random() > 0.5`); on heads it makes
- * up an alarm on a random analog tag and pushes it to every connected tab.
+ * work. Every 60 s it rolls the dice (`Math.random() < 0.4`); 40% of the time it
+ * makes up an alarm on a random analog tag and pushes it to every connected tab.
  * Nothing is written to the database, so a demo alarm has no page of its own
  * (`demo: true`, `alarmId: null`).
  *
@@ -38,11 +40,11 @@ export class MockAlarmNotifier implements OnApplicationBootstrap {
   onApplicationBootstrap(): void {
     if (!this.config.get('MOCK_ALARM_NOTIFICATIONS')) return;
     this.scheduler.addInterval('mock-alarm-notifications', setInterval(() => void this.tick(), EVERY_MS));
-    this.logger.log('Pushing a demo alarm notification every 20 s, 50% of the time (MOCK_ALARM_NOTIFICATIONS=false to stop)');
+    this.logger.log('Pushing a demo alarm notification every 60 s, 40% of the time (MOCK_ALARM_NOTIFICATIONS=false to stop)');
   }
 
   async tick(): Promise<void> {
-    if (!(Math.random() > 0.5) || !this.gateway.hasListeners()) return;
+    if (!(Math.random() < CHANCE) || !this.gateway.hasListeners()) return;
     try {
       const notification = await this.makeUpAlarm();
       if (notification) this.gateway.broadcast(notification);

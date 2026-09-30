@@ -41,7 +41,8 @@ import { buildInstructions } from './system-prompt.js';
  *  5 [AI]  Claude decides what to do: answer, politely refuse an off-topic
  *          request, or call tools, choosing which tools, their filters, and
  *          how many to run at once.
- *  6 [app] The AI SDK runs every tool call: AiTools → UsersService → database.
+ *  6 [app] The AI SDK runs every tool call: AiTools → the domain's service
+ *          (UsersService, AlarmDefinitionsService, AuditService) → database.
  *  7 [AI]  Claude reads the tool results and writes the answer. Steps 5–7
  *          repeat until it answers without calling a tool (at most
  *          AI_MAX_STEPS rounds).
@@ -100,7 +101,7 @@ export class AiService {
     }
     // Dates the user mentions ("signed in yesterday") are days in their zone.
     const timeZone = request.context?.timeZone ?? 'UTC';
-    const tools = this.tools.create({ timeZone });
+    const tools = this.tools.create({ user, timeZone });
     const effort = effortFor(request);
 
     // 1–3 [app] The conversation this turn continues: extended, validated, saved.

@@ -1,7 +1,9 @@
 import type { UIMessage } from 'ai';
 import { z } from 'zod';
+import { AlarmConditionSchema, AlarmDefinitionSchema, AlarmSeveritySchema } from './alarms.js';
 import { PublicUserSchema, RoleSchema } from './auth.js';
-import { timeZoneParam } from './common/query.js';
+import { RelativeRangeSchema, timeZoneParam } from './common/query.js';
+import { AuditLogSchema } from './logbook.js';
 import { LastSignInFilterSchema, UserStatusSchema } from './users.js';
 
 // ─── Models ─────────────────────────────────────────────────────────────────
@@ -113,12 +115,21 @@ export interface LatestConversation {
  * with the tool. The system prompt stays generic and never names a tool.
  *
  * Inputs use plain types (no transforms or coercion), so the JSON Schema sent
- * to the model describes exactly what it may send.
+ * to the model describes exactly what it may send. Apart from `title`, every
+ * input field is also a URL param of the tool's page, so a call is a page
+ * query too, and the chat can link to that page with the same filters.
  */
 
-/** Apart from `title`, every field is also a `/users` URL param: a call is a page query too. */
+const titleField = (examples: string) =>
+  z.string().max(80).describe(`Short caption for this list, e.g. ${examples}.`);
+
+const TOTAL_DESCRIPTION = 'Every match, not only the rows returned.';
+
+// ─── Users ──────────────────────────────────────────────────────────────────
+
+/** Apart from `title`, every field is also a `/users` URL param. */
 export const ListUsersToolInputSchema = z.object({
-  title: z.string().max(80).describe("Short caption for this list, e.g. 'Admins' or 'Users named John'."),
+  title: titleField("'Admins' or 'Users named John'"),
   search: z
     .string()
     .max(100)
@@ -136,15 +147,130 @@ export const ListUsersToolInputSchema = z.object({
 });
 
 export const ListUsersToolOutputSchema = z.object({
-  total: z.int().describe('Every match, not only the rows returned.'),
+  total: z.int().describe(TOTAL_DESCRIPTION),
   users: z.array(PublicUserSchema.pick({ name: true, email: true, role: true, isActive: true, lastLoginAt: true })),
 });
+
+// ─── Alarm rules ────────────────────────────────────────────────────────────
+
+/** Apart from `title`, every field is also an `/alarm-rules` URL param. */
+export const ListAlarmRulesToolInputSchema = z.object({
+  title: titleField("'Critical rules' or 'Rules at Riverside'"),
+  search: z
+    .string()
+    .max(100)
+    .optional()
+    .describe(
+      "Part of a rule's name, of its tag's name or code, or of the name or code of an asset, case-insensitive. An asset matches every rule at it or below it, so a site covers all its equipment. 'rules on the wet well' → 'wet well'; 'rules at Riverside Pumping Station' → 'Riverside'; 'chlorine alarms' → 'chlorine'. Omit to list every rule.",
+    ),
+  severity: z
+    .array(AlarmSeveritySchema)
+    .min(1)
+    .optional()
+    .describe(
+      "The severities the rules raise, from most to least severe: CRITICAL, HIGH, MEDIUM, LOW, INFO. 'critical rules' → ['CRITICAL']; 'high or worse' → ['CRITICAL', 'HIGH']. Omit for every severity.",
+    ),
+  condition: z
+    .array(AlarmConditionSchema)
+    .min(1)
+    .optional()
+    .describe(
+      "How a rule compares each reading with its threshold: ABOVE for high limits ('high level', 'overpressure'), BELOW for low limits ('low level', 'low pressure'), EQUAL or NOT_EQUAL for on/off signals (a pump fault, a door switch). Omit for every condition.",
+    ),
+  isEnabled: z
+    .boolean()
+    .optional()
+    .describe('false for disabled (switched off) rules, true for enabled ones only. Omit for both.'),
+});
+
+export const ListAlarmRulesToolOutputSchema = z.object({
+  total: z.int().describe(TOTAL_DESCRIPTION),
+  rules: z.array(
+    AlarmDefinitionSchema.pick({
+      name: true,
+      condition: true,
+      threshold: true,
+      deadband: true,
+      severity: true,
+      isEnabled: true,
+      openAlarmCount: true,
+    }).extend({
+      tag: z.string().describe('The tag (signal) the rule watches.'),
+      unit: z.string().nullable().describe('Unit of the threshold and deadband.'),
+      asset: z.string().describe('Where that tag is.'),
+    }),
+  ),
+});
+
+// ─── Audit log ──────────────────────────────────────────────────────────────
+
+/** Apart from `title`, every field is also an `/audit` URL param. Admins only. */
+export const ListAuditLogsToolInputSchema = z.object({
+  title: titleField("'Changes to alarm rules' or 'What Ava did yesterday'"),
+  search: z
+    .string()
+    .max(100)
+    .optional()
+    .describe(
+      "Part of the record's summary, which names what was changed, case-insensitive: 'changes to Wet well high level' → 'Wet well high level'; 'anything about PS-01' → 'PS-01'. Not for who acted: use actor. Omit for every record.",
+    ),
+  action: z
+    .string()
+    .max(60)
+    .optional()
+    .describe(
+      "What was done: a family ending in '.', or one exact action. Families: auth. (sign-ins), user. (accounts), asset., device., tag., alarm. (acknowledging and clearing alarms), alarm_definition. (alarm rules), logbook., shift_template., shift_assignment. (the shift schedule), dashboard.. An exact action is a family plus a verb: create, update or delete, and also auth.login, user.password_change, asset.move, alarm.acknowledge, alarm.clear, dashboard.widget_add and dashboard.widget_remove. 'changes to alarm rules' → 'alarm_definition.'; 'who acknowledged alarms' → 'alarm.acknowledge'; 'deleted devices' → 'device.delete'; 'sign-ins' → 'auth.login'. Omit for every action.",
+    ),
+  actor: z
+    .string()
+    .max(100)
+    .optional()
+    .describe(
+      "Part of the name or email of the person who acted, case-insensitive: 'what did Ava change' → 'Ava'. Omit for everyone, the system included.",
+    ),
+  range: RelativeRangeSchema.optional().describe(
+    "A window ending now: 'last hour' → 1h, 'last 24 hours' → 24h, 'this past week' or 'recently' → 7d, 'last 30 days' → 30d. For calendar days ('today', 'yesterday', 'since Monday') use from and to instead. Leave it out when you set from or to.",
+  ),
+  from: z.iso
+    .datetime({ offset: true })
+    .optional()
+    .describe(
+      "Start of the window, inclusive, in ISO 8601 with the session's UTC offset. Calendar days are the user's: 'today' → today at 00:00, 'yesterday' → yesterday at 00:00 (with to = today at 00:00), 'since Monday' → Monday at 00:00. Example: 2026-09-28T00:00:00+02:00.",
+    ),
+  to: z.iso
+    .datetime({ offset: true })
+    .optional()
+    .describe("End of the window, exclusive, in the same format as from. Omit for 'until now'."),
+});
+
+export const ListAuditLogsToolOutputSchema = z.object({
+  total: z.int().describe(TOTAL_DESCRIPTION),
+  records: z.array(
+    AuditLogSchema.pick({ createdAt: true, action: true, summary: true, changes: true }).extend({
+      actor: z.string().nullable().describe('Who acted; null when the system did.'),
+    }),
+  ),
+});
+
+// ─── The tool set ───────────────────────────────────────────────────────────
 
 export const genUiToolSchemas = {
   listUsers: {
     description: "Find this app's user accounts by name or email, role, status and last sign-in.",
     inputSchema: ListUsersToolInputSchema,
     outputSchema: ListUsersToolOutputSchema,
+  },
+  listAlarmRules: {
+    description:
+      'Find alarm rules: the thresholds that raise an alarm when a reading of a tag crosses them. Filter by rule, tag or asset name, severity, condition and whether the rule is enabled. Each result says how many of its alarms are still open. It lists rules, not the alarms they raised.',
+    inputSchema: ListAlarmRulesToolInputSchema,
+    outputSchema: ListAlarmRulesToolOutputSchema,
+  },
+  listAuditLogs: {
+    description:
+      'Search the audit log: who changed what and when, newest first. Every create, update, delete, sign-in and alarm acknowledgement in the app is one record. Filter by what was done, who did it, words from the summary and a time window.',
+    inputSchema: ListAuditLogsToolInputSchema,
+    outputSchema: ListAuditLogsToolOutputSchema,
   },
 } as const;
 

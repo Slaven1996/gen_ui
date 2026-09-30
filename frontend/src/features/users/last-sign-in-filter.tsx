@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { LastSignInFilter as LastSignIn } from '@gen-ui/shared';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -12,9 +13,12 @@ function today(): string {
 
 /**
  * Last sign-in in three states: All (no filter), Never signed in, or an exact
- * date picked in the date field that appears next to the dropdown. Switching
- * to "Exact date" starts on today, so the filter is never half set. The value
+ * date picked in the date field that appears next to the dropdown. The value
  * is the `lastSignIn` URL/API param itself: `undefined`, `never` or a date.
+ *
+ * "Exact date" opens an empty date field and filters nothing until a date is
+ * picked. That in-between state isn't a param value, so it lives here; the
+ * page remounts this component (`key`) when it resets its filters.
  */
 export function LastSignInFilter({
   value,
@@ -23,10 +27,17 @@ export function LastSignInFilter({
   value: LastSignIn | undefined;
   onChange: (value: LastSignIn | undefined) => void;
 }) {
+  const [choosingDate, setChoosingDate] = useState(false);
   const date = value && value !== 'never' ? value : undefined;
-  const mode: Mode = value === undefined ? 'all' : date ? 'date' : 'never';
+  const mode: Mode = value === 'never' ? 'never' : date || choosingDate ? 'date' : 'all';
 
-  const pickMode = (next: Mode) => onChange(next === 'all' ? undefined : next === 'never' ? 'never' : today());
+  const pickMode = (next: Mode) => {
+    setChoosingDate(next === 'date');
+    if (next === 'all') onChange(undefined);
+    else if (next === 'never') onChange('never');
+    // "Exact date" drops a `never` filter; the date field starts empty.
+    else if (value === 'never') onChange(undefined);
+  };
 
   return (
     <div className="flex items-center gap-2">
@@ -41,15 +52,18 @@ export function LastSignInFilter({
           <SelectItem value="date">Exact date</SelectItem>
         </SelectContent>
       </Select>
-      {date && (
+      {mode === 'date' && (
         <Input
           type="date"
           className="w-40"
           aria-label="Last sign-in date"
-          value={date}
+          value={date ?? ''}
           max={today()}
-          // Clearing the date field clears the filter.
-          onChange={(event) => onChange(event.target.value || undefined)}
+          // Clearing the date drops the filter but keeps the field open for another date.
+          onChange={(event) => {
+            setChoosingDate(true);
+            onChange(event.target.value || undefined);
+          }}
         />
       )}
     </div>

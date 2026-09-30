@@ -86,6 +86,9 @@ export class AuditService {
       ...(query.entityType && { entityType: { in: query.entityType } }),
       ...(query.entityId && { entityId: query.entityId }),
       ...(query.actorId && { actorId: { in: query.actorId } }),
+      ...(query.actor && {
+        actor: { is: { OR: [{ name: insensitive(query.actor) }, { email: insensitive(query.actor) }] } },
+      }),
       ...(window && { createdAt: window }),
     };
     const [rows, total] = await this.prisma.$transaction([

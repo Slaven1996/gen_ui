@@ -64,7 +64,7 @@ services:
       SIMULATOR_ENABLED: ${SIMULATOR_ENABLED:-true}
       SIMULATOR_INTERVAL_SECONDS: ${SIMULATOR_INTERVAL_SECONDS:-60}
 
-      # Temporary demo: a made-up alarm notification every 20 s, half of the time.
+      # Temporary demo: a made-up alarm notification every 60 s, 40% of the time.
       MOCK_ALARM_NOTIFICATIONS: ${MOCK_ALARM_NOTIFICATIONS:-true}
 
       # Demo data from backend/prisma/seed/*.sql. Set false to skip.

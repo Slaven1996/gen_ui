@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, stripSearchParams } from '@tanstack/react-router';
 import type { z } from 'zod';
@@ -67,6 +68,8 @@ function UsersPage() {
   // Any filter change starts again from the first page.
   const setFilters = (patch: Partial<UsersSearch>) =>
     navigate({ search: (previous) => ({ ...previous, ...patch, page: 1 }), replace: true });
+  // Bumped by Reset to remount the last sign-in filter, which may hold an empty "Exact date".
+  const [resets, setResets] = useState(0);
 
   return (
     <PageContainer>
@@ -82,7 +85,10 @@ function UsersPage() {
 
       <FilterBar
         canReset={Boolean(search.search || search.role || search.status || search.lastSignIn)}
-        onReset={() => navigate({ search: {}, replace: true })}
+        onReset={() => {
+          navigate({ search: {}, replace: true });
+          setResets((count) => count + 1);
+        }}
       >
         <SearchFilter
           value={search.search}
@@ -105,7 +111,7 @@ function UsersPage() {
           onChange={(status) => setFilters({ status })}
           className="w-36"
         />
-        <LastSignInFilter value={search.lastSignIn} onChange={(lastSignIn) => setFilters({ lastSignIn })} />
+        <LastSignInFilter key={resets} value={search.lastSignIn} onChange={(lastSignIn) => setFilters({ lastSignIn })} />
       </FilterBar>
 
       {/* Row actions for admins come with the table, the same as in assistant answers. */}

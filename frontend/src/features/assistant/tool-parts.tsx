@@ -2,10 +2,18 @@ import type { ComponentType } from 'react';
 import type { LinkProps } from '@tanstack/react-router';
 import { getStaticToolName, type ToolUIPart } from 'ai';
 import { CircleAlert } from 'lucide-react';
-import { ListUsersQuerySchema, type GenUIToolName, type GenUITools } from '@gen-ui/shared';
+import {
+  ListAlarmDefinitionsQuerySchema,
+  ListAuditLogsQuerySchema,
+  ListUsersQuerySchema,
+  type GenUIToolName,
+  type GenUITools,
+} from '@gen-ui/shared';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ViewCard, ViewFullPageLink } from '@/components/view-card';
+import { DefinitionsTable } from '@/features/alarms/definitions-table';
+import { AuditTable } from '@/features/logbook/audit-table';
 import { UsersTable } from '@/features/users/users-table';
 
 /*
@@ -48,6 +56,30 @@ function UsersBody({ input }: { input: Input<'listUsers'> }) {
   return <UsersTable query={ListUsersQuerySchema.parse({ ...usersQuery(input), pageSize: 5 })} dense />;
 }
 
+// ─── Alarm rules ────────────────────────────────────────────────────────────
+
+/** An alarm-rules call as an `/alarm-rules` query: every field but the title. */
+const alarmRulesQuery = ({ title: _title, ...filters }: Input<'listAlarmRules'>) => filters;
+
+/** The Alarm rules page's own table: the same columns, and edit, delete and enable for admins. */
+function AlarmRulesBody({ input }: { input: Input<'listAlarmRules'> }) {
+  return (
+    <DefinitionsTable query={ListAlarmDefinitionsQuerySchema.parse({ ...alarmRulesQuery(input), pageSize: 5 })} dense />
+  );
+}
+
+// ─── Audit log ──────────────────────────────────────────────────────────────
+
+/** An audit call as an `/audit` query: every field but the title. */
+const auditQuery = ({ title: _title, ...filters }: Input<'listAuditLogs'>) => filters;
+
+/** The Audit log page's own table, newest first. Read-only, like the page. */
+function AuditBody({ input }: { input: Input<'listAuditLogs'> }) {
+  return <AuditTable query={ListAuditLogsQuerySchema.parse({ ...auditQuery(input), pageSize: 5 })} dense />;
+}
+
+// ─── Registry ───────────────────────────────────────────────────────────────
+
 /**
  * Tool name → how its calls render. A new tool adds one entry, usually
  * wrapping its domain's existing table (which brings its own role-based row
@@ -59,6 +91,20 @@ const RENDERERS: { [N in GenUIToolName]: ToolRenderer<N> } = {
     title: (input) => input.title,
     link: (input) => ({ to: '/users', search: usersQuery(input) }),
     Body: UsersBody,
+    found: (output) => `${output.total} found`,
+  },
+  listAlarmRules: {
+    pending: 'Looking up alarm rules…',
+    title: (input) => input.title,
+    link: (input) => ({ to: '/alarm-rules', search: alarmRulesQuery(input) }),
+    Body: AlarmRulesBody,
+    found: (output) => `${output.total} found`,
+  },
+  listAuditLogs: {
+    pending: 'Searching the audit log…',
+    title: (input) => input.title,
+    link: (input) => ({ to: '/audit', search: auditQuery(input) }),
+    Body: AuditBody,
     found: (output) => `${output.total} found`,
   },
 };

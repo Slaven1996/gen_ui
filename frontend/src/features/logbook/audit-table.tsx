@@ -87,13 +87,19 @@ const columns: ColumnDef<AuditLog>[] = [
   },
 ];
 
-/** The audit trail as a standalone table view. */
+/**
+ * The audit trail as a standalone table view, the same everywhere: the
+ * `/audit` page (query in the URL) and the assistant's answers (a fixed
+ * query, paged locally, `dense`). Admin only, like its endpoint.
+ */
 export function AuditTable({
   query,
   onQueryChange,
+  dense = false,
 }: {
   query: ListAuditLogsQuery;
   onQueryChange?: (next: ListAuditLogsQuery) => void;
+  dense?: boolean;
 }) {
   const [current, update] = useViewQuery(query, onQueryChange);
   const logs = useQuery(auditLogsListQueryOptions(current));
@@ -113,6 +119,7 @@ export function AuditTable({
       getRowId={(log) => log.id}
       isLoading={logs.isPending}
       isFetching={logs.isPlaceholderData}
+      dense={dense}
       emptyMessage="No audit records match these filters."
       sort={{ value: current.sort, onChange: (sort) => update({ sort: sort as ListAuditLogsQuery['sort'], page: 1 }) }}
       pagination={{

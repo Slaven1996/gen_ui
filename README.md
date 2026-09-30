@@ -116,11 +116,16 @@ The bell in the header shows alarm notifications the moment the server sends the
 
 - **Server:** `backend/src/features/notifications`. `NotificationsGateway` (`@WebSocketGateway`) checks the access token in the socket handshake exactly as the REST guard does (signature, expiry, active account) and refuses the connection otherwise. A producer calls `NotificationsGateway.broadcast(notification)`; the payload is `AppNotificationSchema` in `packages/shared/src/notifications.ts`.
 - **Browser:** `frontend/src/features/notifications`. The app shell opens the socket after sign-in and closes it on sign-out; a reconnect sends a fresh token. The bell counts unread notifications, lists the latest 50 (severity, text, asset link, time), and marks them read when its popover closes. The list lives in the tab's memory.
-- **Demo alarms (temporary):** until real alarms are wired in, `MockAlarmNotifier` runs every 20 s and, when `Math.random() > 0.5`, pushes a made-up alarm on a random analog tag (marked *Demo alarm*; nothing is stored). `MOCK_ALARM_NOTIFICATIONS=false` turns it off. To go live, have the alarm evaluator broadcast each alarm it raises, after its transaction commits, and delete the mock.
+- **Demo alarms (temporary):** until real alarms are wired in, `MockAlarmNotifier` runs every 60 s and, when `Math.random() < 0.4` (40% of the ticks), pushes a made-up alarm on a random analog tag (marked *Demo alarm*; nothing is stored). `MOCK_ALARM_NOTIFICATIONS=false` turns it off. To go live, have the alarm evaluator broadcast each alarm it raises, after its transaction commits, and delete the mock.
 
 ### Users
 
-`/users` filters by name or email, role, **status** (active / deactivated) and **last sign-in**: *All*, *Never signed in*, or *Exact date* with a date picker. They are URL and API parameters like every other list filter: `GET /api/users?status=DEACTIVATED&lastSignIn=never`, or `lastSignIn=2026-05-03` for a day. That day is read in `timeZone`, which the web app sets to the browser's zone, so the filter matches the date the *Last sign-in* column shows.
+`/users` filters by name or email, role, **status** (active / deactivated) and **last sign-in**: *All*, *Never signed in*, or *Exact date* with a date picker. They are URL and API parameters like every other list filter: `GET /api/users?status=DEACTIVATED&lastSignIn=never`, or `lastSignIn=2026-05-03` for a day. That day is read in `timeZone`, which the web app sets to the browser's zone, so the filter matches the date the *Last sign-in* column shows. Choosing *Exact date* opens an empty date field; nothing is filtered until a date is picked.
+
+### Alarm rules and audit log
+
+- **`/alarm-rules`**: the search matches the rule's name, its tag's name or code, and the name or code of **any asset above the tag** (`?search=Riverside` finds every rule on that site's equipment), next to severity, condition, asset and enabled filters. Admins edit, delete and switch rules on and off from the table's rows; the same table, with the same actions, appears in assistant answers.
+- **`/audit`** (admins): besides picking people in *Who* (`actorId`), `actor` matches part of a name or email (`GET /api/audit-logs?actor=ava`). The assistant writes that form, since it knows names but not ids; the page shows it as a removable *Who: “ava”* filter.
 
 ## API docs
 
@@ -197,11 +202,21 @@ Email is not editable: it is the sign-in identifier, and changing it safely need
 
 Ask "all admins, and also users named John" and the answer contains two live users tables: the same `UsersTable` component as the Users page, with every column and, for admins, the same row actions (make admin, deactivate, reactivate). Each has **Open in new tab**, which opens `/users` with that table's filters; the new tab starts with the assistant panel closed. The full flow, with diagrams, is in [`docs/ai-assistant-flow.md`](docs/ai-assistant-flow.md).
 
+The assistant has one tool per domain view:
+
+| Tool | Who may use it | What Claude can filter by | Renders | Opens |
+|---|---|---|---|---|
+| `listUsers` | everyone | name or email, role, status, last sign-in | `UsersTable`; admins get make admin, deactivate, reactivate | `/users` |
+| `listAlarmRules` | everyone | rule, tag or asset name, severity, condition, enabled | `DefinitionsTable`; admins get edit, delete, enable/disable | `/alarm-rules` |
+| `listAuditLogs` | admins | action (a family such as `alarm_definition.` or an exact one such as `alarm.acknowledge`), who acted, words from the summary, a time window | `AuditTable`, read-only | `/audit` |
+
+Questions to try: "rules that are switched off", "critical rules at Riverside", "what did Ava change last week", "who acknowledged alarms yesterday", "deleted devices in the last 30 days".
+
 **What is AI-driven, and what isn't.** Claude decides only three things: whether to answer, refuse or look something up; which tool to call with which filters (the tool *input*); and the wording of the answer. Everything else is ordinary code: authorization, validation, the database query, which component draws a tool call, and the data in that component (fetched through the REST API, like its page). The numbered flow at the top of `backend/src/features/ai/ai.service.ts` marks each step `[app]` or `[AI]`.
 
 1. The backend calls `streamText` with the tools the user's role may use and pipes an AI SDK UI message stream (SSE) back to the client (`backend/src/features/ai`).
 2. **Tools call services, never controllers or repositories.** A tool is an inbound adapter like a controller, so the chat gets the same rules and mapping as the REST API. Guards don't run for tool calls, so each tool declares its roles in `TOOL_ROLES` (the chat's `@Roles`).
-3. A tool's input is a page query: apart from its `title`, every field of `listUsers` (`search`, `role`, `status`, `lastSignIn`) is a `/users` URL parameter. The chat renders the tool call as that page's table, which fetches its own data, and links to the page with the same query. "Deactivated users who never signed in" becomes `status: DEACTIVATED, lastSignIn: never`; "who signed in yesterday" becomes a date, because each request tells Claude today's date in the user's time zone.
+3. A tool's input is a page query: apart from its `title`, every field is a URL parameter of the tool's page (`listUsers` → `/users`, `listAlarmRules` → `/alarm-rules`, `listAuditLogs` → `/audit`). The chat renders the tool call as that page's table, which fetches its own data, and links to the page with the same query. "Deactivated users who never signed in" becomes `status: DEACTIVATED, lastSignIn: never`. Each request tells Claude the current date, time and UTC offset in the user's time zone, so "who signed in yesterday" becomes a date and "what changed yesterday" becomes a `from`/`to` window on the user's calendar day.
 4. `features/assistant/tool-parts.tsx` maps each tool to its view, according to the part's state (`input-streaming` → skeleton, input complete → the table, `output-error` → an alert).
 
 **The system prompt is generic.** It holds the app's pages, the rules for using tools and the out-of-scope refusal, and never names a tool. What a tool does and how to fill its fields lives in its `description` and field `.describe()` texts in `packages/shared/src/assistant.ts`, which Claude receives with the tool.
@@ -212,8 +227,8 @@ Ask "all admins, and also users named John" and the answer contains two live use
 
 To add a domain:
 1. Add its tool schema to `genUiToolSchemas` in `packages/shared/src/assistant.ts`, with a description on every field.
-2. Implement the tool in `backend/src/features/ai/ai.tools.ts`, calling that domain's service, and add its `TOOL_ROLES` line.
-3. Add a renderer in `tool-parts.tsx` that wraps the domain's existing table. Role-based row actions belong inside that table (as `useUserActions` does in `users-table.tsx`), so the page and the chat show the same ones.
+2. Implement the tool in `backend/src/features/ai/ai.tools.ts`, calling that domain's service, and add its `TOOL_ROLES` line. Export the service from its module and import that module in `ai.module.ts`.
+3. Add a renderer in `tool-parts.tsx` that wraps the domain's existing table. Role-based row actions belong inside that table (as `useUserActions` does in `users-table.tsx` and `useDefinitionActions` in `definitions-table.tsx`), so the page and the chat show the same ones.
 
 TypeScript fails the build if the backend tools and the shared contract drift apart, or if a tool has no renderer.
 

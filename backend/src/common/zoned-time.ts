@@ -22,6 +22,14 @@ function zoneOffset(instant: number, timeZone: string): number {
   return wallClockAsUtc - Math.floor(instant / 1000) * 1000;
 }
 
+/** `+02:00`: how far `timeZone` is ahead of UTC at `at`, written as ISO 8601 writes offsets. */
+export function utcOffset(timeZone: string, at: Date = new Date()): string {
+  const minutes = Math.round(zoneOffset(at.getTime(), timeZone) / 60_000);
+  const abs = Math.abs(minutes);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${minutes < 0 ? '-' : '+'}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
+}
+
 /** `('2026-03-29', '02:30', 'Europe/Zagreb')` → the matching UTC instant. */
 export function zonedTimeToUtc(date: string, time: string, timeZone: string): Date {
   const [year, month, day] = date.split('-').map(Number);

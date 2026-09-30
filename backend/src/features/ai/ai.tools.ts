@@ -1,12 +1,16 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { tool, type InferUITools } from 'ai';
 import {
   genUiToolSchemas,
+  ListAlarmDefinitionsQuerySchema,
+  ListAuditLogsQuerySchema,
   ListUsersQuerySchema,
   type GenUIToolName,
   type GenUITools,
   type Role,
 } from '@gen-ui/shared';
+import { AlarmDefinitionsService } from '../alarms/alarm-definitions.service.js';
+import { AuditService } from '../audit/audit.service.js';
 import type { AuthUser } from '../users/user.mapper.js';
 import { UsersService } from '../users/users.service.js';
 
@@ -14,13 +18,16 @@ import { UsersService } from '../users/users.service.js';
 const ROWS_FOR_MODEL = 20;
 
 /**
- * Who may use each tool: the chat's `@Roles`. HTTP guards don't run for tool
- * calls, so this map is the tools' authorization. `satisfies` makes every
- * tool declare its roles. A tool limited to admins also checks the role
- * inside `execute`, in case this map and the check ever drift apart.
+ * Who may use each tool: the `@Roles` of the endpoint the tool mirrors. HTTP
+ * guards don't run for tool calls, so this map is the tools' authorization.
+ * `satisfies` makes every tool declare its roles. A tool limited to admins
+ * also checks the role inside `execute`, in case this map and the check ever
+ * drift apart.
  */
 const TOOL_ROLES = {
   listUsers: ['ADMIN', 'USER'],
+  listAlarmRules: ['ADMIN', 'USER'],
+  listAuditLogs: ['ADMIN'],
 } as const satisfies Record<GenUIToolName, readonly Role[]>;
 
 /**
@@ -37,14 +44,19 @@ const TOOL_ROLES = {
  */
 @Injectable()
 export class AiTools {
-  constructor(private readonly users: UsersService) {}
+  constructor(
+    private readonly users: UsersService,
+    private readonly alarmRules: AlarmDefinitionsService,
+    private readonly audit: AuditService,
+  ) {}
 
   /**
    * A fresh tool set per request; `execute` is what the AI SDK runs for each
-   * call. `timeZone` is the user's, so a date Claude takes from their words
-   * ("signed in yesterday") means the same day the web app's table shows.
+   * call. `user` is who is asking. `timeZone` is theirs, so a date Claude
+   * takes from their words ("signed in yesterday") means the same day the
+   * web app's table shows.
    */
-  create({ timeZone }: { timeZone: string }) {
+  create({ user, timeZone }: { user: AuthUser; timeZone: string }) {
     return {
       listUsers: tool({
         ...genUiToolSchemas.listUsers,
@@ -61,6 +73,52 @@ export class AiTools {
               role,
               isActive,
               lastLoginAt,
+            })),
+          };
+        },
+      }),
+
+      listAlarmRules: tool({
+        ...genUiToolSchemas.listAlarmRules,
+        // `title` only labels the table; the rest is the `/alarm-rules` query.
+        execute: async ({ title: _title, ...filters }) => {
+          const query = ListAlarmDefinitionsQuerySchema.parse({ ...filters, pageSize: ROWS_FOR_MODEL });
+          const page = await this.alarmRules.list(query);
+          // Names instead of ids: Claude talks about the rule, its tag and where it is.
+          return {
+            total: page.total,
+            rules: page.items.map((rule) => ({
+              name: rule.name,
+              tag: rule.tag.name,
+              unit: rule.tag.unit,
+              asset: rule.asset.name,
+              condition: rule.condition,
+              threshold: rule.threshold,
+              deadband: rule.deadband,
+              severity: rule.severity,
+              isEnabled: rule.isEnabled,
+              openAlarmCount: rule.openAlarmCount,
+            })),
+          };
+        },
+      }),
+
+      listAuditLogs: tool({
+        ...genUiToolSchemas.listAuditLogs,
+        // `title` only labels the table; the rest is the `/audit` query.
+        execute: async ({ title: _title, ...filters }) => {
+          // TOOL_ROLES already keeps this tool from everyone else; this is the second lock.
+          if (user.role !== 'ADMIN') throw new ForbiddenException('The audit log is for admins only.');
+          const query = ListAuditLogsQuerySchema.parse({ ...filters, pageSize: ROWS_FOR_MODEL });
+          const page = await this.audit.list(query);
+          return {
+            total: page.total,
+            records: page.items.map(({ createdAt, actor, action, summary, changes }) => ({
+              createdAt,
+              actor: actor?.name ?? null,
+              action,
+              summary,
+              changes,
             })),
           };
         },
