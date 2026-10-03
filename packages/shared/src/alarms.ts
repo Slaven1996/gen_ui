@@ -68,7 +68,7 @@ export type AlarmDefinition = z.infer<typeof AlarmDefinitionSchema>;
 export const ALARM_DEFINITION_SORT_FIELDS = ['name', 'severity', 'createdAt'] as const;
 
 export const alarmDefinitionFilters = {
-  search: searchParam('the rule name, the name or code of its tag, or the name or code of an asset it sits at or below'),
+  search: searchParam('the rule name, or the name or code of its tag'),
   severity: csvEnum(ALARM_SEVERITIES),
   condition: csvEnum(ALARM_CONDITIONS),
   tagId: z.guid().optional(),

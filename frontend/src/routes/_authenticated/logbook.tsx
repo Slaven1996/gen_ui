@@ -1,23 +1,22 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, stripSearchParams } from '@tanstack/react-router';
 import { PenLine } from 'lucide-react';
 import type { z } from 'zod';
-import { ListLogbookQuerySchema, type LogbookEntry } from '@gen-ui/shared';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ListLogbookQuerySchema } from '@gen-ui/shared';
 import { FilterBar } from '@/components/filters/filter-bar';
 import { MultiSelectFilter } from '@/components/filters/multi-select-filter';
 import { SearchFilter } from '@/components/filters/search-filter';
 import { SelectFilter } from '@/components/filters/select-filter';
-import { TimeRangeFilter } from '@/components/filters/time-range-filter';
+import { describeTimeRange, TimeRangeFilter } from '@/components/filters/time-range-filter';
 import { PageContainer, PageHeader } from '@/components/layout/page';
 import { Button } from '@/components/ui/button';
 import { AssetSelect } from '@/features/assets/asset-select';
 import { useAssistantContext } from '@/features/assistant/assistant-context';
-import { logbookListQueryOptions, useDeleteLogbookEntry } from '@/features/logbook/api';
+import { logbookListQueryOptions } from '@/features/logbook/api';
 import { EntryFormDialog } from '@/features/logbook/entry-form-dialog';
-import { LogbookTable, type EntryActions } from '@/features/logbook/logbook-table';
+import { LogbookTable } from '@/features/logbook/logbook-table';
 import { UserFilter } from '@/features/users/user-filter';
-import { useAuth } from '@/lib/auth/auth-store';
 import { LOG_SEVERITY_OPTIONS, LOGBOOK_CATEGORY_OPTIONS } from '@/lib/labels';
 import { defaultsOf, searchSchema } from '@/lib/search';
 
@@ -35,31 +34,38 @@ export const Route = createFileRoute('/_authenticated/logbook')({
 function LogbookPage() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const { user } = useAuth();
-  const [editing, setEditing] = useState<LogbookEntry | 'new' | null>(null);
-  const [deleting, setDeleting] = useState<LogbookEntry | null>(null);
-  const remove = useDeleteLogbookEntry();
+  const [writing, setWriting] = useState(false);
+  // The table's own query: this reads the same cache entry, it doesn't fetch twice.
+  const entries = useQuery(logbookListQueryOptions(search));
 
   const setSearch = (patch: Partial<LogbookSearch>) =>
     navigate({ search: (previous) => ({ ...previous, ...patch, page: 1 }), replace: true });
 
-  const actions = useMemo<EntryActions>(
-    () => ({
-      canEdit: (entry) => entry.author?.id === user?.id,
-      canDelete: (entry) => entry.author !== null && (entry.author.id === user?.id || user?.role === 'ADMIN'),
-      onEdit: setEditing,
-      onDelete: setDeleting,
-    }),
-    [user?.id, user?.role],
-  );
-
   const canReset = Boolean(
-    search.search || search.category || search.severity || search.source || search.assetId || search.authorId || search.range || search.from || search.to,
+    search.search ||
+      search.category ||
+      search.severity ||
+      search.source ||
+      search.assetId ||
+      search.authorId ||
+      search.range ||
+      search.from ||
+      search.to,
   );
 
   useAssistantContext({
     title: 'Logbook',
-    summary: 'Operator notes, maintenance records, shift handovers and system events (alarms, device status).',
+    summary: [
+      `Operator notes, maintenance records, shift handovers and system events (alarms, device status). Page ${search.page}`,
+      entries.data && `${entries.data.total} entries match`,
+      search.search && `search "${search.search}"`,
+      search.category && `type ${search.category.join('/')}`,
+      search.severity && `severity ${search.severity.join('/')}`,
+      search.source && `source ${search.source}`,
+      (search.range || search.from || search.to) && describeTimeRange(search),
+    ]
+      .filter(Boolean)
+      .join(', '),
   });
 
   return (
@@ -68,7 +74,7 @@ function LogbookPage() {
         title="Logbook"
         description="What people wrote and what the system recorded, on one timeline."
         actions={
-          <Button onClick={() => setEditing('new')}>
+          <Button onClick={() => setWriting(true)}>
             <PenLine />
             Write entry
           </Button>
@@ -94,22 +100,10 @@ function LogbookPage() {
         <TimeRangeFilter value={search} onChange={(range) => setSearch(range)} />
       </FilterBar>
 
-      <LogbookTable query={search} onQueryChange={(next) => navigate({ search: next, replace: true })} actions={actions} />
+      {/* Row actions (edit your own entries; delete yours, or any as an admin) come with the table, the same as in assistant answers. */}
+      <LogbookTable query={search} onQueryChange={(next) => navigate({ search: next, replace: true })} />
 
-      <EntryFormDialog
-        open={editing !== null}
-        onOpenChange={(open) => !open && setEditing(null)}
-        entry={editing === 'new' || editing === null ? undefined : editing}
-        initialAssetId={search.assetId}
-      />
-      <ConfirmDialog
-        open={deleting !== null}
-        onOpenChange={(open) => !open && setDeleting(null)}
-        title="Delete this entry?"
-        description={<>“{deleting?.title}” will be removed from the logbook. The audit trail keeps a record of the deletion.</>}
-        pending={remove.isPending}
-        onConfirm={() => deleting && remove.mutate(deleting.id, { onSettled: () => setDeleting(null) })}
-      />
+      <EntryFormDialog open={writing} onOpenChange={setWriting} initialAssetId={search.assetId} />
     </PageContainer>
   );
 }

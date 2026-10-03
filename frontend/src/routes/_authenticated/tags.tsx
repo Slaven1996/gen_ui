@@ -1,20 +1,19 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, stripSearchParams } from '@tanstack/react-router';
 import { Plus } from 'lucide-react';
 import type { z } from 'zod';
-import { ListTagsQuerySchema, type Tag } from '@gen-ui/shared';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ListTagsQuerySchema } from '@gen-ui/shared';
 import { FilterBar } from '@/components/filters/filter-bar';
 import { MultiSelectFilter } from '@/components/filters/multi-select-filter';
 import { SearchFilter } from '@/components/filters/search-filter';
 import { PageContainer, PageHeader } from '@/components/layout/page';
 import { Button } from '@/components/ui/button';
-import { DefinitionFormDialog } from '@/features/alarms/definition-form-dialog';
-import { tagsListQueryOptions, useDeleteTag } from '@/features/assets/api';
+import { tagsListQueryOptions } from '@/features/assets/api';
 import { AssetSelect } from '@/features/assets/asset-select';
 import { useAssistantContext } from '@/features/assistant/assistant-context';
 import { TagFormDialog } from '@/features/tags/tag-form-dialog';
-import { TagsTable, type TagActions } from '@/features/tags/tags-table';
+import { TagsTable } from '@/features/tags/tags-table';
 import { useAuth } from '@/lib/auth/auth-store';
 import { TAG_DATA_TYPE_OPTIONS } from '@/lib/labels';
 import { defaultsOf, searchSchema } from '@/lib/search';
@@ -35,23 +34,24 @@ function TagsPage() {
   const navigate = Route.useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
-  const [editing, setEditing] = useState<Tag | 'new' | null>(null);
-  const [deleting, setDeleting] = useState<Tag | null>(null);
-  const [ruleFor, setRuleFor] = useState<Tag | null>(null);
-  const remove = useDeleteTag();
+  const [creating, setCreating] = useState(false);
+  // The table's own query: this reads the same cache entry, it doesn't fetch twice.
+  const tags = useQuery(tagsListQueryOptions(search));
 
   const setSearch = (patch: Partial<TagsSearch>) =>
     navigate({ search: (previous) => ({ ...previous, ...patch, page: 1 }), replace: true });
 
-  const actions = useMemo<TagActions>(
-    () => ({
-      onChart: (tag) => navigate({ to: '/graphs', search: { tagIds: [tag.id] } }),
-      ...(isAdmin && { onAddRule: setRuleFor, onEdit: setEditing, onDelete: setDeleting }),
-    }),
-    [isAdmin, navigate],
-  );
-
-  useAssistantContext({ title: 'Tags', summary: 'Datapoints reported by devices, with their latest value.' });
+  useAssistantContext({
+    title: 'Tags',
+    summary: [
+      `Datapoints reported by devices, with their latest value. Page ${search.page}`,
+      tags.data && `${tags.data.total} tags match`,
+      search.search && `search "${search.search}"`,
+      search.dataType && `type ${search.dataType.join('/')}`,
+    ]
+      .filter(Boolean)
+      .join(', '),
+  });
 
   return (
     <PageContainer className="max-w-7xl">
@@ -60,7 +60,7 @@ function TagsPage() {
         description="Every datapoint with its latest reading. Chart any of them, or put an alarm rule on it."
         actions={
           isAdmin && (
-            <Button onClick={() => setEditing('new')}>
+            <Button onClick={() => setCreating(true)}>
               <Plus />
               New tag
             </Button>
@@ -75,23 +75,11 @@ function TagsPage() {
         <MultiSelectFilter label="Type" options={TAG_DATA_TYPE_OPTIONS} value={search.dataType} onChange={(dataType) => setSearch({ dataType })} />
         <AssetSelect value={search.assetId} onChange={(assetId) => setSearch({ assetId })} />
       </FilterBar>
-      <TagsTable query={search} onQueryChange={(next) => navigate({ search: next, replace: true })} actions={actions} />
 
-      <TagFormDialog
-        open={editing !== null}
-        onOpenChange={(open) => !open && setEditing(null)}
-        tag={editing === 'new' || editing === null ? undefined : editing}
-        deviceId={search.deviceId}
-      />
-      <DefinitionFormDialog open={ruleFor !== null} onOpenChange={(open) => !open && setRuleFor(null)} initialTagId={ruleFor?.id} />
-      <ConfirmDialog
-        open={deleting !== null}
-        onOpenChange={(open) => !open && setDeleting(null)}
-        title={`Delete ${deleting?.name}?`}
-        description="Its readings are deleted too. Tags with alarm rules or alarm history can't be deleted — deactivate them instead."
-        pending={remove.isPending}
-        onConfirm={() => deleting && remove.mutate(deleting, { onSettled: () => setDeleting(null) })}
-      />
+      {/* Row actions (chart; for admins also add rule, edit, delete) come with the table, the same as in assistant answers. */}
+      <TagsTable query={search} onQueryChange={(next) => navigate({ search: next, replace: true })} />
+
+      <TagFormDialog open={creating} onOpenChange={setCreating} deviceId={search.deviceId} />
     </PageContainer>
   );
 }

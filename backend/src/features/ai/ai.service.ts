@@ -38,11 +38,14 @@ import { buildInstructions } from './system-prompt.js';
  *  3 [app] Save it, so the question survives a failed model call.
  *  4 [app] Call the chosen model with the system prompt (system-prompt.ts),
  *          the history, and the tools this user's role may use (ai.tools.ts).
+ *          The prompt lists the assets and people the pages' pickers offer,
+ *          so Claude can fill asset and people filters with their ids.
  *  5 [AI]  Claude decides what to do: answer, politely refuse an off-topic
  *          request, or call tools, choosing which tools, their filters, and
  *          how many to run at once.
  *  6 [app] The AI SDK runs every tool call: AiTools → the domain's service
- *          (UsersService, AlarmDefinitionsService, AuditService) → database.
+ *          (UsersService, AlarmsService, AlarmDefinitionsService,
+ *          LogbookService, DevicesService, TagsService, AuditService) → database.
  *  7 [AI]  Claude reads the tool results and writes the answer. Steps 5–7
  *          repeat until it answers without calling a tool (at most
  *          AI_MAX_STEPS rounds).
@@ -101,7 +104,9 @@ export class AiService {
     }
     // Dates the user mentions ("signed in yesterday") are days in their zone.
     const timeZone = request.context?.timeZone ?? 'UTC';
-    const tools = this.tools.create({ user, timeZone });
+    // The pickers' choices: listed in the prompt, and the only ids the tools accept.
+    const options = await this.tools.filterOptions();
+    const tools = this.tools.create({ user, timeZone, options });
     const effort = effortFor(request);
 
     // 1–3 [app] The conversation this turn continues: extended, validated, saved.
@@ -114,7 +119,13 @@ export class AiService {
     // reads the results, and so on until it stops calling tools.
     const result = streamText({
       model: this.anthropic(request.model),
-      instructions: buildInstructions({ user, context: request.context, timeZone, generateUi: request.generateUi }),
+      instructions: buildInstructions({
+        user,
+        context: request.context,
+        timeZone,
+        generateUi: request.generateUi,
+        options,
+      }),
       messages: await convertToModelMessages(forModel(messages, request.model), { tools }),
       tools,
       // The role check: the model is never offered a tool this user may not use.

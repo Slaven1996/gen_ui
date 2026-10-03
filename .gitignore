@@ -6,6 +6,8 @@ coverage/
 *.tsbuildinfo
 /tmp
 
+CLAUDE.md
+
 # Generated code
 backend/src/generated/
 

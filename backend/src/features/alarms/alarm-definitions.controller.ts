@@ -37,7 +37,7 @@ export class AlarmDefinitionsController {
   @ApiOperation({
     summary: 'List alarm rules',
     description:
-      'Each rule compares every new reading of one tag with a threshold. `search` matches the rule name, the name or code of its tag, and the name or code of any asset above that tag (a site finds the rules of its equipment). `openAlarmCount` is how many of its alarms still need attention.',
+      'Each rule compares every new reading of one tag with a threshold. `search` matches the rule name and the name or code of its tag. `assetId` includes rules on tags anywhere below that asset (a site finds the rules of its equipment). `openAlarmCount` is how many of its alarms still need attention.',
   })
   @ApiOkResponse({ standardSchema: PaginatedAlarmDefinitionsSchema })
   @ApiErrorResponse(400, 'A query parameter is invalid.')

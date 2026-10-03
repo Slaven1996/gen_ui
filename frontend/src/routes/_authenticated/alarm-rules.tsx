@@ -73,15 +73,15 @@ function AlarmRulesPage() {
 
       <FilterBar
         canReset={Boolean(
-          search.search || search.severity || search.condition || search.assetId || search.isEnabled !== undefined,
+          search.search ||
+            search.severity ||
+            search.condition ||
+            search.assetId ||
+            search.isEnabled !== undefined,
         )}
         onReset={() => navigate({ search: {}, replace: true })}
       >
-        <SearchFilter
-          value={search.search}
-          onChange={(value) => setSearch({ search: value })}
-          placeholder="Search rule, tag or asset"
-        />
+        <SearchFilter value={search.search} onChange={(value) => setSearch({ search: value })} placeholder="Search rule or tag" />
         <MultiSelectFilter label="Severity" options={SEVERITY_OPTIONS} value={search.severity} onChange={(severity) => setSearch({ severity })} />
         <MultiSelectFilter
           label="Condition"

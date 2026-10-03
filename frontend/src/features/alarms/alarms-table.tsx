@@ -12,8 +12,10 @@ export const canAcknowledge = (alarm: Alarm) => alarm.state === 'ACTIVE' || alar
 
 /**
  * The alarm list as a standalone view. On `/alarms` it is driven by the URL
- * (`onQueryChange` writes back to it); embedded in a widget or a chat answer
- * it gets a fixed query and pages and sorts on its own.
+ * (`onQueryChange` writes back to it); embedded in a widget, an asset's page
+ * or a chat answer it gets a fixed query and pages and sorts on its own.
+ * `compact` (widgets, asset pages) drops the least important columns and
+ * implies `dense`; `dense` alone (chat answers) keeps every column.
  */
 export function AlarmsTable({
   query,
@@ -21,12 +23,14 @@ export function AlarmsTable({
   onAlarmClick,
   selection,
   compact = false,
+  dense = false,
 }: {
   query: ListAlarmsQuery;
   onQueryChange?: (next: ListAlarmsQuery) => void;
   onAlarmClick?: (alarm: Alarm) => void;
   selection?: RowSelection<Alarm>;
   compact?: boolean;
+  dense?: boolean;
 }) {
   const [current, update] = useViewQuery(query, onQueryChange);
   const alarms = useQuery(alarmsListQueryOptions(current));
@@ -47,7 +51,7 @@ export function AlarmsTable({
       getRowId={(alarm) => alarm.id}
       isLoading={alarms.isPending}
       isFetching={alarms.isPlaceholderData}
-      dense={compact}
+      dense={compact || dense}
       emptyMessage="No alarms match these filters."
       sort={{ value: current.sort, onChange: (sort) => update({ sort: sort as ListAlarmsQuery['sort'], page: 1 }) }}
       pagination={{

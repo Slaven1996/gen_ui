@@ -24,7 +24,7 @@ export class AuditController {
   @ApiOperation({
     summary: 'List audit records',
     description:
-      'Who changed what, newest first by default. Every create, update, delete and acknowledgement in the app writes one record in the same transaction as the change. `action` takes an exact action (`alarm.acknowledge`) or a prefix ending in a dot (`alarm.`). `actorId` picks people by id; `actor` matches part of their name or email instead.',
+      'Who changed what, newest first by default. Every create, update, delete and acknowledgement in the app writes one record in the same transaction as the change. `action` takes an exact action (`alarm.acknowledge`) or a prefix ending in a dot (`alarm.`). `actorId` picks people by id.',
   })
   @ApiOkResponse({ standardSchema: PaginatedAuditLogsSchema })
   @ApiErrorResponse(400, 'A query parameter is invalid, or `from` is not before `to`.')

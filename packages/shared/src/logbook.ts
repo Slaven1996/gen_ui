@@ -140,7 +140,6 @@ export const auditFilters = {
   entityType: csvEnum(AUDIT_ENTITY_TYPES),
   entityId: z.guid().optional(),
   actorId: csvIds('Actions taken by these users.'),
-  actor: searchParam('the name or email of who acted (actions the system took have no actor)'),
   ...timeRangeParams(),
 };
 

@@ -23,15 +23,12 @@ export class AlarmDefinitionsService {
   ) {}
 
   async list(query: ListAlarmDefinitionsQuery): Promise<Paginated<AlarmDefinition>> {
-    const namedAssets = query.search ? await this.assetsMatching(query.search) : [];
     const where: Prisma.AlarmDefinitionWhereInput = {
       ...(query.search && {
         OR: [
           { name: insensitive(query.search) },
           { tag: { name: insensitive(query.search) } },
           { tag: { code: insensitive(query.search) } },
-          // "Rules at Riverside": tags on that asset or anywhere below it.
-          ...namedAssets.map((assetId) => ({ tag: { device: { asset: withinAsset(assetId) } } })),
         ],
       }),
       ...(query.severity && { severity: { in: query.severity } }),
@@ -54,21 +51,6 @@ export class AlarmDefinitionsService {
       this.prisma.alarmDefinition.count({ where }),
     ]);
     return toPaginated(rows.map(toDefinition), total, query);
-  }
-
-  /**
-   * Ids of the assets whose name or code contains `search`. A site's rules sit
-   * on tags of its equipment, so the search then covers each asset's subtree.
-   * Capped at 20: a search that matches more assets than that (one letter,
-   * say) matches most rules by name already.
-   */
-  private async assetsMatching(search: string): Promise<string[]> {
-    const assets = await this.prisma.asset.findMany({
-      where: { OR: [{ name: insensitive(search) }, { code: insensitive(search) }] },
-      select: { id: true },
-      take: 20,
-    });
-    return assets.map((asset) => asset.id);
   }
 
   async get(id: string): Promise<AlarmDefinition> {

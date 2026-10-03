@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, redirect, stripSearchParams } from '@tanstack/react-router';
-import { X } from 'lucide-react';
 import type { z } from 'zod';
 import { ListAuditLogsQuerySchema } from '@gen-ui/shared';
 import { FilterBar } from '@/components/filters/filter-bar';
@@ -9,7 +8,6 @@ import { SearchFilter } from '@/components/filters/search-filter';
 import { SelectFilter } from '@/components/filters/select-filter';
 import { describeTimeRange, TimeRangeFilter } from '@/components/filters/time-range-filter';
 import { PageContainer, PageHeader } from '@/components/layout/page';
-import { Button } from '@/components/ui/button';
 import { useAssistantContext } from '@/features/assistant/assistant-context';
 import { auditLogsListQueryOptions } from '@/features/logbook/api';
 import { AuditTable } from '@/features/logbook/audit-table';
@@ -67,7 +65,6 @@ function AuditPage() {
       logs.data && `${logs.data.total} records match`,
       search.search && `search "${search.search}"`,
       search.action && `action ${search.action}`,
-      search.actor && `by "${search.actor}"`,
       (search.range || search.from || search.to) && describeTimeRange(search),
     ]
       .filter(Boolean)
@@ -86,7 +83,6 @@ function AuditPage() {
             search.action ||
             search.entityType ||
             search.actorId ||
-            search.actor ||
             search.range ||
             search.from ||
             search.to,
@@ -103,13 +99,6 @@ function AuditPage() {
         />
         <MultiSelectFilter label="Record" options={AUDIT_ENTITY_OPTIONS} value={search.entityType} onChange={(entityType) => setSearch({ entityType })} />
         <UserFilter label="Who" value={search.actorId} onChange={(actorId) => setSearch({ actorId })} />
-        {/* A name match only arrives in links (the assistant writes them); shown so it can be removed. */}
-        {search.actor && (
-          <Button variant="secondary" onClick={() => setSearch({ actor: undefined })} aria-label={`Remove filter: who matches ${search.actor}`}>
-            Who: “{search.actor}”
-            <X />
-          </Button>
-        )}
         <TimeRangeFilter value={search} onChange={(range) => setSearch(range)} />
       </FilterBar>
       <AuditTable query={search} onQueryChange={(next) => navigate({ search: next, replace: true })} />

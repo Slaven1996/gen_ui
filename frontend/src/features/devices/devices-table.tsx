@@ -1,20 +1,63 @@
-import { useMemo } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
 import type { Device, ListDevicesQuery } from '@gen-ui/shared';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { DataTable } from '@/components/data-table/data-table';
 import { DeviceStatusBadge } from '@/components/domain-badges';
 import { RowActions } from '@/components/row-actions';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AssetLink, RelativeTime } from '@/features/alarms/alarm-columns';
-import { devicesListQueryOptions } from '@/features/assets/api';
+import { devicesListQueryOptions, useDeleteDevice } from '@/features/assets/api';
 import { useViewQuery } from '@/hooks/use-view-query';
 import { getErrorMessage } from '@/lib/api/errors';
+import { useAuth } from '@/lib/auth/auth-store';
 import { DEVICE_PROTOCOL } from '@/lib/labels';
+import { DeviceFormDialog } from './device-form-dialog';
 
-export interface DeviceActions {
+/** Admin row actions; without them the table is read-only. */
+interface DeviceActions {
   onEdit: (device: Device) => void;
   onDelete: (device: Device) => void;
+}
+
+/**
+ * Row actions for admins, wherever the full table is shown: the Devices page
+ * or an assistant answer. They bring their own edit and delete dialogs.
+ * Everyone else, and compact embeds (an asset's page), get a read-only
+ * table. The API enforces the same rule; this only decides what to show.
+ */
+function useDeviceActions(enabled: boolean): { actions: DeviceActions | undefined; dialogs: ReactNode } {
+  const { user } = useAuth();
+  const allowed = enabled && user?.role === 'ADMIN';
+  const [editing, setEditing] = useState<Device | null>(null);
+  const [deleting, setDeleting] = useState<Device | null>(null);
+  const remove = useDeleteDevice();
+
+  const actions = useMemo<DeviceActions | undefined>(
+    () => (allowed ? { onEdit: setEditing, onDelete: setDeleting } : undefined),
+    [allowed],
+  );
+
+  const dialogs = actions && (
+    <>
+      <DeviceFormDialog
+        open={editing !== null}
+        onOpenChange={(open) => !open && setEditing(null)}
+        device={editing ?? undefined}
+      />
+      <ConfirmDialog
+        open={deleting !== null}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        title={`Delete ${deleting?.name}?`}
+        description="Only devices without tags can be deleted."
+        pending={remove.isPending}
+        onConfirm={() => deleting && remove.mutate(deleting, { onSettled: () => setDeleting(null) })}
+      />
+    </>
+  );
+
+  return { actions, dialogs };
 }
 
 function deviceColumns({ actions, compact }: { actions?: DeviceActions; compact: boolean }): ColumnDef<Device>[] {
@@ -87,20 +130,26 @@ function deviceColumns({ actions, compact }: { actions?: DeviceActions; compact:
   ];
 }
 
-/** Devices as a standalone view (the `/devices` page, an asset's page, a widget). */
+/**
+ * Devices as a standalone view: the `/devices` page (query in the URL), an
+ * assistant answer (a fixed query, paged locally, `dense`) and an asset's
+ * page (`compact`: without the asset and protocol columns, and read-only).
+ * Admins get the row actions on the page and in the assistant.
+ */
 export function DevicesTable({
   query,
   onQueryChange,
-  actions,
   compact = false,
+  dense = false,
 }: {
   query: ListDevicesQuery;
   onQueryChange?: (next: ListDevicesQuery) => void;
-  actions?: DeviceActions;
   compact?: boolean;
+  dense?: boolean;
 }) {
   const [current, update] = useViewQuery(query, onQueryChange);
   const devices = useQuery(devicesListQueryOptions(current));
+  const { actions, dialogs } = useDeviceActions(!compact);
   const columns = useMemo(() => deviceColumns({ actions, compact }), [actions, compact]);
 
   if (devices.isError) {
@@ -112,21 +161,24 @@ export function DevicesTable({
   }
 
   return (
-    <DataTable
-      columns={columns}
-      data={devices.data?.items ?? []}
-      getRowId={(device) => device.id}
-      isLoading={devices.isPending}
-      isFetching={devices.isPlaceholderData}
-      dense={compact}
-      emptyMessage="No devices match these filters."
-      sort={{ value: current.sort, onChange: (sort) => update({ sort: sort as ListDevicesQuery['sort'], page: 1 }) }}
-      pagination={{
-        pageIndex: current.page - 1,
-        pageSize: current.pageSize,
-        rowCount: devices.data?.total ?? 0,
-        onPaginationChange: ({ pageIndex, pageSize }) => update({ page: pageIndex + 1, pageSize }),
-      }}
-    />
+    <>
+      <DataTable
+        columns={columns}
+        data={devices.data?.items ?? []}
+        getRowId={(device) => device.id}
+        isLoading={devices.isPending}
+        isFetching={devices.isPlaceholderData}
+        dense={compact || dense}
+        emptyMessage="No devices match these filters."
+        sort={{ value: current.sort, onChange: (sort) => update({ sort: sort as ListDevicesQuery['sort'], page: 1 }) }}
+        pagination={{
+          pageIndex: current.page - 1,
+          pageSize: current.pageSize,
+          rowCount: devices.data?.total ?? 0,
+          onPaginationChange: ({ pageIndex, pageSize }) => update({ page: pageIndex + 1, pageSize }),
+        }}
+      />
+      {dialogs}
+    </>
   );
 }

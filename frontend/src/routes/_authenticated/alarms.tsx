@@ -7,7 +7,7 @@ import { ListAlarmsQuerySchema, OPEN_ALARM_STATES, UNACKNOWLEDGED_ALARM_STATES, 
 import { FilterBar } from '@/components/filters/filter-bar';
 import { MultiSelectFilter } from '@/components/filters/multi-select-filter';
 import { SearchFilter } from '@/components/filters/search-filter';
-import { TimeRangeFilter } from '@/components/filters/time-range-filter';
+import { describeTimeRange, TimeRangeFilter } from '@/components/filters/time-range-filter';
 import { PageContainer, PageHeader } from '@/components/layout/page';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -54,7 +54,13 @@ function AlarmsPage() {
     navigate({ search: (previous) => ({ ...previous, ...patch, page: 1 }), replace: true });
 
   const canReset = Boolean(
-    query.search || query.state || query.severity || query.assetId || query.range || query.from || query.to,
+    query.search ||
+      query.state ||
+      query.severity ||
+      query.assetId ||
+      query.range ||
+      query.from ||
+      query.to,
   );
 
   useAssistantContext({
@@ -63,7 +69,7 @@ function AlarmsPage() {
       'Alarm console',
       query.state && `state ${query.state.join('/')}`,
       query.severity && `severity ${query.severity.join('/')}`,
-      query.range && `last ${query.range}`,
+      (query.range || query.from || query.to) && describeTimeRange(query),
       query.search && `search "${query.search}"`,
     ]
       .filter(Boolean)

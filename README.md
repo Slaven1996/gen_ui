@@ -102,7 +102,7 @@ Every list endpoint takes the same kind of query — `page`/`pageSize`, `sort=fi
 2. the page, as its route's `validateSearch` — so `/alarms?state=ACTIVE,CLEARED&severity=CRITICAL&range=7d` and `GET /api/alarms?state=ACTIVE,CLEARED&severity=CRITICAL&range=7d` are the same query;
 3. the next phase's Generative UI tools, as their input.
 
-Tables and charts (`AlarmsTable`, `TelemetryChart`, `LogbookTable`, `TagsTable`, …) take that query as a prop and fetch their own data. A page feeds them from its URL; an embed (a dashboard widget, an asset page card, later a chat answer) passes a fixed query and adds **View full page** — a plain link to the page with the same query. A dashboard widget's `config` *is* such a query (`WIDGET_CONFIG_SCHEMAS`), and `features/dashboards/widget-registry.tsx` maps each widget type to its view and its full page; a GenUI tool emitting `{ type, config }` can render through that same registry.
+Tables and charts (`AlarmsTable`, `TelemetryChart`, `LogbookTable`, `TagsTable`, …) take that query as a prop and fetch their own data. A page feeds them from its URL; an embed (a dashboard widget, an asset page card, a chat answer) passes a fixed query and adds **View full page** — a plain link to the page with the same query. A dashboard widget's `config` *is* such a query (`WIDGET_CONFIG_SCHEMAS`), and `features/dashboards/widget-registry.tsx` maps each widget type to its view and its full page; a GenUI tool emitting `{ type, config }` can render through that same registry.
 
 ### Alarms, end to end
 
@@ -122,10 +122,11 @@ The bell in the header shows alarm notifications the moment the server sends the
 
 `/users` filters by name or email, role, **status** (active / deactivated) and **last sign-in**: *All*, *Never signed in*, or *Exact date* with a date picker. They are URL and API parameters like every other list filter: `GET /api/users?status=DEACTIVATED&lastSignIn=never`, or `lastSignIn=2026-05-03` for a day. That day is read in `timeZone`, which the web app sets to the browser's zone, so the filter matches the date the *Last sign-in* column shows. Choosing *Exact date* opens an empty date field; nothing is filtered until a date is picked.
 
-### Alarm rules and audit log
+### Asset and people filters
 
-- **`/alarm-rules`**: the search matches the rule's name, its tag's name or code, and the name or code of **any asset above the tag** (`?search=Riverside` finds every rule on that site's equipment), next to severity, condition, asset and enabled filters. Admins edit, delete and switch rules on and off from the table's rows; the same table, with the same actions, appears in assistant answers.
-- **`/audit`** (admins): besides picking people in *Who* (`actorId`), `actor` matches part of a name or email (`GET /api/audit-logs?actor=ava`). The assistant writes that form, since it knows names but not ids; the page shows it as a removable *Who: “ava”* filter.
+Alarms, alarm rules, logbook, devices and tags filter by asset with the asset dropdown (`assetId`). It covers the asset and everything below it, so picking a site brings all its equipment. The logbook's *Author* and the audit log's *Who* filter by people (`authorId`, `actorId`). The assistant fills these same ids, so its links open with the dropdowns already set (see [Generative UI](#generative-ui)).
+
+`search` never matches asset names: asset names are full of common words ("Pump", "Reservoir", "Tank"), so "pump rules" would otherwise return every rule at a pumping station.
 
 ## API docs
 
@@ -206,20 +207,32 @@ The assistant has one tool per domain view:
 
 | Tool | Who may use it | What Claude can filter by | Renders | Opens |
 |---|---|---|---|---|
+| `listAlarms` | everyone | words from the alarm (message, rule, tag), asset, state, severity, when it was raised | `AlarmsTable`; a click opens the alarm's sheet (acknowledge, clear, chart, timeline) | `/alarms` |
+| `listAlarmRules` | everyone | rule or tag name, asset, severity, condition, enabled | `DefinitionsTable`; admins get edit, delete, enable/disable | `/alarm-rules` |
+| `listLogbookEntries` | everyone | words from the entry, kind, severity, source (people or system), author, asset, when it happened | `LogbookTable`; authors edit their entries, authors and admins delete them | `/logbook` |
+| `listDevices` | everyone | name, serial number, model or manufacturer, asset, status, protocol | `DevicesTable`; admins get edit, delete | `/devices` |
+| `listTags` | everyone | name, code or unit, asset, type (analog, digital, counter) | `TagsTable` with live values; chart for everyone, and add a rule, edit, delete for admins | `/tags` |
 | `listUsers` | everyone | name or email, role, status, last sign-in | `UsersTable`; admins get make admin, deactivate, reactivate | `/users` |
-| `listAlarmRules` | everyone | rule, tag or asset name, severity, condition, enabled | `DefinitionsTable`; admins get edit, delete, enable/disable | `/alarm-rules` |
 | `listAuditLogs` | admins | action (a family such as `alarm_definition.` or an exact one such as `alarm.acknowledge`), who acted, words from the summary, a time window | `AuditTable`, read-only | `/audit` |
 
-Questions to try: "rules that are switched off", "critical rules at Riverside", "what did Ava change last week", "who acknowledged alarms yesterday", "deleted devices in the last 30 days".
+Questions to try:
+- Alarms: "open alarms at Riverside", "critical alarms raised today", "which alarms still need acknowledging".
+- Logbook: "maintenance work last week", "what did Ava write in the logbook", "device events at the reservoir".
+- Devices and tags: "devices that are offline or faulted", "what is the wet well level at PS-01 right now", "digital signals at Riverside".
+- Alarm rules: "rules that are switched off", "critical rules at Riverside".
+- Audit log (admins): "what did Ava change last week", "who acknowledged alarms yesterday", "deleted devices in the last 30 days".
+- Several at once: "open alarms at Riverside, and the devices there".
 
 **What is AI-driven, and what isn't.** Claude decides only three things: whether to answer, refuse or look something up; which tool to call with which filters (the tool *input*); and the wording of the answer. Everything else is ordinary code: authorization, validation, the database query, which component draws a tool call, and the data in that component (fetched through the REST API, like its page). The numbered flow at the top of `backend/src/features/ai/ai.service.ts` marks each step `[app]` or `[AI]`.
 
 1. The backend calls `streamText` with the tools the user's role may use and pipes an AI SDK UI message stream (SSE) back to the client (`backend/src/features/ai`).
 2. **Tools call services, never controllers or repositories.** A tool is an inbound adapter like a controller, so the chat gets the same rules and mapping as the REST API. Guards don't run for tool calls, so each tool declares its roles in `TOOL_ROLES` (the chat's `@Roles`).
-3. A tool's input is a page query: apart from its `title`, every field is a URL parameter of the tool's page (`listUsers` → `/users`, `listAlarmRules` → `/alarm-rules`, `listAuditLogs` → `/audit`). The chat renders the tool call as that page's table, which fetches its own data, and links to the page with the same query. "Deactivated users who never signed in" becomes `status: DEACTIVATED, lastSignIn: never`. Each request tells Claude the current date, time and UTC offset in the user's time zone, so "who signed in yesterday" becomes a date and "what changed yesterday" becomes a `from`/`to` window on the user's calendar day.
+3. A tool's input is a page query: apart from its `title`, every field is a URL parameter of the tool's page (`listAlarms` → `/alarms`, `listUsers` → `/users`, and so on). The chat renders the tool call as that page's table, which fetches its own data, and links to the page with the same query. "Deactivated users who never signed in" becomes `status: DEACTIVATED, lastSignIn: never`; "open alarms at Riverside" becomes `state: [ACTIVE, ACKNOWLEDGED, CLEARED], assetId: <Riverside's id>`. Each request tells Claude the current date, time and UTC offset in the user's time zone, so "who signed in yesterday" becomes a date and "alarms raised yesterday" becomes a `from`/`to` window on the user's calendar day.
 4. `features/assistant/tool-parts.tsx` maps each tool to its view, according to the part's state (`input-streaming` → skeleton, input complete → the table, `output-error` → an alert).
 
 **The system prompt is generic.** It holds the app's pages, the rules for using tools and the out-of-scope refusal, and never names a tool. What a tool does and how to fill its fields lives in its `description` and field `.describe()` texts in `packages/shared/src/assistant.ts`, which Claude receives with the tool.
+
+**Assets and people come as ids, picked from the dropdowns' own lists.** Every request adds two lists to the prompt: the asset tree (`AssetsService.tree()`, what the asset dropdown shows) and the active people (`UsersService.options()`, what *Author* and *Who* show), each entry with its id. Claude matches the user's words to an entry, typos included ("hilcrest" → Hillcrest Reservoir), and writes its id into the tool input. The chat table, **Open in new tab** and the page's dropdown then all show that same asset or person. If a name fits several entries equally (there are several pumps), Claude asks which one. If none fits, it says so. A tool rejects an id that isn't on the lists, so a miscopied id can't quietly return an empty table. The lists cost about 500 input tokens per message with the demo data, and each is cut at 500 entries; a much larger asset tree would need a lookup tool instead.
 
 **Generate UI components** (a switch above the message box, on by default): turned off, the assistant still looks data up but answers in Markdown, and each lookup shows as one line with the same link. Each answer keeps the mode it was given in.
 
@@ -228,7 +241,7 @@ Questions to try: "rules that are switched off", "critical rules at Riverside", 
 To add a domain:
 1. Add its tool schema to `genUiToolSchemas` in `packages/shared/src/assistant.ts`, with a description on every field.
 2. Implement the tool in `backend/src/features/ai/ai.tools.ts`, calling that domain's service, and add its `TOOL_ROLES` line. Export the service from its module and import that module in `ai.module.ts`.
-3. Add a renderer in `tool-parts.tsx` that wraps the domain's existing table. Role-based row actions belong inside that table (as `useUserActions` does in `users-table.tsx` and `useDefinitionActions` in `definitions-table.tsx`), so the page and the chat show the same ones.
+3. Add a renderer in `tool-parts.tsx` that wraps the domain's existing table. Role-based row actions belong inside that table, with their dialogs (the `use…Actions` hooks in `users-table.tsx`, `definitions-table.tsx`, `devices-table.tsx`, `tags-table.tsx` and `logbook-table.tsx`), so the page and the chat show the same ones. A filter a page sets with an asset or people dropdown takes the same ids in the tool; Claude picks them from the lists in its prompt.
 
 TypeScript fails the build if the backend tools and the shared contract drift apart, or if a tool has no renderer.
 

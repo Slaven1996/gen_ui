@@ -1,19 +1,19 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, stripSearchParams } from '@tanstack/react-router';
 import { Plus } from 'lucide-react';
 import type { z } from 'zod';
-import { ListDevicesQuerySchema, type Device } from '@gen-ui/shared';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ListDevicesQuerySchema } from '@gen-ui/shared';
 import { FilterBar } from '@/components/filters/filter-bar';
 import { MultiSelectFilter } from '@/components/filters/multi-select-filter';
 import { SearchFilter } from '@/components/filters/search-filter';
 import { PageContainer, PageHeader } from '@/components/layout/page';
 import { Button } from '@/components/ui/button';
-import { devicesListQueryOptions, useDeleteDevice } from '@/features/assets/api';
+import { devicesListQueryOptions } from '@/features/assets/api';
 import { AssetSelect } from '@/features/assets/asset-select';
 import { useAssistantContext } from '@/features/assistant/assistant-context';
 import { DeviceFormDialog } from '@/features/devices/device-form-dialog';
-import { DevicesTable, type DeviceActions } from '@/features/devices/devices-table';
+import { DevicesTable } from '@/features/devices/devices-table';
 import { useAuth } from '@/lib/auth/auth-store';
 import { DEVICE_PROTOCOL_OPTIONS, DEVICE_STATUS_OPTIONS } from '@/lib/labels';
 import { defaultsOf, searchSchema } from '@/lib/search';
@@ -34,24 +34,21 @@ function DevicesPage() {
   const navigate = Route.useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
-  const [editing, setEditing] = useState<Device | 'new' | null>(null);
-  const [deleting, setDeleting] = useState<Device | null>(null);
-  const remove = useDeleteDevice();
+  const [creating, setCreating] = useState(false);
+  // The table's own query: this reads the same cache entry, it doesn't fetch twice.
+  const devices = useQuery(devicesListQueryOptions(search));
 
   const setSearch = (patch: Partial<DevicesSearch>) =>
     navigate({ search: (previous) => ({ ...previous, ...patch, page: 1 }), replace: true });
 
-  const actions = useMemo<DeviceActions | undefined>(
-    () => (isAdmin ? { onEdit: setEditing, onDelete: setDeleting } : undefined),
-    [isAdmin],
-  );
-
   useAssistantContext({
     title: 'Devices',
     summary: [
-      'RTUs, PLCs and sensors',
-      search.status && `status ${search.status.join('/')}`,
+      `RTUs, PLCs and sensors. Page ${search.page}`,
+      devices.data && `${devices.data.total} devices match`,
       search.search && `search "${search.search}"`,
+      search.status && `status ${search.status.join('/')}`,
+      search.protocol && `protocol ${search.protocol.join('/')}`,
     ]
       .filter(Boolean)
       .join(', '),
@@ -64,7 +61,7 @@ function DevicesPage() {
         description="The units that report readings. A device that sends data is marked online automatically."
         actions={
           isAdmin && (
-            <Button onClick={() => setEditing('new')}>
+            <Button onClick={() => setCreating(true)}>
               <Plus />
               Register device
             </Button>
@@ -80,22 +77,11 @@ function DevicesPage() {
         <MultiSelectFilter label="Protocol" options={DEVICE_PROTOCOL_OPTIONS} value={search.protocol} onChange={(protocol) => setSearch({ protocol })} />
         <AssetSelect value={search.assetId} onChange={(assetId) => setSearch({ assetId })} />
       </FilterBar>
-      <DevicesTable query={search} onQueryChange={(next) => navigate({ search: next, replace: true })} actions={actions} />
 
-      <DeviceFormDialog
-        open={editing !== null}
-        onOpenChange={(open) => !open && setEditing(null)}
-        device={editing === 'new' || editing === null ? undefined : editing}
-        assetId={search.assetId}
-      />
-      <ConfirmDialog
-        open={deleting !== null}
-        onOpenChange={(open) => !open && setDeleting(null)}
-        title={`Delete ${deleting?.name}?`}
-        description="Only devices without tags can be deleted."
-        pending={remove.isPending}
-        onConfirm={() => deleting && remove.mutate(deleting, { onSettled: () => setDeleting(null) })}
-      />
+      {/* Row actions for admins (edit, delete) come with the table, the same as in assistant answers. */}
+      <DevicesTable query={search} onQueryChange={(next) => navigate({ search: next, replace: true })} />
+
+      <DeviceFormDialog open={creating} onOpenChange={setCreating} assetId={search.assetId} />
     </PageContainer>
   );
 }

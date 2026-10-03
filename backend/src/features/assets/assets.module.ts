@@ -12,6 +12,8 @@ import { TagsService } from './tags.service.js';
   imports: [LogbookModule],
   controllers: [AssetsController, DevicesController, TagsController],
   providers: [AssetsService, DevicesService, TagsService],
-  exports: [DevicesService],
+  // Telemetry records device status changes through DevicesService. The assistant reads through all three:
+  // the device and tag tools, and the asset tree its prompt lists.
+  exports: [AssetsService, DevicesService, TagsService],
 })
 export class AssetsModule {}

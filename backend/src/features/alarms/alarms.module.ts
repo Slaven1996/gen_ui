@@ -10,7 +10,6 @@ import { AlarmsService } from './alarms.service.js';
   imports: [LogbookModule],
   controllers: [AlarmsController, AlarmDefinitionsController],
   providers: [AlarmsService, AlarmDefinitionsService, AlarmEvaluator],
-  // AlarmDefinitionsService: the assistant's alarm-rules tool reads through it.
-  exports: [AlarmEvaluator, AlarmDefinitionsService],
+  exports: [AlarmEvaluator, AlarmsService, AlarmDefinitionsService],
 })
 export class AlarmsModule {}

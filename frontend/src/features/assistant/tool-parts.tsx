@@ -1,10 +1,14 @@
-import type { ComponentType } from 'react';
+import { useState, type ComponentType } from 'react';
 import type { LinkProps } from '@tanstack/react-router';
 import { getStaticToolName, type ToolUIPart } from 'ai';
 import { CircleAlert } from 'lucide-react';
 import {
   ListAlarmDefinitionsQuerySchema,
+  ListAlarmsQuerySchema,
   ListAuditLogsQuerySchema,
+  ListDevicesQuerySchema,
+  ListLogbookQuerySchema,
+  ListTagsQuerySchema,
   ListUsersQuerySchema,
   type GenUIToolName,
   type GenUITools,
@@ -12,8 +16,13 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ViewCard, ViewFullPageLink } from '@/components/view-card';
+import { AlarmDetailSheet } from '@/features/alarms/alarm-detail-sheet';
+import { AlarmsTable } from '@/features/alarms/alarms-table';
 import { DefinitionsTable } from '@/features/alarms/definitions-table';
+import { DevicesTable } from '@/features/devices/devices-table';
 import { AuditTable } from '@/features/logbook/audit-table';
+import { LogbookTable } from '@/features/logbook/logbook-table';
+import { TagsTable } from '@/features/tags/tags-table';
 import { UsersTable } from '@/features/users/users-table';
 
 /*
@@ -78,6 +87,60 @@ function AuditBody({ input }: { input: Input<'listAuditLogs'> }) {
   return <AuditTable query={ListAuditLogsQuerySchema.parse({ ...auditQuery(input), pageSize: 5 })} dense />;
 }
 
+// ─── Alarms ─────────────────────────────────────────────────────────────────
+
+/** An alarms call as an `/alarms` query: every field but the title. */
+const alarmsQuery = ({ title: _title, ...filters }: Input<'listAlarms'>) => filters;
+
+/**
+ * The Alarms page's own table. A click opens the alarm in the same sheet as
+ * on the page (acknowledge, clear, chart, timeline), kept here instead of in
+ * the URL. Selecting several for one acknowledgement stays on the page.
+ */
+function AlarmsBody({ input }: { input: Input<'listAlarms'> }) {
+  const [openAlarm, setOpenAlarm] = useState<string>();
+  return (
+    <>
+      <AlarmsTable
+        query={ListAlarmsQuerySchema.parse({ ...alarmsQuery(input), pageSize: 5 })}
+        dense
+        onAlarmClick={(alarm) => setOpenAlarm(alarm.id)}
+      />
+      <AlarmDetailSheet alarmId={openAlarm} onClose={() => setOpenAlarm(undefined)} />
+    </>
+  );
+}
+
+// ─── Logbook ────────────────────────────────────────────────────────────────
+
+/** A logbook call as a `/logbook` query: every field but the title. */
+const logbookQuery = ({ title: _title, ...filters }: Input<'listLogbookEntries'>) => filters;
+
+/** The Logbook page's own table: authors edit their entries, authors and admins delete them. */
+function LogbookBody({ input }: { input: Input<'listLogbookEntries'> }) {
+  return <LogbookTable query={ListLogbookQuerySchema.parse({ ...logbookQuery(input), pageSize: 5 })} dense />;
+}
+
+// ─── Devices ────────────────────────────────────────────────────────────────
+
+/** A devices call as a `/devices` query: every field but the title. */
+const devicesQuery = ({ title: _title, ...filters }: Input<'listDevices'>) => filters;
+
+/** The Devices page's own table: the same columns, and edit and delete for admins. */
+function DevicesBody({ input }: { input: Input<'listDevices'> }) {
+  return <DevicesTable query={ListDevicesQuerySchema.parse({ ...devicesQuery(input), pageSize: 5 })} dense />;
+}
+
+// ─── Tags ───────────────────────────────────────────────────────────────────
+
+/** A tags call as a `/tags` query: every field but the title. */
+const tagsQuery = ({ title: _title, ...filters }: Input<'listTags'>) => filters;
+
+/** The Tags page's own table with live values: chart for everyone; add a rule, edit and delete for admins. */
+function TagsBody({ input }: { input: Input<'listTags'> }) {
+  return <TagsTable query={ListTagsQuerySchema.parse({ ...tagsQuery(input), pageSize: 5 })} dense />;
+}
+
 // ─── Registry ───────────────────────────────────────────────────────────────
 
 /**
@@ -105,6 +168,34 @@ const RENDERERS: { [N in GenUIToolName]: ToolRenderer<N> } = {
     title: (input) => input.title,
     link: (input) => ({ to: '/audit', search: auditQuery(input) }),
     Body: AuditBody,
+    found: (output) => `${output.total} found`,
+  },
+  listAlarms: {
+    pending: 'Looking up alarms…',
+    title: (input) => input.title,
+    link: (input) => ({ to: '/alarms', search: alarmsQuery(input) }),
+    Body: AlarmsBody,
+    found: (output) => `${output.total} found`,
+  },
+  listLogbookEntries: {
+    pending: 'Searching the logbook…',
+    title: (input) => input.title,
+    link: (input) => ({ to: '/logbook', search: logbookQuery(input) }),
+    Body: LogbookBody,
+    found: (output) => `${output.total} found`,
+  },
+  listDevices: {
+    pending: 'Looking up devices…',
+    title: (input) => input.title,
+    link: (input) => ({ to: '/devices', search: devicesQuery(input) }),
+    Body: DevicesBody,
+    found: (output) => `${output.total} found`,
+  },
+  listTags: {
+    pending: 'Looking up tags…',
+    title: (input) => input.title,
+    link: (input) => ({ to: '/tags', search: tagsQuery(input) }),
+    Body: TagsBody,
     found: (output) => `${output.total} found`,
   },
 };
