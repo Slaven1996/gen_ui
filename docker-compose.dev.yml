@@ -1,0 +1,44 @@
+# Frontend development in Docker: `pnpm docker:dev`, layered over
+# docker-compose.yml.
+#
+# The frontend runs the Vite dev server (the `dev` target in frontend/Dockerfile)
+# instead of nginx, and Compose Watch copies every edit under frontend/ and
+# packages/shared/ into the running container, where Vite hot-reloads it: no
+# image rebuild, no container restart. Only a dependency change (a package.json
+# or the lockfile) rebuilds the image, and Compose Watch does that by itself.
+#
+# Postgres and the API run exactly as in docker-compose.yml. A backend change
+# still needs an image rebuild: run `pnpm docker:dev` again.
+
+services:
+  frontend:
+    build:
+      target: dev
+    # Vite runs under pnpm; an init process passes `docker compose stop` on to it.
+    init: true
+    environment:
+      # Vite's /api and /docs proxy (vite.config.ts), over the compose network.
+      DEV_API_TARGET: http://backend:3000
+    develop:
+      watch:
+        - action: sync
+          path: ./frontend
+          target: /repo/frontend
+          ignore:
+            - node_modules/
+            - dist/
+            - package.json
+        - action: sync
+          path: ./packages/shared
+          target: /repo/packages/shared
+          ignore:
+            - node_modules/
+            - dist/
+            - package.json
+        # New or upgraded dependencies need a fresh install.
+        - action: rebuild
+          path: ./frontend/package.json
+        - action: rebuild
+          path: ./packages/shared/package.json
+        - action: rebuild
+          path: ./pnpm-lock.yaml

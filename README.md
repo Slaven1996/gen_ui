@@ -35,6 +35,21 @@ docker compose --env-file backend/.env up
 
 The API port is deliberately not published: the browser reaches it same-origin at `/api` through nginx, which leaves port 3000 free for `pnpm dev`. Uncomment the `ports:` block under `backend` to expose it.
 
+#### Frontend work in Docker (hot reload)
+
+`docker:up` serves a production build, so every frontend edit means another `tsc -b` + `vite build` and a new image. For frontend work, use the dev mode instead:
+
+```bash
+pnpm docker:dev                   # same stack, but the web app is the Vite dev server
+```
+
+`docker-compose.dev.yml` layers over `docker-compose.yml`: the frontend container runs Vite (the `dev` target in `frontend/Dockerfile`) behind the same <http://localhost:5173>, and `docker compose watch` copies every edit under `frontend/` and `packages/shared/` into the running container, where Vite hot-reloads it. Nothing is rebuilt. Only a change to a `package.json` or `pnpm-lock.yaml` rebuilds the frontend image, and watch does that by itself.
+
+- Vite's output: `docker compose logs -f frontend`.
+- Ctrl+C stops watching, but the stack keeps running. Stop it with `pnpm docker:down`, or switch back to the production build with `pnpm docker:up`.
+- The API still runs from its image. After a backend change, run `pnpm docker:dev` again (the dependency layers are cached, so only the backend is recompiled).
+- `frontend/src/routeTree.gen.ts` is regenerated inside the container only. After adding a route file, run `pnpm --filter frontend build` locally once, so your copy (which is committed) and your editor know the new route.
+
 ### Local development (hot reload)
 
 Prerequisites: Node 24 (`.nvmrc`), pnpm 10 (`corepack enable pnpm`), Docker for Postgres.
@@ -174,6 +189,7 @@ A few rules Prisma cannot express live in `init.sql` as `CHECK` constraints (an 
 | Script | What it does |
 |---|---|
 | `pnpm docker:up` / `docker:logs` | Build and start the whole stack in Docker, detached / in the foreground |
+| `pnpm docker:dev` | The stack in Docker with the Vite dev server; frontend and shared edits hot-reload without a rebuild |
 | `pnpm docker:down` / `docker:clean` | Stop the stack / stop it and drop the database volume |
 | `pnpm dev` | Builds `shared`, then runs shared (watch), API and web app in parallel |
 | `pnpm --filter @gen-ui/shared build` | Rebuild the shared package's `dist`, which the running apps import |

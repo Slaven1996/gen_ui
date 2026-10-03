@@ -78,6 +78,8 @@ function ChatThreadView({ chat, className }: { chat: Chat<GenUIMessage>; classNa
   const busy = status === 'submitted' || status === 'streaming';
 
   useEffect(() => {
+    console.log('MESSAGES');
+    console.log(messages);
     const element = scrollRef.current;
     if (element) element.scrollTop = element.scrollHeight;
   }, [messages, status]);

@@ -21,6 +21,7 @@
     "db:studio": "pnpm --filter backend db:studio",
     "docker:up": "docker compose up --build -d",
     "docker:logs": "docker compose up --build",
+    "docker:dev": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d && docker compose -f docker-compose.yml -f docker-compose.dev.yml watch",
     "docker:down": "docker compose down",
     "docker:clean": "docker compose down -v"
   }
