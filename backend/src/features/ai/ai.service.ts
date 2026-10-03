@@ -103,7 +103,7 @@ export class AiService {
       throw new ServiceUnavailableException('AI is not configured. Set ANTHROPIC_API_KEY in backend/.env.');
     }
     // Dates the user mentions ("signed in yesterday") are days in their zone.
-    const timeZone = request.context?.timeZone ?? 'UTC';
+    const { timeZone } = request;
     // The pickers' choices: listed in the prompt, and the only ids the tools accept.
     const options = await this.tools.filterOptions();
     const tools = this.tools.create({ user, timeZone, options });
@@ -119,13 +119,7 @@ export class AiService {
     // reads the results, and so on until it stops calling tools.
     const result = streamText({
       model: this.anthropic(request.model),
-      instructions: buildInstructions({
-        user,
-        context: request.context,
-        timeZone,
-        generateUi: request.generateUi,
-        options,
-      }),
+      instructions: buildInstructions({ user, timeZone, generateUi: request.generateUi, options }),
       messages: await convertToModelMessages(forModel(messages, request.model), { tools }),
       tools,
       // The role check: the model is never offered a tool this user may not use.
@@ -135,6 +129,10 @@ export class AiService {
       providerOptions: { anthropic: this.anthropicOptions(request.model, effort) },
       abortSignal,
     });
+
+    console.log('RESULT');
+    console.log(result.stream);
+    console.log("================");
 
     // 8–9 [app] Stream every part to the browser, then save the finished turn.
     const stream = toUIMessageStream<AiToolSet, GenUIMessage>({
@@ -164,6 +162,11 @@ export class AiService {
         return 'The assistant ran into a problem. Please try again.';
       },
     });
+
+    console.log("================");
+    console.log("STREAM");
+    console.log(stream);
+    console.log("================");
 
     await pipeUIMessageStreamToResponse({ response, stream });
   }

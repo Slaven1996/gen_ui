@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, stripSearchParams } from '@tanstack/react-router';
 import { Plus } from 'lucide-react';
 import type { z } from 'zod';
@@ -14,7 +13,6 @@ import { alarmDefinitionsListQueryOptions } from '@/features/alarms/api';
 import { DefinitionFormDialog } from '@/features/alarms/definition-form-dialog';
 import { DefinitionsTable } from '@/features/alarms/definitions-table';
 import { AssetSelect } from '@/features/assets/asset-select';
-import { useAssistantContext } from '@/features/assistant/assistant-context';
 import { useAuth } from '@/lib/auth/auth-store';
 import { ALARM_CONDITION_OPTIONS, SEVERITY_OPTIONS } from '@/lib/labels';
 import { defaultsOf, searchSchema } from '@/lib/search';
@@ -36,25 +34,9 @@ function AlarmRulesPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
   const [creating, setCreating] = useState(false);
-  // The table's own query: this reads the same cache entry, it doesn't fetch twice.
-  const rules = useQuery(alarmDefinitionsListQueryOptions(search));
 
   const setSearch = (patch: Partial<RulesSearch>) =>
     navigate({ search: (previous) => ({ ...previous, ...patch, page: 1 }), replace: true });
-
-  useAssistantContext({
-    title: 'Alarm rules',
-    summary: [
-      `Threshold rules evaluated on every new reading of a tag. Page ${search.page}`,
-      rules.data && `${rules.data.total} rules match`,
-      search.search && `search "${search.search}"`,
-      search.severity && `severity ${search.severity.join(', ')}`,
-      search.condition && `condition ${search.condition.join(', ')}`,
-      search.isEnabled !== undefined && (search.isEnabled ? 'enabled only' : 'disabled only'),
-    ]
-      .filter(Boolean)
-      .join(', '),
-  });
 
   return (
     <PageContainer>

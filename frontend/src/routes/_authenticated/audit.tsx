@@ -1,4 +1,3 @@
-import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, redirect, stripSearchParams } from '@tanstack/react-router';
 import type { z } from 'zod';
 import { ListAuditLogsQuerySchema } from '@gen-ui/shared';
@@ -6,9 +5,8 @@ import { FilterBar } from '@/components/filters/filter-bar';
 import { MultiSelectFilter } from '@/components/filters/multi-select-filter';
 import { SearchFilter } from '@/components/filters/search-filter';
 import { SelectFilter } from '@/components/filters/select-filter';
-import { describeTimeRange, TimeRangeFilter } from '@/components/filters/time-range-filter';
+import { TimeRangeFilter } from '@/components/filters/time-range-filter';
 import { PageContainer, PageHeader } from '@/components/layout/page';
-import { useAssistantContext } from '@/features/assistant/assistant-context';
 import { auditLogsListQueryOptions } from '@/features/logbook/api';
 import { AuditTable } from '@/features/logbook/audit-table';
 import { UserFilter } from '@/features/users/user-filter';
@@ -53,23 +51,8 @@ export const Route = createFileRoute('/_authenticated/audit')({
 function AuditPage() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  // The table's own query: this reads the same cache entry, it doesn't fetch twice.
-  const logs = useQuery(auditLogsListQueryOptions(search));
   const setSearch = (patch: Partial<AuditSearch>) =>
     navigate({ search: (previous) => ({ ...previous, ...patch, page: 1 }), replace: true });
-
-  useAssistantContext({
-    title: 'Audit log',
-    summary: [
-      `Who changed what, and when. Admin only. Page ${search.page}`,
-      logs.data && `${logs.data.total} records match`,
-      search.search && `search "${search.search}"`,
-      search.action && `action ${search.action}`,
-      (search.range || search.from || search.to) && describeTimeRange(search),
-    ]
-      .filter(Boolean)
-      .join(', '),
-  });
 
   return (
     <PageContainer className="max-w-7xl">

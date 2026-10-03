@@ -230,9 +230,11 @@ Questions to try:
 3. A tool's input is a page query: apart from its `title`, every field is a URL parameter of the tool's page (`listAlarms` → `/alarms`, `listUsers` → `/users`, and so on). The chat renders the tool call as that page's table, which fetches its own data, and links to the page with the same query. "Deactivated users who never signed in" becomes `status: DEACTIVATED, lastSignIn: never`; "open alarms at Riverside" becomes `state: [ACTIVE, ACKNOWLEDGED, CLEARED], assetId: <Riverside's id>`. Each request tells Claude the current date, time and UTC offset in the user's time zone, so "who signed in yesterday" becomes a date and "alarms raised yesterday" becomes a `from`/`to` window on the user's calendar day.
 4. `features/assistant/tool-parts.tsx` maps each tool to its view, according to the part's state (`input-streaming` → skeleton, input complete → the table, `output-error` → an alert).
 
-**The system prompt is generic.** It holds the app's pages, the rules for using tools and the out-of-scope refusal, and never names a tool. What a tool does and how to fill its fields lives in its `description` and field `.describe()` texts in `packages/shared/src/assistant.ts`, which Claude receives with the tool.
+**The system prompt is generic.** It holds the app's pages, the rules for using tools, the language rule and the out-of-scope refusal, and never names a tool. What a tool does and how to fill its fields lives in its `description` and field `.describe()` texts in `packages/shared/src/assistant.ts`, which Claude receives with the tool.
 
-**Assets and people come as ids, picked from the dropdowns' own lists.** Every request adds two lists to the prompt: the asset tree (`AssetsService.tree()`, what the asset dropdown shows) and the active people (`UsersService.options()`, what *Author* and *Who* show), each entry with its id. Claude matches the user's words to an entry, typos included ("hilcrest" → Hillcrest Reservoir), and writes its id into the tool input. The chat table, **Open in new tab** and the page's dropdown then all show that same asset or person. If a name fits several entries equally (there are several pumps), Claude asks which one. If none fits, it says so. A tool rejects an id that isn't on the lists, so a miscopied id can't quietly return an empty table. The lists cost about 500 input tokens per message with the demo data, and each is cut at 500 entries; a much larger asset tree would need a lookup tool instead.
+**English and Serbian only.** The assistant answers in the language of the question, English or Serbian (Latin or Cyrillic). A question in any other language gets a one-line refusal in both, with no lookup.
+
+**Assets and people come as ids, picked from the dropdowns' own lists.** Every request adds two lists to the prompt: the asset tree (`AssetsService.tree()`, what the asset dropdown shows) and the active people (`UsersService.options()`, what *Author* and *Who* show), each entry with its id. Claude matches the user's words to an entry, typos included ("hilcrest" → Hillcrest Reservoir), and writes its id into the tool input. The chat table, **Open in new tab** and the page's dropdown then all show that same asset or person. If a name fits several entries equally (there are several pumps), Claude asks which one. If none fits, it says so. A tool rejects an id that isn't on the lists, so a miscopied id can't quietly return an empty table. The lists are never cut: every asset and every active person is listed, so they cost about 500 input tokens per message with the demo data and grow with the tree and the staff.
 
 **Generate UI components** (a switch above the message box, on by default): turned off, the assistant still looks data up but answers in Markdown, and each lookup shows as one line with the same link. Each answer keeps the mode it was given in.
 
@@ -245,7 +247,7 @@ To add a domain:
 
 TypeScript fails the build if the backend tools and the shared contract drift apart, or if a tool has no renderer.
 
-The assistant is available as a right-hand panel on every page (Ctrl/Cmd + J) and as a full page at `/assistant`. Both show the same conversation. Pages can describe themselves to the assistant with `useAssistantContext()`.
+The assistant is available as a right-hand panel on every page (Ctrl/Cmd + J) and as a full page at `/assistant`. Both show the same conversation. The assistant doesn't know which page is open; each request carries only the browser's time zone besides the settings.
 
 ### Model and effort
 

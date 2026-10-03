@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, stripSearchParams } from '@tanstack/react-router';
 import { Plus } from 'lucide-react';
 import type { z } from 'zod';
@@ -11,7 +10,6 @@ import { PageContainer, PageHeader } from '@/components/layout/page';
 import { Button } from '@/components/ui/button';
 import { devicesListQueryOptions } from '@/features/assets/api';
 import { AssetSelect } from '@/features/assets/asset-select';
-import { useAssistantContext } from '@/features/assistant/assistant-context';
 import { DeviceFormDialog } from '@/features/devices/device-form-dialog';
 import { DevicesTable } from '@/features/devices/devices-table';
 import { useAuth } from '@/lib/auth/auth-store';
@@ -35,24 +33,9 @@ function DevicesPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
   const [creating, setCreating] = useState(false);
-  // The table's own query: this reads the same cache entry, it doesn't fetch twice.
-  const devices = useQuery(devicesListQueryOptions(search));
 
   const setSearch = (patch: Partial<DevicesSearch>) =>
     navigate({ search: (previous) => ({ ...previous, ...patch, page: 1 }), replace: true });
-
-  useAssistantContext({
-    title: 'Devices',
-    summary: [
-      `RTUs, PLCs and sensors. Page ${search.page}`,
-      devices.data && `${devices.data.total} devices match`,
-      search.search && `search "${search.search}"`,
-      search.status && `status ${search.status.join('/')}`,
-      search.protocol && `protocol ${search.protocol.join('/')}`,
-    ]
-      .filter(Boolean)
-      .join(', '),
-  });
 
   return (
     <PageContainer className="max-w-7xl">

@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, stripSearchParams } from '@tanstack/react-router';
 import { PenLine } from 'lucide-react';
 import type { z } from 'zod';
@@ -8,11 +7,10 @@ import { FilterBar } from '@/components/filters/filter-bar';
 import { MultiSelectFilter } from '@/components/filters/multi-select-filter';
 import { SearchFilter } from '@/components/filters/search-filter';
 import { SelectFilter } from '@/components/filters/select-filter';
-import { describeTimeRange, TimeRangeFilter } from '@/components/filters/time-range-filter';
+import { TimeRangeFilter } from '@/components/filters/time-range-filter';
 import { PageContainer, PageHeader } from '@/components/layout/page';
 import { Button } from '@/components/ui/button';
 import { AssetSelect } from '@/features/assets/asset-select';
-import { useAssistantContext } from '@/features/assistant/assistant-context';
 import { logbookListQueryOptions } from '@/features/logbook/api';
 import { EntryFormDialog } from '@/features/logbook/entry-form-dialog';
 import { LogbookTable } from '@/features/logbook/logbook-table';
@@ -35,8 +33,6 @@ function LogbookPage() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const [writing, setWriting] = useState(false);
-  // The table's own query: this reads the same cache entry, it doesn't fetch twice.
-  const entries = useQuery(logbookListQueryOptions(search));
 
   const setSearch = (patch: Partial<LogbookSearch>) =>
     navigate({ search: (previous) => ({ ...previous, ...patch, page: 1 }), replace: true });
@@ -52,21 +48,6 @@ function LogbookPage() {
       search.from ||
       search.to,
   );
-
-  useAssistantContext({
-    title: 'Logbook',
-    summary: [
-      `Operator notes, maintenance records, shift handovers and system events (alarms, device status). Page ${search.page}`,
-      entries.data && `${entries.data.total} entries match`,
-      search.search && `search "${search.search}"`,
-      search.category && `type ${search.category.join('/')}`,
-      search.severity && `severity ${search.severity.join('/')}`,
-      search.source && `source ${search.source}`,
-      (search.range || search.from || search.to) && describeTimeRange(search),
-    ]
-      .filter(Boolean)
-      .join(', '),
-  });
 
   return (
     <PageContainer className="max-w-7xl">

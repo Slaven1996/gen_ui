@@ -7,13 +7,13 @@ import { http } from '@/lib/api/http';
 import { authStore } from '@/lib/auth/auth-store';
 import { refreshSession } from '@/lib/auth/refresh';
 import { tokenStore } from '@/lib/auth/token-store';
-import { getAssistantContext } from './assistant-context';
+import { browserTimeZone } from '@/lib/search';
 import { getAssistantEffort, getAssistantModel, getGenerateUi } from './assistant-preferences';
 
 /*
  * The browser side of the chat. Nothing here is AI-driven: it restores the
  * saved conversation, sends each new question with the user's settings
- * (model, effort, components on/off, the current page), and hands the
+ * (model, effort, components on/off) and time zone, and hands the
  * streamed answer to `useChat`, which rebuilds the message parts as they arrive.
  */
 
@@ -63,7 +63,8 @@ function createChat(conversationId = newConversationId(), saved: GenUIMessage[] 
           id,
           trigger,
           message: trigger === 'submit-message' ? messages.at(-1) : undefined,
-          context: getAssistantContext(),
+          // "Today" and the dates the user mentions are days in this zone.
+          timeZone: browserTimeZone,
           generateUi: getGenerateUi(),
           model: getAssistantModel(),
           effort: getAssistantEffort(),

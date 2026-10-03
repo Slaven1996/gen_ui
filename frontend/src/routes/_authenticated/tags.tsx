@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, stripSearchParams } from '@tanstack/react-router';
 import { Plus } from 'lucide-react';
 import type { z } from 'zod';
@@ -11,7 +10,6 @@ import { PageContainer, PageHeader } from '@/components/layout/page';
 import { Button } from '@/components/ui/button';
 import { tagsListQueryOptions } from '@/features/assets/api';
 import { AssetSelect } from '@/features/assets/asset-select';
-import { useAssistantContext } from '@/features/assistant/assistant-context';
 import { TagFormDialog } from '@/features/tags/tag-form-dialog';
 import { TagsTable } from '@/features/tags/tags-table';
 import { useAuth } from '@/lib/auth/auth-store';
@@ -35,23 +33,9 @@ function TagsPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
   const [creating, setCreating] = useState(false);
-  // The table's own query: this reads the same cache entry, it doesn't fetch twice.
-  const tags = useQuery(tagsListQueryOptions(search));
 
   const setSearch = (patch: Partial<TagsSearch>) =>
     navigate({ search: (previous) => ({ ...previous, ...patch, page: 1 }), replace: true });
-
-  useAssistantContext({
-    title: 'Tags',
-    summary: [
-      `Datapoints reported by devices, with their latest value. Page ${search.page}`,
-      tags.data && `${tags.data.total} tags match`,
-      search.search && `search "${search.search}"`,
-      search.dataType && `type ${search.dataType.join('/')}`,
-    ]
-      .filter(Boolean)
-      .join(', '),
-  });
 
   return (
     <PageContainer className="max-w-7xl">

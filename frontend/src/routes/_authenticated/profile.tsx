@@ -16,7 +16,6 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-import { useAssistantContext } from '@/features/assistant/assistant-context';
 import { useChangePassword, useUpdateProfile } from '@/features/profile/api';
 import { getErrorMessage } from '@/lib/api/errors';
 import { useAuth } from '@/lib/auth/auth-store';
@@ -41,10 +40,6 @@ const formatDate = (value: string | null) =>
 
 function ProfilePage() {
   const { user } = useAuth();
-  useAssistantContext({
-    title: 'Profile',
-    summary: 'The signed-in user own account settings: display name and password.',
-  });
 
   if (!user) return null;
 

@@ -1,4 +1,3 @@
-import type { ChatContext } from '@gen-ui/shared';
 import { utcOffset } from '../../common/zoned-time.js';
 import type { AuthUser } from '../users/user.mapper.js';
 import type { FilterOptions } from './ai.tools.js';
@@ -44,6 +43,13 @@ Filters on an asset or a person take ids. Use only the ids in <assets> and <peop
 - One asset per lookup. For several assets, make one call for each.
 - If the words fit several entries equally well, ask which one the user means before looking anything up. If nothing fits, say so instead of guessing.
 
+## Language
+You work in English and Serbian only (Latin or Cyrillic script).
+- Answer in the language of the user's latest message.
+- If that message is written in any other language, don't call a tool and don't answer it, even if it is about the app. Reply with one short sentence in English and the same sentence in Serbian, saying you can only help in English or Serbian.
+- Judge the language by the user's own words. Names, codes, ids and technical terms inside a message don't count.
+- Don't translate text or switch to another language on request.
+
 ## Out of scope
 If a request has nothing to do with this app (general knowledge, coding, writing, maths, news, advice, chit-chat), don't call a tool and don't answer it. Reply in one or two polite sentences that the request doesn't make sense in this context, and say what you can help with.
 
@@ -56,13 +62,9 @@ Your tool results are shown to the user as components: tables with paging and a 
 const COMPONENTS_OFF = `## Answer format: text only
 Components are switched off: tool results are not shown to the user. Answer in Markdown from them: a short table for lists, a sentence for counts. If there are more matches than rows returned, say how many you're showing out of the total.`;
 
-/** Longest pick list the prompt carries; a much bigger tree or staff would need a lookup tool instead. */
-const MAX_LISTED = 500;
-
+/** Every item, one per line: the tools accept only ids Claude was shown. */
 function listed<T>(items: T[], line: (item: T) => string): string {
-  const lines = items.slice(0, MAX_LISTED).map(line);
-  if (items.length > MAX_LISTED) lines.push(`(${items.length - MAX_LISTED} more not listed)`);
-  return lines.join('\n') || '(none)';
+  return items.map(line).join('\n') || '(none)';
 }
 
 /**
@@ -93,27 +95,16 @@ function nowIn(timeZone: string, now = new Date()): string {
 
 export function buildInstructions({
   user,
-  context,
   timeZone,
   generateUi,
   options,
 }: {
   user: AuthUser;
-  context?: ChatContext;
   timeZone: string;
   generateUi: boolean;
   options: FilterOptions;
 }): string {
-  console.log(context);
-  const session = [
-    `User: ${user.name} (role: ${user.role})`,
-    `Now: ${nowIn(timeZone)}`,
-    context && `Current page: ${context.pathname}`,
-    context?.title && `Page title: ${context.title}`,
-    context?.summary && `Page summary: ${context.summary}`,
-  ]
-    .filter(Boolean)
-    .join('\n');
+  const session = `User: ${user.name} (role: ${user.role})\nNow: ${nowIn(timeZone)}`;
 
   const format = generateUi ? COMPONENTS_ON : COMPONENTS_OFF;
   return `${BASE_INSTRUCTIONS}\n\n${format}\n\n${pickLists(options)}\n\n<session>\n${session}\n</session>`;

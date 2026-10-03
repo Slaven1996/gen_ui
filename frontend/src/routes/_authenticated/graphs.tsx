@@ -16,7 +16,6 @@ import { TimeRangeFilter } from '@/components/filters/time-range-filter';
 import { PageContainer, PageHeader } from '@/components/layout/page';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { useAssistantContext } from '@/features/assistant/assistant-context';
 import { TagPicker } from '@/features/tags/tag-picker';
 import { seriesQueryOptions } from '@/features/telemetry/api';
 import { TagStatsTable } from '@/features/telemetry/tag-stats-table';
@@ -59,13 +58,6 @@ function GraphsPage() {
 
   const setSearch = (patch: Partial<GraphsSearch>) =>
     navigate({ search: (previous) => ({ ...previous, ...patch }), replace: true });
-
-  useAssistantContext({
-    title: 'Graphs',
-    summary: query.tagIds?.length
-      ? `Plotting ${query.tagIds.length} tag(s), ${query.from ? 'custom window' : `last ${query.range}`}, ${query.aggregate} per ${query.interval} bucket`
-      : 'No tags selected yet',
-  });
 
   const copyLink = async () => {
     await navigator.clipboard.writeText(window.location.href);

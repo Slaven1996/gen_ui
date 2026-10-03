@@ -48,17 +48,6 @@ export const DEFAULT_EFFORT: Effort = 'high';
 
 // ─── Requests ───────────────────────────────────────────────────────────────
 
-/** What the current page tells the assistant about itself, and where the user is. */
-export const ChatContextSchema = z.object({
-  pathname: z.string().max(500),
-  title: z.string().max(200).optional(),
-  summary: z.string().max(2000).optional(),
-  timeZone: timeZoneParam().describe(
-    "The browser's IANA time zone. \"Today\" and any date the user mentions are days there.",
-  ),
-});
-export type ChatContext = z.infer<typeof ChatContextSchema>;
-
 /** A saved conversation holds at most this many messages; clearing it starts over. */
 export const MAX_CONVERSATION_MESSAGES = 200;
 
@@ -78,7 +67,9 @@ export const ChatRequestSchema = z
       .unknown()
       .optional()
       .describe('The new user message, as an AI SDK UI message. Required for `submit-message`.'),
-    context: ChatContextSchema.optional(),
+    timeZone: timeZoneParam().describe(
+      "The browser's IANA time zone, default `UTC`. \"Today\" and any date the user mentions are days there.",
+    ),
     generateUi: z
       .boolean()
       .default(true)

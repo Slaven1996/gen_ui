@@ -8,7 +8,6 @@ import { MultiSelectFilter } from '@/components/filters/multi-select-filter';
 import { PageContainer, PageHeader } from '@/components/layout/page';
 import { Button } from '@/components/ui/button';
 import { ViewCard } from '@/components/view-card';
-import { useAssistantContext } from '@/features/assistant/assistant-context';
 import { AssignmentDialog } from '@/features/shifts/assignment-dialog';
 import { OnDutyList } from '@/features/shifts/on-duty-list';
 import { ScheduleDialog } from '@/features/shifts/schedule-dialog';
@@ -51,8 +50,6 @@ function ShiftsPage() {
     const key = toDateKey(startOfWeek(date));
     setSearch({ week: key === thisWeek ? undefined : key });
   };
-
-  useAssistantContext({ title: 'Shifts', summary: `Shift plan for the week of ${describeWeek(weekStart)}.` });
 
   return (
     <PageContainer className="max-w-7xl">

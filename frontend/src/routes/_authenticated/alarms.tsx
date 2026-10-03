@@ -7,7 +7,7 @@ import { ListAlarmsQuerySchema, OPEN_ALARM_STATES, UNACKNOWLEDGED_ALARM_STATES, 
 import { FilterBar } from '@/components/filters/filter-bar';
 import { MultiSelectFilter } from '@/components/filters/multi-select-filter';
 import { SearchFilter } from '@/components/filters/search-filter';
-import { describeTimeRange, TimeRangeFilter } from '@/components/filters/time-range-filter';
+import { TimeRangeFilter } from '@/components/filters/time-range-filter';
 import { PageContainer, PageHeader } from '@/components/layout/page';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -17,7 +17,6 @@ import { AlarmsTable, canAcknowledge } from '@/features/alarms/alarms-table';
 import { alarmsListQueryOptions } from '@/features/alarms/api';
 import { summaryQueryOptions } from '@/features/analytics/api';
 import { AssetSelect } from '@/features/assets/asset-select';
-import { useAssistantContext } from '@/features/assistant/assistant-context';
 import { ALARM_STATE_OPTIONS, SEVERITY_OPTIONS } from '@/lib/labels';
 import { defaultsOf, searchSchema } from '@/lib/search';
 import { cn } from '@/lib/utils';
@@ -62,19 +61,6 @@ function AlarmsPage() {
       query.from ||
       query.to,
   );
-
-  useAssistantContext({
-    title: 'Alarms',
-    summary: [
-      'Alarm console',
-      query.state && `state ${query.state.join('/')}`,
-      query.severity && `severity ${query.severity.join('/')}`,
-      (query.range || query.from || query.to) && describeTimeRange(query),
-      query.search && `search "${query.search}"`,
-    ]
-      .filter(Boolean)
-      .join(', '),
-  });
 
   const quickViews = [
     {

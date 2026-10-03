@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, stripSearchParams } from '@tanstack/react-router';
 import type { z } from 'zod';
 import { ListUsersQuerySchema, type Role, type UserStatus } from '@gen-ui/shared';
@@ -8,7 +7,6 @@ import type { FilterOption } from '@/components/filters/multi-select-filter';
 import { SearchFilter } from '@/components/filters/search-filter';
 import { SelectFilter } from '@/components/filters/select-filter';
 import { PageContainer, PageHeader } from '@/components/layout/page';
-import { useAssistantContext } from '@/features/assistant/assistant-context';
 import { LastSignInFilter } from '@/features/users/last-sign-in-filter';
 import { usersListQueryOptions } from '@/features/users/queries';
 import { CreateUserDialog } from '@/features/users/user-form-dialog';
@@ -48,22 +46,6 @@ function UsersPage() {
   const navigate = Route.useNavigate();
   const { user: currentUser } = useAuth();
   const isAdmin = currentUser?.role === 'ADMIN';
-  // The table's own query: this reads the same cache entry, it doesn't fetch twice.
-  const users = useQuery(usersListQueryOptions(search));
-
-  useAssistantContext({
-    title: 'Users',
-    summary: [
-      `The people with an account here. Page ${search.page}`,
-      users.data && `${users.data.total} users match`,
-      search.search && `search "${search.search}"`,
-      search.role && `role ${search.role}`,
-      search.status && `status ${search.status}`,
-      search.lastSignIn && `last sign-in ${search.lastSignIn}`,
-    ]
-      .filter(Boolean)
-      .join(', '),
-  });
 
   // Any filter change starts again from the first page.
   const setFilters = (patch: Partial<UsersSearch>) =>

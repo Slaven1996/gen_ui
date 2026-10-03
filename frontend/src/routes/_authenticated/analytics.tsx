@@ -11,7 +11,6 @@ import { DeviceStatusSummary } from '@/features/analytics/device-status-summary'
 import { KpiTile } from '@/features/analytics/kpi';
 import { TopAlarmsList } from '@/features/analytics/top-alarms-list';
 import { AssetSelect } from '@/features/assets/asset-select';
-import { useAssistantContext } from '@/features/assistant/assistant-context';
 import { defaultsOf, searchSchema } from '@/lib/search';
 
 const analyticsSearch = z.object({
@@ -43,11 +42,6 @@ function AnalyticsPage() {
 
   const window = { range: search.range, from: search.from, to: search.to };
   const windowLabel = describeTimeRange(search).toLowerCase();
-
-  useAssistantContext({
-    title: 'Analytics',
-    summary: `Alarm KPIs, trend and most frequent alarms, ${windowLabel}${search.assetId ? ', scoped to one asset' : ''}.`,
-  });
 
   return (
     <PageContainer className="max-w-7xl">

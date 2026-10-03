@@ -26,8 +26,8 @@ flowchart TD
     U(["User: 'Get me all admins, and also users named John'"])
     TH["ChatThread · sendMessage(text)"]
     PREF{{"Settings · assistant-preferences<br/>model · effort · 'Generate UI components'"}}
-    CTX["useAssistantContext()<br/>pathname · page title · summary · browser time zone"]
-    TR["chat-store transport<br/>body: id, trigger, the new message only,<br/>context, generateUi, model, effort"]
+    CTX["browserTimeZone<br/>the browser's IANA time zone"]
+    TR["chat-store transport<br/>body: id, trigger, the new message only,<br/>timeZone, generateUi, model, effort"]
     AF["authFetch<br/>Bearer access token · refresh + retry once on 401"]
     U --> TH --> TR
     PREF --> TR
@@ -46,7 +46,7 @@ flowchart TD
     MERGE["submit: append the message<br/>regenerate: drop a trailing answer<br/>max 200 messages"]
     VAL["safeValidateUIMessages against the tool schemas<br/>last message must be the user's"]
     SAVE1["save the conversation<br/>the question survives a failed model call"]
-    PROMPT["buildInstructions<br/>generic rules + app map + guardrail<br/>+ components or text-only section<br/>+ asset and people lists with ids (the dropdowns' choices)<br/>+ session: user, role, now in their time zone with its UTC offset, page"]
+    PROMPT["buildInstructions<br/>generic rules + app map + guardrails (English/Serbian only, off-topic)<br/>+ components or text-only section<br/>+ every asset and active person with ids (the dropdowns' choices)<br/>+ session: user, role, now in their time zone with its UTC offset"]
     ROLES["AiTools.activeFor(user)<br/>TOOL_ROLES · the chat's @Roles"]
     CALL["streamText<br/>chosen model · effort + adaptive thinking (not Haiku)<br/>instructions · history · tools<br/>activeTools · stopWhen AI_MAX_STEPS · abortSignal"]
     GUARD --> CTRL --> KEY
@@ -64,10 +64,10 @@ flowchart TD
 
   subgraph AI["3 · Vercel AI SDK and Claude"]
     LLM{"Claude decides"}
-    OFF["Unrelated to the app<br/>one polite sentence, no tool call"]
+    OFF["Unrelated to the app, or not English/Serbian<br/>a short polite refusal, no tool call"]
     CALLS["Parallel tool calls in one step<br/>listUsers title 'Admins', role ADMIN<br/>listUsers title 'Users named John', search 'John'"]
     FINAL["Final text<br/>components on: one short sentence<br/>components off: Markdown table"]
-    LLM -- "off-topic" --> OFF
+    LLM -- "off-topic or other language" --> OFF
     LLM -- "needs data" --> CALLS
     LLM -- "has tool results" --> FINAL
   end
@@ -140,7 +140,7 @@ flowchart TD
 |---|---|---|
 | Which model and effort answer | the user (pickers) | `assistant-preferences.ts` → request body |
 | Which tools may be offered | code: role map (the audit tool is admin-only) | `TOOL_ROLES` in `ai.tools.ts` |
-| Answer, refuse (off topic) or look something up | **Claude** | steered by `system-prompt.ts` |
+| Answer, refuse (off topic or not English/Serbian) or look something up | **Claude** | steered by `system-prompt.ts` |
 | Which tool, with which filters, how many in parallel | **Claude** | steered by the tool descriptions in `assistant.ts` |
 | Validating the tool input and running the query | code | AI SDK + `ListUsersQuerySchema` → `UsersService` |
 | The wording of the answer | **Claude** | from the tool results |

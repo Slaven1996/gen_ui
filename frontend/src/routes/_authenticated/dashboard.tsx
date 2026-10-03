@@ -18,7 +18,6 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useAssistantContext } from '@/features/assistant/assistant-context';
 import { dashboardQueryOptions, dashboardsQueryOptions, useDeleteDashboard } from '@/features/dashboards/api';
 import { DashboardFormDialog } from '@/features/dashboards/dashboard-form-dialog';
 import { DashboardGrid } from '@/features/dashboards/dashboard-grid';
@@ -57,12 +56,6 @@ function DashboardPage() {
   };
 
   const detail = selected.data;
-  useAssistantContext({
-    title: detail ? `Dashboard: ${detail.name}` : 'Dashboard',
-    summary: detail
-      ? `Widgets: ${detail.widgets.map((widget) => `${widget.title} (${widget.type})`).join(', ') || 'none yet'}`
-      : 'No dashboard selected.',
-  });
 
   if (dashboards.isPending) {
     return (

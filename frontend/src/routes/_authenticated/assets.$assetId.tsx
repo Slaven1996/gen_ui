@@ -12,7 +12,6 @@ import { AlarmsTable } from '@/features/alarms/alarms-table';
 import { KpiTile } from '@/features/analytics/kpi';
 import { assetQueryOptions, tagsListQueryOptions } from '@/features/assets/api';
 import { AssetFormDialog } from '@/features/assets/asset-form-dialog';
-import { useAssistantContext } from '@/features/assistant/assistant-context';
 import { DevicesTable } from '@/features/devices/devices-table';
 import { EntryFormDialog } from '@/features/logbook/entry-form-dialog';
 import { LogbookFeed } from '@/features/logbook/logbook-table';
@@ -38,13 +37,6 @@ function AssetPage() {
   const analogTags = useQuery(tagsListQueryOptions({ assetId, dataType: ['ANALOG'], pageSize: 8 }));
   const [editing, setEditing] = useState(false);
   const [writing, setWriting] = useState(false);
-
-  useAssistantContext({
-    title: asset.data ? `Asset: ${asset.data.name}` : 'Asset',
-    summary: asset.data
-      ? `${ASSET_TYPE[asset.data.type].label} ${asset.data.name} (${asset.data.code}), asset id ${asset.data.id}`
-      : undefined,
-  });
 
   if (!asset.data) return <PageContainer><Skeleton className="h-40" /></PageContainer>;
   const data = asset.data;

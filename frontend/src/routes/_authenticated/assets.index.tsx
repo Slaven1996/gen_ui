@@ -14,7 +14,6 @@ import { assetsListQueryOptions, useDeleteAsset } from '@/features/assets/api';
 import { AssetFormDialog } from '@/features/assets/asset-form-dialog';
 import { AssetTree } from '@/features/assets/asset-tree';
 import { AssetsTable, type AssetActions } from '@/features/assets/assets-table';
-import { useAssistantContext } from '@/features/assistant/assistant-context';
 import { useAuth } from '@/lib/auth/auth-store';
 import { ASSET_TYPE_OPTIONS } from '@/lib/labels';
 import { defaultsOf, searchSchema } from '@/lib/search';
@@ -46,11 +45,6 @@ function AssetsPage() {
     () => (isAdmin ? { onEdit: setEditing, onDelete: setDeleting } : undefined),
     [isAdmin],
   );
-
-  useAssistantContext({
-    title: 'Assets',
-    summary: 'The asset hierarchy: regions, sites, areas and equipment, with the devices installed on them.',
-  });
 
   return (
     <PageContainer className="max-w-7xl">
