@@ -4,6 +4,7 @@ import {
   genUiToolSchemas,
   ListAlarmDefinitionsQuerySchema,
   ListAlarmsQuerySchema,
+  ListAssetsQuerySchema,
   ListAuditLogsQuerySchema,
   ListDevicesQuerySchema,
   ListLogbookQuerySchema,
@@ -79,6 +80,7 @@ const TOOL_ROLES = {
   listLogbookEntries: ['ADMIN', 'USER'],
   listDevices: ['ADMIN', 'USER'],
   listTags: ['ADMIN', 'USER'],
+  listAssets: ['ADMIN', 'USER'],
 } as const satisfies Record<GenUIToolName, readonly Role[]>;
 
 /**
@@ -280,6 +282,34 @@ export class AiTools {
               maxValue: tag.maxValue,
               device: tag.device.name,
               asset: tag.asset.name,
+            })),
+          };
+        },
+      }),
+
+      listAssets: tool({
+        ...genUiToolSchemas.listAssets,
+        // `title` only labels the table; the rest is the `/assets` query.
+        execute: async ({ title: _title, ...filters }) => {
+          known.asset(filters.ancestorId);
+          known.asset(filters.parentId);
+          const query = ListAssetsQuerySchema.parse({ ...filters, pageSize: ROWS_FOR_MODEL });
+          const page = await this.assets.list(query);
+          // The tree in `options` already rolls open alarms up to every asset.
+          const openAlarms = new Map(options.assets.map((node) => [node.id, node.openAlarmCount]));
+          return {
+            total: page.total,
+            assets: page.items.map((asset) => ({
+              name: asset.name,
+              code: asset.code,
+              type: asset.type,
+              parent: asset.parent?.name ?? null,
+              isActive: asset.isActive,
+              description: clip(asset.description),
+              address: asset.address,
+              childCount: asset.childCount,
+              deviceCount: asset.deviceCount,
+              openAlarmCount: openAlarms.get(asset.id) ?? 0,
             })),
           };
         },

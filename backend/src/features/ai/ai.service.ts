@@ -45,7 +45,8 @@ import { buildInstructions } from './system-prompt.js';
  *          how many to run at once.
  *  6 [app] The AI SDK runs every tool call: AiTools → the domain's service
  *          (UsersService, AlarmsService, AlarmDefinitionsService,
- *          LogbookService, DevicesService, TagsService, AuditService) → database.
+ *          LogbookService, DevicesService, TagsService, AssetsService,
+ *          AuditService) → database.
  *  7 [AI]  Claude reads the tool results and writes the answer. Steps 5–7
  *          repeat until it answers without calling a tool (at most
  *          AI_MAX_STEPS rounds).

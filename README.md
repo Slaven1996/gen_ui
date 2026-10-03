@@ -212,6 +212,7 @@ The assistant has one tool per domain view:
 | `listLogbookEntries` | everyone | words from the entry, kind, severity, source (people or system), author, asset, when it happened | `LogbookTable`; authors edit their entries, authors and admins delete them | `/logbook` |
 | `listDevices` | everyone | name, serial number, model or manufacturer, asset, status, protocol | `DevicesTable`; admins get edit, delete | `/devices` |
 | `listTags` | everyone | name, code or unit, asset, type (analog, digital, counter) | `TagsTable` with live values; chart for everyone, and add a rule, edit, delete for admins | `/tags` |
+| `listAssets` | everyone | name or code, level (region, site, area, equipment), a branch of the tree, direct children of one asset, in or out of service | `AssetsTable`; a click opens the asset's page, admins get edit, delete | `/assets` |
 | `listUsers` | everyone | name or email, role, status, last sign-in | `UsersTable`; admins get make admin, deactivate, reactivate | `/users` |
 | `listAuditLogs` | admins | action (a family such as `alarm_definition.` or an exact one such as `alarm.acknowledge`), who acted, words from the summary, a time window | `AuditTable`, read-only | `/audit` |
 
@@ -243,7 +244,7 @@ Questions to try:
 To add a domain:
 1. Add its tool schema to `genUiToolSchemas` in `packages/shared/src/assistant.ts`, with a description on every field.
 2. Implement the tool in `backend/src/features/ai/ai.tools.ts`, calling that domain's service, and add its `TOOL_ROLES` line. Export the service from its module and import that module in `ai.module.ts`.
-3. Add a renderer in `tool-parts.tsx` that wraps the domain's existing table. Role-based row actions belong inside that table, with their dialogs (the `use…Actions` hooks in `users-table.tsx`, `definitions-table.tsx`, `devices-table.tsx`, `tags-table.tsx` and `logbook-table.tsx`), so the page and the chat show the same ones. A filter a page sets with an asset or people dropdown takes the same ids in the tool; Claude picks them from the lists in its prompt.
+3. Add a renderer in `tool-parts.tsx` that wraps the domain's existing table. Role-based row actions belong inside that table, with their dialogs (the `use…Actions` hooks in `users-table.tsx`, `definitions-table.tsx`, `devices-table.tsx`, `tags-table.tsx`, `assets-table.tsx` and `logbook-table.tsx`), so the page and the chat show the same ones. A filter a page sets with an asset or people dropdown takes the same ids in the tool; Claude picks them from the lists in its prompt.
 
 TypeScript fails the build if the backend tools and the shared contract drift apart, or if a tool has no renderer.
 

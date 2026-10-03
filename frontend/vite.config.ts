@@ -18,6 +18,11 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: { '@': path.resolve(import.meta.dirname, './src') },
     },
+    build: {
+      // Not Vite's default `assets/`: that is also the Assets page's URL, and a
+      // real /assets directory makes nginx redirect /assets?… instead of serving the app.
+      assetsDir: 'static',
+    },
     server: {
       port: 5173,
       proxy: {

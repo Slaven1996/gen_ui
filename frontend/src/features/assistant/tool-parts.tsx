@@ -1,10 +1,11 @@
 import { useState, type ComponentType } from 'react';
-import type { LinkProps } from '@tanstack/react-router';
+import { useNavigate, type LinkProps } from '@tanstack/react-router';
 import { getStaticToolName, type ToolUIPart } from 'ai';
 import { CircleAlert } from 'lucide-react';
 import {
   ListAlarmDefinitionsQuerySchema,
   ListAlarmsQuerySchema,
+  ListAssetsQuerySchema,
   ListAuditLogsQuerySchema,
   ListDevicesQuerySchema,
   ListLogbookQuerySchema,
@@ -19,6 +20,7 @@ import { ViewCard, ViewFullPageLink } from '@/components/view-card';
 import { AlarmDetailSheet } from '@/features/alarms/alarm-detail-sheet';
 import { AlarmsTable } from '@/features/alarms/alarms-table';
 import { DefinitionsTable } from '@/features/alarms/definitions-table';
+import { AssetsTable } from '@/features/assets/assets-table';
 import { DevicesTable } from '@/features/devices/devices-table';
 import { AuditTable } from '@/features/logbook/audit-table';
 import { LogbookTable } from '@/features/logbook/logbook-table';
@@ -141,6 +143,23 @@ function TagsBody({ input }: { input: Input<'listTags'> }) {
   return <TagsTable query={ListTagsQuerySchema.parse({ ...tagsQuery(input), pageSize: 5 })} dense />;
 }
 
+// ─── Assets ─────────────────────────────────────────────────────────────────
+
+/** An assets call as an `/assets` query: every field but the title. */
+const assetsQuery = ({ title: _title, ...filters }: Input<'listAssets'>) => filters;
+
+/** The Assets page's own table: a click opens the asset's page; edit and delete for admins. */
+function AssetsBody({ input }: { input: Input<'listAssets'> }) {
+  const navigate = useNavigate();
+  return (
+    <AssetsTable
+      query={ListAssetsQuerySchema.parse({ ...assetsQuery(input), pageSize: 5 })}
+      dense
+      onAssetClick={(asset) => navigate({ to: '/assets/$assetId', params: { assetId: asset.id } })}
+    />
+  );
+}
+
 // ─── Registry ───────────────────────────────────────────────────────────────
 
 /**
@@ -196,6 +215,13 @@ const RENDERERS: { [N in GenUIToolName]: ToolRenderer<N> } = {
     title: (input) => input.title,
     link: (input) => ({ to: '/tags', search: tagsQuery(input) }),
     Body: TagsBody,
+    found: (output) => `${output.total} found`,
+  },
+  listAssets: {
+    pending: 'Looking up assets…',
+    title: (input) => input.title,
+    link: (input) => ({ to: '/assets', search: assetsQuery(input) }),
+    Body: AssetsBody,
     found: (output) => `${output.total} found`,
   },
 };

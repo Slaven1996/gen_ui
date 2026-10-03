@@ -11,6 +11,7 @@ How one chat message becomes a rendered answer, how a conversation is saved and 
 | `listLogbookEntries` | ADMIN, USER | `LogbookService.list` | `LogbookTable` · authors edit, authors and admins delete | `/logbook` |
 | `listDevices` | ADMIN, USER | `DevicesService.list` | `DevicesTable` · admins: edit, delete | `/devices` |
 | `listTags` | ADMIN, USER | `TagsService.list` | `TagsTable` · chart; admins: add rule, edit, delete | `/tags` |
+| `listAssets` | ADMIN, USER | `AssetsService.list` (open alarms from the prompt's asset tree) | `AssetsTable` · a click opens the asset's page; admins: edit, delete | `/assets` |
 | `listUsers` | ADMIN, USER | `UsersService.list` | `UsersTable` · admins: make admin, deactivate, reactivate | `/users` |
 | `listAuditLogs` | ADMIN (checked again in `execute`) | `AuditService.list` | `AuditTable` · read-only | `/audit` |
 
@@ -130,7 +131,7 @@ flowchart TD
 - **Two data paths reach `UsersService`.** The tool's `execute` gives Claude up to 20 rows to reason over. The table in the chat fetches its own data through the REST API, exactly like the Users page, so it pages, sorts and authorizes the same way.
 - **The tool input is a page query.** Apart from `title`, every field of `listUsers` (`search`, `role`, `status`, `lastSignIn`) is also a `/users` URL parameter. That is why "Open in new tab" can reproduce the table as a full page.
 - **Dates are the user's.** The request carries the browser's time zone. The prompt's session block states the current date, time and UTC offset there, so Claude can turn "signed in yesterday" into `lastSignIn: 2026-09-28`, and the tool, the chat table and the Users page all read that date as the same local day. The alarm, logbook and audit tools take a window instead: "alarms raised yesterday" becomes `from: 2026-09-28T00:00:00+02:00, to: 2026-09-29T00:00:00+02:00`.
-- **Ids from the dropdowns' own lists.** Where a page filters with a dropdown (`assetId` on alarms, alarm rules, logbook, devices and tags; `authorId` on the logbook; `actorId` on the audit log), the tool takes the same ids. Every request's prompt lists the choices those dropdowns offer (`AiTools.filterOptions()`: `AssetsService.tree()` and `UsersService.options()`), each with its id. Claude matches "hilcrest" to Hillcrest Reservoir and writes its id, so the chat table, "Open in new tab" and the page's dropdown all show that asset. If a name fits several entries, Claude asks which one. A tool rejects an id that isn't on the lists, and Claude tries again.
+- **Ids from the dropdowns' own lists.** Where a page filters with a dropdown or the asset tree (`assetId` on alarms, alarm rules, logbook, devices and tags; `ancestorId` and `parentId` on assets; `authorId` on the logbook; `actorId` on the audit log), the tool takes the same ids. Every request's prompt lists the choices those dropdowns offer (`AiTools.filterOptions()`: `AssetsService.tree()` and `UsersService.options()`), each with its id. Claude matches "hilcrest" to Hillcrest Reservoir and writes its id, so the chat table, "Open in new tab" and the page's dropdown all show that asset. If a name fits several entries, Claude asks which one. A tool rejects an id that isn't on the lists, and Claude tries again.
 - **Parallel calls.** Claude can emit several tool calls in one step; each renders as its own titled table, in order.
 - **Actions work in the chat.** The chat table has the page's row actions for the user's role; a click on an alarm opens the same sheet as on the Alarms page. A change refreshes every table of that kind on screen; the rows Claude read earlier stay as they were in the conversation.
 
@@ -145,7 +146,7 @@ flowchart TD
 | Validating the tool input and running the query | code | AI SDK + `ListUsersQuerySchema` → `UsersService` |
 | The wording of the answer | **Claude** | from the tool results |
 | Which component draws a tool call, and its data | code | `tool-parts.tsx` registry; the table fetches via the REST API |
-| Row actions in that component | code: the user's role | the `use…Actions` hooks in `users-table.tsx`, `definitions-table.tsx`, `devices-table.tsx`, `tags-table.tsx`, `logbook-table.tsx`; the alarm sheet in `tool-parts.tsx` |
+| Row actions in that component | code: the user's role | the `use…Actions` hooks in `users-table.tsx`, `definitions-table.tsx`, `devices-table.tsx`, `tags-table.tsx`, `assets-table.tsx`, `logbook-table.tsx`; the alarm sheet in `tool-parts.tsx` |
 | Saving and restoring the conversation | code | `conversations.service.ts`, `chat-store.ts` |
 
 ## 2. Conversation lifecycle: open, restore, clear, sign out
@@ -190,7 +191,7 @@ flowchart LR
   TOOL -.->|never| REPO
 ```
 
-A tool is an inbound adapter, like a controller: both translate an outside request into a call on the service layer, where the business rules live. Nest's guards and pipes don't run for tool calls, so the tool layer brings its own role map (`TOOL_ROLES`) and validation (the Zod tool input, then the same `ListUsersQuerySchema` the HTTP endpoint uses). The other tools pair up the same way, each with the controller of its page: `listAlarms` and `AlarmsController` both call `AlarmsService` through `ListAlarmsQuerySchema`, `listAuditLogs` and `AuditController` both call `AuditService` through `ListAuditLogsQuerySchema`, and so on for alarm rules, the logbook, devices and tags.
+A tool is an inbound adapter, like a controller: both translate an outside request into a call on the service layer, where the business rules live. Nest's guards and pipes don't run for tool calls, so the tool layer brings its own role map (`TOOL_ROLES`) and validation (the Zod tool input, then the same `ListUsersQuerySchema` the HTTP endpoint uses). The other tools pair up the same way, each with the controller of its page: `listAlarms` and `AlarmsController` both call `AlarmsService` through `ListAlarmsQuerySchema`, `listAuditLogs` and `AuditController` both call `AuditService` through `ListAuditLogsQuerySchema`, and so on for alarm rules, the logbook, devices, tags and assets.
 
 ## Adding the next domain
 
@@ -210,7 +211,7 @@ The system prompt doesn't change. TypeScript fails the build if the backend tool
 | Render parts, Markdown | `frontend/src/features/assistant/chat-message.tsx` |
 | Tool → component registry | `frontend/src/features/assistant/tool-parts.tsx` |
 | "Open in new tab" link | `frontend/src/components/view-card.tsx` |
-| The tables (page and chat) | `frontend/src/features/`: `alarms/alarms-table.tsx`, `alarms/definitions-table.tsx`, `logbook/logbook-table.tsx`, `devices/devices-table.tsx`, `tags/tags-table.tsx`, `users/users-table.tsx`, `logbook/audit-table.tsx` |
+| The tables (page and chat) | `frontend/src/features/`: `alarms/alarms-table.tsx`, `alarms/definitions-table.tsx`, `logbook/logbook-table.tsx`, `devices/devices-table.tsx`, `tags/tags-table.tsx`, `assets/assets-table.tsx`, `users/users-table.tsx`, `logbook/audit-table.tsx` |
 | Asset and people lists, id check | `backend/src/features/ai/ai.tools.ts` (`filterOptions`, `idChecks`); listed by `system-prompt.ts` |
 | Contract: models, request, tools, messages | `packages/shared/src/assistant.ts` |
 | Endpoints | `backend/src/features/ai/ai.controller.ts` |

@@ -7,7 +7,15 @@ import {
   AlarmSeveritySchema,
   AlarmStateSchema,
 } from './alarms.js';
-import { DeviceProtocolSchema, DeviceSchema, DeviceStatusSchema, TagDataTypeSchema, TagSchema } from './assets.js';
+import {
+  AssetSchema,
+  AssetTypeSchema,
+  DeviceProtocolSchema,
+  DeviceSchema,
+  DeviceStatusSchema,
+  TagDataTypeSchema,
+  TagSchema,
+} from './assets.js';
 import { PublicUserSchema, RoleSchema } from './auth.js';
 import { RelativeRangeSchema, timeZoneParam } from './common/query.js';
 import {
@@ -461,6 +469,62 @@ export const ListTagsToolOutputSchema = z.object({
   ),
 });
 
+// ─── Assets ─────────────────────────────────────────────────────────────────
+
+/** Apart from `title`, every field is also an `/assets` URL param. */
+export const ListAssetsToolInputSchema = z.object({
+  title: titleField("'Pumping stations' or 'Everything at Riverside'"),
+  search: z
+    .string()
+    .max(100)
+    .optional()
+    .describe(
+      "Part of an asset's name or code, case-insensitive, for a kind of asset: 'the pumps' → 'pump'; 'reservoirs' → 'reservoir'; 'codes starting PS' → 'PS'. To list what is at or under a named asset, use ancestorId or parentId instead. Omit for every asset.",
+    ),
+  type: z
+    .array(AssetTypeSchema)
+    .min(1)
+    .optional()
+    .describe(
+      "The tree's levels, from coarse to fine: REGION (a district or supply zone), SITE (a pumping station, reservoir, monitoring station), AREA (part of a site, e.g. a pump hall), EQUIPMENT (a pump, a tank). 'all sites' → ['SITE']; 'districts' → ['REGION']; 'equipment' → ['EQUIPMENT']. Omit for every level.",
+    ),
+  ancestorId: z
+    .guid()
+    .optional()
+    .describe(
+      "The id of an asset from the asset list, to list it together with everything below it at any depth: 'everything at Riverside' → the id of Riverside Pumping Station; 'sites in the North District' → its id, with type ['SITE']. One asset per call. Omit for the whole tree.",
+    ),
+  parentId: z
+    .guid()
+    .optional()
+    .describe(
+      "The id of an asset from the asset list, to list only the assets directly under it, one level down: 'what is directly under the South District' → its id. Use ancestorId instead for everything below. Omit unless the user asks for direct children.",
+    ),
+  isActive: z
+    .boolean()
+    .optional()
+    .describe('false for assets taken out of service, true for those in service only. Omit for both.'),
+});
+
+export const ListAssetsToolOutputSchema = z.object({
+  total: z.int().describe(TOTAL_DESCRIPTION),
+  assets: z.array(
+    AssetSchema.pick({
+      name: true,
+      code: true,
+      type: true,
+      isActive: true,
+      address: true,
+      childCount: true,
+      deviceCount: true,
+    }).extend({
+      description: z.string().nullable().describe('What the asset is; long ones are cut short.'),
+      parent: z.string().nullable().describe('The asset it sits under; null at the top of the tree.'),
+      openAlarmCount: z.int().describe('Open alarms on this asset and everything below it.'),
+    }),
+  ),
+});
+
 // ─── The tool set ───────────────────────────────────────────────────────────
 
 export const genUiToolSchemas = {
@@ -504,6 +568,12 @@ export const genUiToolSchemas = {
       "Find tags: the datapoints devices report (a level, a pressure, a pump's running state), each with its latest reading. Use it for current values, e.g. 'what is the wet well level now'. Filter by name, code or unit, asset and type.",
     inputSchema: ListTagsToolInputSchema,
     outputSchema: ListTagsToolOutputSchema,
+  },
+  listAssets: {
+    description:
+      "Find assets: the regions, sites, areas and equipment of the plant's hierarchy, each with its parent, how many sub-assets and devices it holds, whether it is in service, and its open alarms. Filter by name or code, level, a branch of the tree, the direct children of one asset, and service status. It lists the assets themselves, not the devices, tags or alarms at them.",
+    inputSchema: ListAssetsToolInputSchema,
+    outputSchema: ListAssetsToolOutputSchema,
   },
 } as const;
 
