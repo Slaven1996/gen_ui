@@ -1,6 +1,6 @@
 <mxfile host="app.diagrams.net" agent="gen-ui">
   <diagram id="gen-ui-class-diagram" name="Gen UI — domain model (UML)">
-    <mxGraphModel dx="5913" dy="3357" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2480" pageHeight="1600" math="0" shadow="0">
+    <mxGraphModel dx="5414" dy="3176" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2480" pageHeight="1600" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />

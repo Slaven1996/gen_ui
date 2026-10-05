@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Put, Res } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiNoContentResponse,
@@ -11,13 +11,18 @@ import {
 import type { Response } from 'express';
 import {
   ChatRequestSchema,
+  FormOutcomeRequestSchema,
+  FormToolOutputSchema,
   LatestConversationSchema,
   type ChatRequest,
+  type FormOutcomeRequest,
+  type FormToolOutput,
   type LatestConversation,
 } from '@gen-ui/shared';
 import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
 import { ApiErrorResponse, AUTH_REQUIRED } from '../../docs/api-error.js';
 import type { AuthUser } from '../users/user.mapper.js';
+import { AiFormsService } from './ai-forms.service.js';
 import { AiService } from './ai.service.js';
 import { ConversationsService } from './conversations.service.js';
 
@@ -29,6 +34,7 @@ export class AiController {
   constructor(
     private readonly ai: AiService,
     private readonly conversations: ConversationsService,
+    private readonly forms: AiFormsService,
   ) {}
 
   /**
@@ -76,6 +82,28 @@ export class AiController {
   @ApiOkResponse({ standardSchema: LatestConversationSchema })
   async latest(@CurrentUser() user: AuthUser): Promise<LatestConversation> {
     return { conversation: await this.conversations.latest(user.id) };
+  }
+
+  @Put('conversations/:id/forms/:toolCallId')
+  @ApiOperation({
+    summary: 'Record what happened to a form',
+    description:
+      'When the assistant opens a form in an answer (create a user, create or edit an alarm rule), the tool call ends there and the user saves through the same endpoint the page uses, as from the modal. The web app then calls this with `saved` and the id of the saved record, or with `closed` when the form was closed unsaved. The server reads the record and adds the outcome to the output of that tool call in the saved conversation, so a reload shows the result instead of the form and Claude knows on its next turn. Once per form. No model call.',
+  })
+  @ApiParam({ name: 'id', format: 'uuid', description: 'The conversation.' })
+  @ApiParam({ name: 'toolCallId', description: "The form tool call's id, from its part in the conversation." })
+  @ApiOkResponse({ standardSchema: FormToolOutputSchema, description: "The tool call's output, now with `outcome`." })
+  @ApiErrorResponse(400, '`id` is not a UUID, the body is malformed, or `entityId` is not the rule this form edits.')
+  @ApiErrorResponse(403, 'Your role may not use this form.')
+  @ApiErrorResponse(404, 'No such conversation of yours, no form with that id in it, or no record with `entityId`.')
+  @ApiErrorResponse(409, 'The form is already saved or closed.')
+  recordFormOutcome(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('toolCallId') toolCallId: string,
+    @Body({ schema: FormOutcomeRequestSchema }) body: FormOutcomeRequest,
+    @CurrentUser() user: AuthUser,
+  ): Promise<FormToolOutput> {
+    return this.forms.recordOutcome(id, toolCallId, body, user);
   }
 
   @Delete('conversations/:id')

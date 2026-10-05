@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { Chat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
-import type { GenUIMessage, LatestConversation } from '@gen-ui/shared';
+import { isFormToolPart, type FormToolOutput, type GenUIMessage, type LatestConversation } from '@gen-ui/shared';
 import { API_BASE_URL } from '@/lib/api/config';
 import { http } from '@/lib/api/http';
 import { authStore } from '@/lib/auth/auth-store';
@@ -124,6 +124,27 @@ export function resetChat(): void {
   loading = undefined;
   void chat?.stop();
   setChat(undefined);
+}
+
+/**
+ * Puts a form's recorded output (with its `outcome`) into the open
+ * conversation, as the server now has it, so the form turns into its result
+ * without a reload. Messages without that call keep their identity.
+ */
+export function patchFormOutput(toolCallId: string, output: FormToolOutput): void {
+  if (!chat) return;
+  const isTarget = (part: GenUIMessage['parts'][number]) =>
+    isFormToolPart(part) && part.toolCallId === toolCallId && part.state === 'output-available';
+  chat.messages = chat.messages.map((message) =>
+    message.parts.some(isTarget)
+      ? {
+          ...message,
+          parts: message.parts.map((part) =>
+            isTarget(part) ? ({ ...part, output } as GenUIMessage['parts'][number]) : part,
+          ),
+        }
+      : message,
+  );
 }
 
 /** The current conversation, or `undefined` until `loadChat` has restored it. */

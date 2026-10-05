@@ -1,4 +1,4 @@
-import type { UIMessage } from 'ai';
+import type { ToolUIPart, UIMessage } from 'ai';
 import { z } from 'zod';
 import {
   AlarmConditionSchema,
@@ -525,6 +525,196 @@ export const ListAssetsToolOutputSchema = z.object({
   ),
 });
 
+// ─── Forms ──────────────────────────────────────────────────────────────────
+
+/*
+ * Form tools open one of the app's own forms inside the answer, pre-filled
+ * from the user's words, for the user to check and save. They never save:
+ * `execute` only checks what Claude filled in and returns `opened`. The user
+ * saves through the page's REST endpoint, exactly as from the modal, and the
+ * browser then reports what happened (PUT /ai/conversations/:id/forms/:toolCallId).
+ * The server adds that to the tool's output as `outcome`, so a reloaded chat
+ * shows the result instead of the form, and Claude reads it on its next turn.
+ *
+ * Unlike the list tools, a form tool has no `title` (the form has its own),
+ * and its fields are the form's values, not a page's URL params.
+ */
+
+export const FORM_TOOL_NAMES = ['createUser', 'createAlarmRule', 'editAlarmRule'] as const;
+export type FormToolName = (typeof FORM_TOOL_NAMES)[number];
+
+export const isFormToolName = (name: string): name is FormToolName =>
+  (FORM_TOOL_NAMES as readonly string[]).includes(name);
+
+/**
+ * Each form's title, as on its dialog. The chat labels the form with it, and
+ * with components off, Claude names the forms it could open with them on.
+ */
+export const FORM_TITLES = {
+  createUser: 'Add user',
+  createAlarmRule: 'New alarm rule',
+  editAlarmRule: 'Edit alarm rule',
+} as const satisfies Record<FormToolName, string>;
+
+const OPENED_DESCRIPTION = 'The form is open in the chat, pre-filled. Nothing is saved until the user saves it.';
+const OUTCOME_DESCRIPTION =
+  'What the user did with the form: saved it, or closed it without saving. Missing while it is still open.';
+
+const FormClosedSchema = z.object({ status: z.literal('closed') });
+
+// ─── Forms: users ───────────────────────────────────────────────────────────
+
+/** The Add user form's values, except the password: the admin types that into the form. */
+export const CreateUserToolInputSchema = z.object({
+  name: z
+    .string()
+    .max(100)
+    .optional()
+    .describe("The new user's full name as the user wrote it: 'add Milan Milanović' → 'Milan Milanović'. Omit if not given."),
+  email: z
+    .email()
+    .max(254)
+    .optional()
+    .describe('Their email address, only if the user gave one. Never make one up.'),
+  role: RoleSchema.optional().describe(
+    'ADMIN for an admin or administrator, USER for a regular user. Omit if not said: the form starts on USER.',
+  ),
+});
+
+export const CreateUserToolOutputSchema = z.object({
+  status: z.literal('opened').describe(OPENED_DESCRIPTION),
+  outcome: z
+    .discriminatedUnion('status', [
+      z.object({
+        status: z.literal('saved'),
+        user: PublicUserSchema.pick({ name: true, email: true, role: true }).describe('The account that was added.'),
+      }),
+      FormClosedSchema,
+    ])
+    .optional()
+    .describe(OUTCOME_DESCRIPTION),
+});
+
+// ─── Forms: alarm rules ─────────────────────────────────────────────────────
+
+/** An alarm rule's editable values, each optional: only what the user said. */
+const RulePrefillSchema = z
+  .object({
+    name: z.string().max(120).describe("The rule's name, e.g. 'Wet well high level'."),
+    description: z.string().max(500).describe('What an operator should know or do when the rule fires.'),
+    condition: AlarmConditionSchema.describe(
+      "How each reading is compared with the threshold: ABOVE for high limits ('high level', 'overpressure'), BELOW for low limits ('low level', 'low pressure'), EQUAL or NOT_EQUAL for on/off signals (a pump fault, a door switch).",
+    ),
+    threshold: z.number().describe('The limit, in the unit of the tag.'),
+    deadband: z
+      .number()
+      .min(0)
+      .describe('How far the value must come back past the threshold before the alarm clears. Zero or more.'),
+    severity: AlarmSeveritySchema.describe('The severity of the alarms it raises: CRITICAL, HIGH, MEDIUM, LOW or INFO.'),
+    isEnabled: z.boolean().describe('false to keep the rule switched off.'),
+  })
+  .partial();
+export type RulePrefill = z.infer<typeof RulePrefillSchema>;
+
+export const CreateAlarmRuleToolInputSchema = z.object({
+  tagId: z
+    .guid()
+    .optional()
+    .describe(
+      "The id of the tag (signal) the rule watches, from the tag list. Match the user's words to a tag's name, code or asset, allowing for typos and partial names: 'the wet well level at Riverside' → that tag's id. Omit if the user didn't say: they pick it in the form.",
+    ),
+  ...RulePrefillSchema.shape,
+});
+
+export const CreateAlarmRuleToolOutputSchema = z.object({
+  status: z.literal('opened').describe(OPENED_DESCRIPTION),
+  tag: z
+    .object({ name: z.string(), code: z.string(), unit: z.string().nullable(), asset: z.string() })
+    .nullable()
+    .describe('The tag chosen in the form; null when the user picks it there.'),
+  outcome: z
+    .discriminatedUnion('status', [
+      z.object({
+        status: z.literal('saved'),
+        rule: z
+          .object({ name: z.string(), tag: z.string(), asset: z.string() })
+          .describe('The rule that was created, with its tag and where that tag is.'),
+      }),
+      FormClosedSchema,
+    ])
+    .optional()
+    .describe(OUTCOME_DESCRIPTION),
+});
+
+export const EditAlarmRuleToolInputSchema = z.object({
+  ruleId: z
+    .guid()
+    .describe(
+      "The id of the rule to edit, from the alarm rule list. Match the user's words to a rule's name, its tag or its asset, allowing for typos, partial names and words in Serbian: 'wet wel hihg levl' → the id of Wet well high level. If the user gave an id, use it.",
+    ),
+  changes: RulePrefillSchema.optional().describe(
+    "Only the values the user asked to change: 'raise the threshold to 5' → { threshold: 5 }. The form shows everything else as it is now. Omit to just open the rule.",
+  ),
+});
+
+/** The rule as it was when the form opened: what Claude reads, and what `changed` is measured from. */
+export const RuleSnapshotSchema = AlarmDefinitionSchema.pick({
+  name: true,
+  description: true,
+  condition: true,
+  threshold: true,
+  deadband: true,
+  severity: true,
+  isEnabled: true,
+}).extend({
+  tag: z.string().describe('The tag (signal) the rule watches. It cannot be changed.'),
+  unit: z.string().nullable().describe('Unit of the threshold and deadband.'),
+  asset: z.string().describe('Where that tag is.'),
+});
+export type RuleSnapshot = z.infer<typeof RuleSnapshotSchema>;
+
+export const EditAlarmRuleToolOutputSchema = z.object({
+  status: z.literal('opened').describe(OPENED_DESCRIPTION),
+  rule: RuleSnapshotSchema.describe('The rule as it was when the form opened.'),
+  outcome: z
+    .discriminatedUnion('status', [
+      z.object({
+        status: z.literal('saved'),
+        changed: z
+          .record(z.string(), z.object({ from: z.unknown(), to: z.unknown() }))
+          .nullable()
+          .describe('Each value the user changed, from → to; null when they saved it unchanged.'),
+      }),
+      FormClosedSchema,
+    ])
+    .optional()
+    .describe(OUTCOME_DESCRIPTION),
+});
+
+// ─── Forms: recording what the user did ─────────────────────────────────────
+
+/**
+ * Body of PUT /ai/conversations/:id/forms/:toolCallId, sent by the browser
+ * after the user saved a form (through the page's own endpoint) or closed it.
+ * Only the saved record's id comes from the browser; the server reads the
+ * record itself to write the outcome.
+ */
+export const FormOutcomeRequestSchema = z
+  .discriminatedUnion('status', [
+    z.object({
+      status: z.literal('saved'),
+      entityId: z.guid().describe('The record the form saved: the new user or rule, or the rule that was edited.'),
+    }),
+    z.object({ status: z.literal('closed') }),
+  ])
+  .meta({ id: 'FormOutcomeRequest' });
+export type FormOutcomeRequest = z.infer<typeof FormOutcomeRequestSchema>;
+
+/** The response: the form tool's output with its `outcome` added. */
+export const FormToolOutputSchema = z
+  .union([CreateUserToolOutputSchema, CreateAlarmRuleToolOutputSchema, EditAlarmRuleToolOutputSchema])
+  .meta({ id: 'FormToolOutput' });
+
 // ─── The tool set ───────────────────────────────────────────────────────────
 
 export const genUiToolSchemas = {
@@ -575,6 +765,24 @@ export const genUiToolSchemas = {
     inputSchema: ListAssetsToolInputSchema,
     outputSchema: ListAssetsToolOutputSchema,
   },
+  createUser: {
+    description:
+      "Open the Add user form in the chat, pre-filled from the request, so the admin can check it, set a temporary password and add the account. Call it whenever the user wants to add a user, even with no details ('add a new user'): every field is optional, and the form opens with its usual blanks. Don't ask for the details first. It doesn't add the account itself: only the user's click on the form does. Never pass a password; the admin types it into the form.",
+    inputSchema: CreateUserToolInputSchema,
+    outputSchema: CreateUserToolOutputSchema,
+  },
+  createAlarmRule: {
+    description:
+      "Open the New alarm rule form in the chat, pre-filled from the request, so the admin can check it and create the rule. A rule raises an alarm when a reading of its tag crosses its threshold. Call it whenever the user wants a new rule, even with no details ('I want to create a new rule'): every field is optional, and the form opens with the same defaults as on the Alarm rules page. Don't ask for the tag, threshold or anything else first; fill in only what the user said, and they complete the rest in the form. It doesn't create the rule itself.",
+    inputSchema: CreateAlarmRuleToolInputSchema,
+    outputSchema: CreateAlarmRuleToolOutputSchema,
+  },
+  editAlarmRule: {
+    description:
+      "Open the Edit alarm rule form in the chat for one existing rule: its current values, with the changes the user asked for already applied, so the admin can check them and save. All it needs is which rule; the changes are optional ('edit the wet well high level rule' just opens it). It doesn't change the rule itself. A rule's tag can't be changed.",
+    inputSchema: EditAlarmRuleToolInputSchema,
+    outputSchema: EditAlarmRuleToolOutputSchema,
+  },
 } as const;
 
 type ToolContract = { inputSchema: z.ZodType; outputSchema: z.ZodType };
@@ -588,6 +796,17 @@ export type GenUITools = {
   [K in keyof typeof genUiToolSchemas]: ToolIO<(typeof genUiToolSchemas)[K]>;
 };
 export type GenUIToolName = keyof GenUITools;
+
+/** A form tool's call inside a message. */
+export type FormToolUIPart = ToolUIPart<Pick<GenUITools, FormToolName>>;
+/** Any form tool's output. */
+export type FormToolOutput = GenUITools[FormToolName]['output'];
+/** What the user did with a form, once recorded. */
+export type FormOutcome = NonNullable<FormToolOutput['outcome']>;
+
+/** A message part that is a form tool's call (parts are typed `tool-<name>`). */
+export const isFormToolPart = (part: { type: string }): part is FormToolUIPart =>
+  part.type.startsWith('tool-') && isFormToolName(part.type.slice('tool-'.length));
 
 /** Per-message metadata streamed on `start` / `finish`, and saved with the message. */
 export interface GenUIMetadata {

@@ -120,7 +120,9 @@ function ChatThreadView({ chat, className }: { chat: Chat<GenUIMessage>; classNa
             Ask about the data in this app. Answers can include live tables.
           </p>
         ) : (
-          messages.map((message) => <ChatMessage key={message.id} message={message} />)
+          messages.map((message, index) => (
+            <ChatMessage key={message.id} message={message} streaming={busy && index === messages.length - 1} />
+          ))
         )}
 
         {status === 'submitted' && <p className="text-xs text-muted-foreground">Thinking…</p>}

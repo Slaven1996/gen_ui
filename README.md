@@ -219,7 +219,7 @@ Email is not editable: it is the sign-in identifier, and changing it safely need
 
 Ask "all admins, and also users named John" and the answer contains two live users tables: the same `UsersTable` component as the Users page, with every column and, for admins, the same row actions (make admin, deactivate, reactivate). Each has **Open in new tab**, which opens `/users` with that table's filters; the new tab starts with the assistant panel closed. The full flow, with diagrams, is in [`docs/ai-assistant-flow.md`](docs/ai-assistant-flow.md).
 
-The assistant has one tool per domain view:
+The assistant has one tool per domain view, and three that open a form:
 
 | Tool | Who may use it | What Claude can filter by | Renders | Opens |
 |---|---|---|---|---|
@@ -231,6 +231,9 @@ The assistant has one tool per domain view:
 | `listAssets` | everyone | name or code, level (region, site, area, equipment), a branch of the tree, direct children of one asset, in or out of service | `AssetsTable`; a click opens the asset's page, admins get edit, delete | `/assets` |
 | `listUsers` | everyone | name or email, role, status, last sign-in | `UsersTable`; admins get make admin, deactivate, reactivate | `/users` |
 | `listAuditLogs` | admins | action (a family such as `alarm_definition.` or an exact one such as `alarm.acknowledge`), who acted, words from the summary, a time window | `AuditTable`, read-only | `/audit` |
+| `createUser` | admins | pre-fills name, email, role (never a password) | the Add user form, inside the answer | `/users`, once saved |
+| `createAlarmRule` | admins | pre-fills the tag (by id, from the prompt's tag list), name, condition, threshold, deadband, severity, description, enabled | the New alarm rule form, inside the answer | `/alarm-rules`, once saved |
+| `editAlarmRule` | admins | the rule (by id, from the prompt's rule list) and only the values to change | the Edit alarm rule form, loaded with the rule's current values | `/alarm-rules`, once saved |
 
 Questions to try:
 - Alarms: "open alarms at Riverside", "critical alarms raised today", "which alarms still need acknowledging".
@@ -239,6 +242,7 @@ Questions to try:
 - Alarm rules: "rules that are switched off", "critical rules at Riverside".
 - Audit log (admins): "what did Ava change last week", "who acknowledged alarms yesterday", "deleted devices in the last 30 days".
 - Several at once: "open alarms at Riverside, and the devices there".
+- Forms (admins, components on): "I want to create a new rule" (opens the empty form, as on the page), "create a user named Milan Milanović", "new critical rule when the outlet pressure at PS-01 goes above 9.5 bar", "raise the threshold of wet wel hihg levl to 5", "izmeni pravilo za nizak nivo u mokrom bunaru".
 
 **What is AI-driven, and what isn't.** Claude decides only three things: whether to answer, refuse or look something up; which tool to call with which filters (the tool *input*); and the wording of the answer. Everything else is ordinary code: authorization, validation, the database query, which component draws a tool call, and the data in that component (fetched through the REST API, like its page). The numbered flow at the top of `backend/src/features/ai/ai.service.ts` marks each step `[app]` or `[AI]`.
 
@@ -251,9 +255,11 @@ Questions to try:
 
 **English and Serbian only.** The assistant answers in the language of the question, English or Serbian (Latin or Cyrillic). A question in any other language gets a one-line refusal in both, with no lookup.
 
-**Assets and people come as ids, picked from the dropdowns' own lists.** Every request adds two lists to the prompt: the asset tree (`AssetsService.tree()`, what the asset dropdown shows) and the active people (`UsersService.options()`, what *Author* and *Who* show), each entry with its id. Claude matches the user's words to an entry, typos included ("hilcrest" → Hillcrest Reservoir), and writes its id into the tool input. The chat table, **Open in new tab** and the page's dropdown then all show that same asset or person. If a name fits several entries equally (there are several pumps), Claude asks which one. If none fits, it says so. A tool rejects an id that isn't on the lists, so a miscopied id can't quietly return an empty table. The lists are never cut: every asset and every active person is listed, so they cost about 500 input tokens per message with the demo data and grow with the tree and the staff.
+**Assets and people come as ids, picked from the dropdowns' own lists.** Every request adds two lists to the prompt: the asset tree (`AssetsService.tree()`, what the asset dropdown shows) and the active people (`UsersService.options()`, what *Author* and *Who* show), each entry with its id. Claude matches the user's words to an entry, typos included ("hilcrest" → Hillcrest Reservoir), and writes its id into the tool input. The chat table, **Open in new tab** and the page's dropdown then all show that same asset or person. If a name fits several entries equally (there are several pumps), Claude asks which one. If none fits, it says so. A tool rejects an id that isn't on the lists, so a miscopied id can't quietly return an empty table. The lists are never cut: every asset and every active person is listed, so they cost about 500 input tokens per message with the demo data and grow with the tree and the staff. For admins with components on, the prompt also lists every alarm rule and every tag the same way, which the form tools take by id: Claude matches "wet wel hihg levl" to Wet well high level, or asks "high or low?" for "the wet well level rule". No code matches names.
 
-**Generate UI components** (a switch above the message box, on by default): turned off, the assistant still looks data up but answers in Markdown, and each lookup shows as one line with the same link. Each answer keeps the mode it was given in.
+**Forms in the answer.** The form tools open the app's own form inside the answer: the same header, fields, button and top-right X as the modal on its page (`InlineDialog` draws the dialog in place). Claude fills in what the user said; for an edit, the form loads the rule as it is now and puts the requested changes over it, each changed field hinting what it was. The tools never write anything: the user saves through the same REST endpoint the modal uses. Afterwards the browser reports what happened (`PUT /api/ai/conversations/:id/forms/:toolCallId`, saved with the record's id, or closed), and the server writes it into that tool call in the saved conversation, reading the record itself. The form then becomes a one-line result, also after a reload, and Claude knows on its next turn. That costs no model call. Details in [`docs/ai-assistant-flow.md`](docs/ai-assistant-flow.md#4-forms-in-the-chat-open-save-record).
+
+**Generate UI components** (a switch above the message box, on by default): turned off, the assistant still looks data up but answers in Markdown, and each lookup shows as one line with the same link. Forms need it on: with it off, asking for one ("add a rule…") gets a pointer to this switch, or to the page, instead of questions about the values. A user (not an admin) asking for one is told only admins can do that. Each answer keeps the mode it was given in.
 
 **Conversations are saved** per user in the `conversations` table, with the AI SDK's messages (parts included) as JSONB. The client sends only its new message; the server holds the history, saves it before the model runs and again when the stream ends (also after Stop). Reopening the app restores the thread and its tables, which show current data. **Clear chat** deletes it for good. Each turn sends the whole conversation to Claude, so a long chat costs more per answer.
 
@@ -262,7 +268,7 @@ To add a domain:
 2. Implement the tool in `backend/src/features/ai/ai.tools.ts`, calling that domain's service, and add its `TOOL_ROLES` line. Export the service from its module and import that module in `ai.module.ts`.
 3. Add a renderer in `tool-parts.tsx` that wraps the domain's existing table. Role-based row actions belong inside that table, with their dialogs (the `use…Actions` hooks in `users-table.tsx`, `definitions-table.tsx`, `devices-table.tsx`, `tags-table.tsx`, `assets-table.tsx` and `logbook-table.tsx`), so the page and the chat show the same ones. A filter a page sets with an asset or people dropdown takes the same ids in the tool; Claude picks them from the lists in its prompt.
 
-TypeScript fails the build if the backend tools and the shared contract drift apart, or if a tool has no renderer.
+TypeScript fails the build if the backend tools and the shared contract drift apart, or if a tool has no renderer. A tool that creates or edits something is a form tool instead; see "Adding a form tool" in [`docs/ai-assistant-flow.md`](docs/ai-assistant-flow.md#adding-the-next-domain).
 
 The assistant is available as a right-hand panel on every page (Ctrl/Cmd + J) and as a full page at `/assistant`. Both show the same conversation. The assistant doesn't know which page is open; each request carries only the browser's time zone besides the settings.
 

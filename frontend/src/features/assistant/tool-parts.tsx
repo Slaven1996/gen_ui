@@ -1,8 +1,8 @@
 import { useState, type ComponentType } from 'react';
 import { useNavigate, type LinkProps } from '@tanstack/react-router';
 import { getStaticToolName, type ToolUIPart } from 'ai';
-import { CircleAlert } from 'lucide-react';
 import {
+  isFormToolPart,
   ListAlarmDefinitionsQuerySchema,
   ListAlarmsQuerySchema,
   ListAssetsQuerySchema,
@@ -11,11 +11,10 @@ import {
   ListLogbookQuerySchema,
   ListTagsQuerySchema,
   ListUsersQuerySchema,
+  type FormToolName,
   type GenUIToolName,
   type GenUITools,
 } from '@gen-ui/shared';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Skeleton } from '@/components/ui/skeleton';
 import { ViewCard, ViewFullPageLink } from '@/components/view-card';
 import { AlarmDetailSheet } from '@/features/alarms/alarm-detail-sheet';
 import { AlarmsTable } from '@/features/alarms/alarms-table';
@@ -26,6 +25,8 @@ import { AuditTable } from '@/features/logbook/audit-table';
 import { LogbookTable } from '@/features/logbook/logbook-table';
 import { TagsTable } from '@/features/tags/tags-table';
 import { UsersTable } from '@/features/users/users-table';
+import { FormPartView, FormStatusLine } from './form-parts';
+import { ToolError, ToolSkeleton } from './tool-states';
 
 /*
  * Generative UI, the rendering half. A tool part in a message is what Claude
@@ -33,16 +34,20 @@ import { UsersTable } from '@/features/users/users-table';
  * role: 'ADMIN' }`). Turning it into a component is fixed code [app]: the
  * registry below maps each tool to a domain view, and that view loads its own
  * data through the REST API, exactly as its page does. The model never
- * produces markup or rows for the screen.
+ * produces markup or rows for the screen. Form tools (create a user, create
+ * or edit an alarm rule) render through their own registry in form-parts.tsx.
  */
 
 export type GenUIToolPart = ToolUIPart<GenUITools>;
 
+/** The tools that list things, each rendered with its page's table. */
+type ListToolName = Exclude<GenUIToolName, FormToolName>;
+
 type Input<N extends GenUIToolName> = GenUITools[N]['input'];
 type Output<N extends GenUIToolName> = GenUITools[N]['output'];
 
-/** How one tool's calls show in the chat. */
-interface ToolRenderer<N extends GenUIToolName> {
+/** How one list tool's calls show in the chat. */
+interface ToolRenderer<N extends ListToolName> {
   /** Shown while the model is still writing the call. */
   pending: string;
   title: (input: Input<N>) => string;
@@ -167,7 +172,7 @@ function AssetsBody({ input }: { input: Input<'listAssets'> }) {
  * wrapping its domain's existing table (which brings its own role-based row
  * actions); TypeScript flags a tool without one.
  */
-const RENDERERS: { [N in GenUIToolName]: ToolRenderer<N> } = {
+const RENDERERS: { [N in ListToolName]: ToolRenderer<N> } = {
   listUsers: {
     pending: 'Looking up users…',
     title: (input) => input.title,
@@ -226,15 +231,19 @@ const RENDERERS: { [N in GenUIToolName]: ToolRenderer<N> } = {
   },
 };
 
-function rendererFor(part: GenUIToolPart): ToolRenderer<GenUIToolName> {
+function rendererFor(part: GenUIToolPart): ToolRenderer<ListToolName> {
   // TypeScript can't pair a part from the union with its own entry; the tool name does.
-  return RENDERERS[getStaticToolName<GenUITools>(part)] as unknown as ToolRenderer<GenUIToolName>;
+  return RENDERERS[getStaticToolName<GenUITools>(part) as ListToolName] as unknown as ToolRenderer<ListToolName>;
 }
 
 // ─── Rendering ──────────────────────────────────────────────────────────────
 
-/** A tool call as a component: a skeleton while it is written, then its view and "Open in new tab". */
-export function ToolPartView({ part }: { part: GenUIToolPart }) {
+/**
+ * A tool call as a component: a skeleton while it is written, then its view
+ * and "Open in new tab". `streaming`: the answer holding it is still arriving.
+ */
+export function ToolPartView({ part, streaming = false }: { part: GenUIToolPart; streaming?: boolean }) {
+  if (isFormToolPart(part)) return <FormPartView part={part} streaming={streaming} />;
   const renderer = rendererFor(part);
   switch (part.state) {
     case 'input-streaming':
@@ -258,6 +267,7 @@ export function ToolPartView({ part }: { part: GenUIToolPart }) {
 
 /** A tool call in a text-only answer: one muted line, with the same link. */
 export function ToolStatusLine({ part }: { part: GenUIToolPart }) {
+  if (isFormToolPart(part)) return <FormStatusLine part={part} />;
   const renderer = rendererFor(part);
   switch (part.state) {
     case 'input-streaming':
@@ -275,23 +285,4 @@ export function ToolStatusLine({ part }: { part: GenUIToolPart }) {
         </div>
       );
   }
-}
-
-function ToolSkeleton({ label }: { label: string }) {
-  return (
-    <div className="space-y-2" role="status" aria-live="polite">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <Skeleton className="h-32" />
-    </div>
-  );
-}
-
-function ToolError({ message }: { message?: string }) {
-  return (
-    <Alert variant="destructive">
-      <CircleAlert />
-      <AlertTitle>That lookup failed</AlertTitle>
-      {message && <AlertDescription>{message}</AlertDescription>}
-    </Alert>
-  );
 }

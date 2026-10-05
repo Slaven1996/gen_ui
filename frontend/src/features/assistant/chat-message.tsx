@@ -8,8 +8,9 @@ import { ToolPartView, ToolStatusLine } from './tool-parts';
  * One message, rendered purely from its parts, so a restored conversation
  * looks as it did. The parts come from the model [AI]: its text, its
  * reasoning summary, and its tool calls. How each part looks is fixed [app].
+ * `streaming`: this is the answer still arriving (a form in it waits for it).
  */
-export function ChatMessage({ message }: { message: GenUIMessage }) {
+export function ChatMessage({ message, streaming = false }: { message: GenUIMessage; streaming?: boolean }) {
   if (message.role === 'user') {
     const text = message.parts
       .filter(isTextUIPart)
@@ -37,7 +38,7 @@ export function ChatMessage({ message }: { message: GenUIMessage }) {
         }
         if (isStaticToolUIPart(part)) {
           return generateUi ? (
-            <ToolPartView key={part.toolCallId} part={part} />
+            <ToolPartView key={part.toolCallId} part={part} streaming={streaming} />
           ) : (
             <ToolStatusLine key={part.toolCallId} part={part} />
           );

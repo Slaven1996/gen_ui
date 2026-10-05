@@ -1,7 +1,9 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { tool, type InferUITools } from 'ai';
 import {
+  FORM_TOOL_NAMES,
   genUiToolSchemas,
+  isFormToolName,
   ListAlarmDefinitionsQuerySchema,
   ListAlarmsQuerySchema,
   ListAssetsQuerySchema,
@@ -10,17 +12,20 @@ import {
   ListLogbookQuerySchema,
   ListTagsQuerySchema,
   ListUsersQuerySchema,
+  type AlarmDefinition,
   type AssetTreeNode,
+  type FormToolName,
   type GenUIToolName,
   type GenUITools,
   type Role,
+  type RuleSnapshot,
   type UserRef,
 } from '@gen-ui/shared';
-import { AlarmDefinitionsService } from '../alarms/alarm-definitions.service.js';
+import { AlarmDefinitionsService, type AlarmRuleOption } from '../alarms/alarm-definitions.service.js';
 import { AlarmsService } from '../alarms/alarms.service.js';
 import { AssetsService } from '../assets/assets.service.js';
 import { DevicesService } from '../assets/devices.service.js';
-import { TagsService } from '../assets/tags.service.js';
+import { TagsService, type TagOption } from '../assets/tags.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { LogbookService } from '../logbook/logbook.service.js';
 import type { AuthUser } from '../users/user.mapper.js';
@@ -44,16 +49,32 @@ const clip = (text: string | null) =>
 export interface FilterOptions {
   assets: AssetTreeNode[];
   people: UserRef[];
+  /**
+   * Every alarm rule and tag, for the form tools (`ruleId`, `tagId`): the
+   * choices the tag picker offers, and the rules a user can open to edit.
+   * Loaded only when those tools are on offer, so other prompts stay short.
+   */
+  forms?: { rules: AlarmRuleOption[]; tags: TagOption[] };
+}
+
+/** The forms by role: the system prompt says what to do when the user asks for one. */
+export interface FormAccess {
+  /** Forms this user's role may open (only offered with components on). */
+  allowed: FormToolName[];
+  /** Forms only other roles may open, and those roles. */
+  denied: { name: FormToolName; roles: readonly Role[] }[];
 }
 
 /**
  * Claude copies ids from the lists in its prompt. A miscopied id would
- * quietly filter everything out, so the tool refuses it; Claude reads the
- * error and tries again.
+ * quietly filter everything out, or open the wrong record in a form, so the
+ * tool refuses it; Claude reads the error and tries again.
  */
-function idChecks({ assets, people }: FilterOptions) {
+function idChecks({ assets, people, forms }: FilterOptions) {
   const assetIds = new Set(assets.map((asset) => asset.id));
   const peopleIds = new Set(people.map((person) => person.id));
+  const rules = new Map(forms?.rules.map((rule) => [rule.id, rule]));
+  const tags = new Map(forms?.tags.map((tag) => [tag.id, tag]));
   return {
     asset(id: string | undefined): void {
       if (id && !assetIds.has(id)) throw new Error(`Unknown asset id ${id}: use an id from the asset list.`);
@@ -62,6 +83,35 @@ function idChecks({ assets, people }: FilterOptions) {
       const unknown = ids?.find((id) => !peopleIds.has(id));
       if (unknown) throw new Error(`Unknown person id ${unknown}: use an id from the people list.`);
     },
+    rule(id: string): AlarmRuleOption {
+      const rule = rules.get(id);
+      if (!rule) throw new Error(`Unknown alarm rule id ${id}: use an id from the alarm rule list.`);
+      return rule;
+    },
+    tag(id: string): TagOption {
+      const tag = tags.get(id);
+      if (!tag) throw new Error(`Unknown tag id ${id}: use an id from the tag list.`);
+      return tag;
+    },
+  };
+}
+
+/** What a form tool returns: its contract's output, so the optional `outcome` stays in the type. */
+type FormOutput<N extends FormToolName> = GenUITools[N]['output'];
+
+/** A rule's values as the edit form opens on them; `recordOutcome` diffs the saved rule against this. */
+export function toRuleSnapshot(rule: AlarmDefinition): RuleSnapshot {
+  return {
+    name: rule.name,
+    description: rule.description,
+    tag: rule.tag.name,
+    unit: rule.tag.unit,
+    asset: rule.asset.name,
+    condition: rule.condition,
+    threshold: rule.threshold,
+    deadband: rule.deadband,
+    severity: rule.severity,
+    isEnabled: rule.isEnabled,
   };
 }
 
@@ -81,7 +131,16 @@ const TOOL_ROLES = {
   listDevices: ['ADMIN', 'USER'],
   listTags: ['ADMIN', 'USER'],
   listAssets: ['ADMIN', 'USER'],
+  // The forms save through POST /users and POST/PATCH /alarm-definitions, which are admin-only.
+  createUser: ['ADMIN'],
+  createAlarmRule: ['ADMIN'],
+  editAlarmRule: ['ADMIN'],
 } as const satisfies Record<GenUIToolName, readonly Role[]>;
+
+/** Whether this user's role may use the tool (also checked when a form's outcome is recorded). */
+export function mayUse(user: AuthUser, name: GenUIToolName): boolean {
+  return (TOOL_ROLES[name] as readonly Role[]).includes(user.role);
+}
 
 /**
  * The assistant's tools. Like controllers, they are adapters: each one turns
@@ -108,10 +167,18 @@ export class AiTools {
     private readonly assets: AssetsService,
   ) {}
 
-  /** The pickers' options, for the system prompt and for `create`. */
-  async filterOptions(): Promise<FilterOptions> {
-    const [assets, people] = await Promise.all([this.assets.tree(), this.users.options()]);
-    return { assets, people };
+  /**
+   * The pickers' options, for the system prompt and for `create`. With
+   * `forms`, also every alarm rule and tag, which only the form tools use.
+   */
+  async filterOptions({ forms }: { forms: boolean }): Promise<FilterOptions> {
+    const [assets, people, rules, tags] = await Promise.all([
+      this.assets.tree(),
+      this.users.options(),
+      forms ? this.alarmRules.options() : undefined,
+      forms ? this.tags.options() : undefined,
+    ]);
+    return { assets, people, ...(rules && tags && { forms: { rules, tags } }) };
   }
 
   /**
@@ -123,6 +190,10 @@ export class AiTools {
    */
   create({ user, timeZone, options }: { user: AuthUser; timeZone: string; options: FilterOptions }) {
     const known = idChecks(options);
+    // TOOL_ROLES already keeps admin-only tools from everyone else; this is the second lock.
+    const adminOnly = (what: string) => {
+      if (user.role !== 'ADMIN') throw new ForbiddenException(`${what} is for admins only.`);
+    };
     return {
       listUsers: tool({
         ...genUiToolSchemas.listUsers,
@@ -174,8 +245,7 @@ export class AiTools {
         ...genUiToolSchemas.listAuditLogs,
         // `title` only labels the table; the rest is the `/audit` query.
         execute: async ({ title: _title, ...filters }) => {
-          // TOOL_ROLES already keeps this tool from everyone else; this is the second lock.
-          if (user.role !== 'ADMIN') throw new ForbiddenException('The audit log is for admins only.');
+          adminOnly('The audit log');
           known.people(filters.actorId);
           const query = ListAuditLogsQuerySchema.parse({ ...filters, pageSize: ROWS_FOR_MODEL });
           const page = await this.audit.list(query);
@@ -314,14 +384,65 @@ export class AiTools {
           };
         },
       }),
+
+      // ─── Forms ───────────────────────────────────────────────────────────
+      // A form tool only opens the form: the input is the pre-fill, and the
+      // user saves through the REST endpoint the modal uses. The schemas
+      // already hold the pre-fill to the form's limits; `execute` checks the
+      // ids and who is asking, and hands Claude what it needs to describe
+      // the form in a sentence.
+
+      createUser: tool({
+        ...genUiToolSchemas.createUser,
+        execute: async (): Promise<FormOutput<'createUser'>> => {
+          adminOnly('Adding users');
+          return { status: 'opened' as const };
+        },
+      }),
+
+      createAlarmRule: tool({
+        ...genUiToolSchemas.createAlarmRule,
+        execute: async ({ tagId }): Promise<FormOutput<'createAlarmRule'>> => {
+          adminOnly('Creating alarm rules');
+          const tag = tagId === undefined ? null : known.tag(tagId);
+          return {
+            status: 'opened' as const,
+            tag: tag && { name: tag.name, code: tag.code, unit: tag.unit, asset: tag.asset },
+          };
+        },
+      }),
+
+      editAlarmRule: tool({
+        ...genUiToolSchemas.editAlarmRule,
+        execute: async ({ ruleId }): Promise<FormOutput<'editAlarmRule'>> => {
+          adminOnly('Editing alarm rules');
+          known.rule(ruleId);
+          // The form loads the rule again itself; this copy is for Claude, and for the outcome's diff.
+          return { status: 'opened' as const, rule: toRuleSnapshot(await this.alarmRules.get(ruleId)) };
+        },
+      }),
     };
   }
 
-  /** The tools this user may call. The model is never offered the others. */
-  activeFor(user: AuthUser): GenUIToolName[] {
-    return (Object.keys(TOOL_ROLES) as GenUIToolName[]).filter((name) =>
-      (TOOL_ROLES[name] as readonly Role[]).includes(user.role),
+  /**
+   * The tools this user may call. The model is never offered the others.
+   * Form tools need components: in a text-only answer there is no form to show.
+   */
+  activeFor(user: AuthUser, generateUi: boolean): GenUIToolName[] {
+    return (Object.keys(TOOL_ROLES) as GenUIToolName[]).filter(
+      (name) => mayUse(user, name) && (generateUi || !isFormToolName(name)),
     );
+  }
+
+  /**
+   * Which forms this user's role may open, whether or not components are on,
+   * and which only other roles may. The prompt names both, by their titles.
+   */
+  formsFor(user: AuthUser): FormAccess {
+    return {
+      allowed: FORM_TOOL_NAMES.filter((name) => mayUse(user, name)),
+      denied: FORM_TOOL_NAMES.filter((name) => !mayUse(user, name)).map((name) => ({ name, roles: TOOL_ROLES[name] })),
+    };
   }
 }
 

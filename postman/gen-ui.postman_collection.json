@@ -3082,6 +3082,42 @@
           ]
         },
         {
+          "name": "Record a form's outcome",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ai/conversations/5b0c8f3e-2d4a-4c1b-9e6f-7a8b9c0d1e2f/forms/toolu_01ABCDEFGHIJKLMNOPQRSTUV",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ai",
+                "conversations",
+                "5b0c8f3e-2d4a-4c1b-9e6f-7a8b9c0d1e2f",
+                "forms",
+                "toolu_01ABCDEFGHIJKLMNOPQRSTUV"
+              ]
+            },
+            "description": "Admins only, like the forms. When the assistant opens a form in an answer (`createUser`, `createAlarmRule`, `editAlarmRule`), the tool call ends there; the user saves through the page's own endpoint (`POST /users`, `POST` or `PATCH /alarm-definitions`). The web app then calls this with `saved` and the saved record's id, or with `{ \"status\": \"closed\" }` when the form was closed unsaved. The server reads the record and adds `outcome` to that tool call's output in the saved conversation, so a reload shows the result and Claude knows on its next turn. Returns the output with its outcome.\n\nReplace the last path segment with a form call's `toolCallId` from \"Saved conversation\" (a part of type `tool-createUser`, `tool-createAlarmRule` or `tool-editAlarmRule`). For `editAlarmRule`, `entityId` must be the rule the form edits. Once per form: a second call is a 409. Free: no model call.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"saved\",\n  \"entityId\": \"40000000-0000-4000-8000-000000000001\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
           "name": "Clear the conversation",
           "request": {
             "method": "DELETE",

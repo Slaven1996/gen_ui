@@ -1,6 +1,6 @@
-import { useState, type FormEvent } from 'react';
+import { useId, useState, type FormEvent } from 'react';
 import { UserPlus } from 'lucide-react';
-import { CreateUserSchema, PASSWORD_MIN_LENGTH, type Role } from '@gen-ui/shared';
+import { CreateUserSchema, PASSWORD_MIN_LENGTH, type PublicUser, type Role } from '@gen-ui/shared';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -19,19 +19,57 @@ import { useCreateUser } from './mutations';
 
 type FieldErrors = Partial<Record<'email' | 'name' | 'password', string>>;
 
-const emptyForm = { email: '', name: '', password: '', role: 'USER' as Role };
+/** What the form can start with instead of blanks: the assistant's pre-fill. Never a password. */
+export interface CreateUserPrefill {
+  name?: string;
+  email?: string;
+  role?: Role;
+}
 
 export function CreateUserDialog() {
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState(emptyForm);
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button>
+          <UserPlus />
+          Add user
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        {/* Closing unmounts the form, so it opens empty next time. */}
+        <CreateUserForm onCreated={() => setOpen(false)} />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * The Add user form: the dialog's header, fields and button. The page shows
+ * it in `CreateUserDialog`; the assistant shows it inside an answer
+ * (`InlineDialog`), pre-filled. Either way it sits inside a `Dialog`, which
+ * its title and description need.
+ */
+export function CreateUserForm({
+  initial,
+  disabled = false,
+  onCreated,
+}: {
+  initial?: CreateUserPrefill;
+  /** Keeps the button off, e.g. while the answer that opened the form is still streaming. */
+  disabled?: boolean;
+  onCreated: (user: PublicUser) => void;
+}) {
+  const id = useId();
+  const [form, setForm] = useState(() => ({
+    email: initial?.email ?? '',
+    name: initial?.name ?? '',
+    password: '',
+    role: initial?.role ?? ('USER' as Role),
+  }));
   const [errors, setErrors] = useState<FieldErrors>({});
   const createUser = useCreateUser();
-
-  const reset = () => {
-    setForm(emptyForm);
-    setErrors({});
-    createUser.reset();
-  };
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -46,92 +84,71 @@ export function CreateUserDialog() {
       return;
     }
     setErrors({});
-    createUser.mutate(parsed.data, {
-      onSuccess: () => {
-        setOpen(false);
-        reset();
-      },
-    });
+    createUser.mutate(parsed.data, { onSuccess: onCreated });
   };
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (!next) reset();
-      }}
-    >
-      <DialogTrigger asChild>
-        <Button>
-          <UserPlus />
-          Add user
+    <form onSubmit={onSubmit} className="space-y-4" noValidate>
+      <DialogHeader>
+        <DialogTitle>Add user</DialogTitle>
+        <DialogDescription>They can sign in right away with the password you set.</DialogDescription>
+      </DialogHeader>
+
+      <Field id={`${id}-name`} label="Name" error={errors.name}>
+        <Input
+          id={`${id}-name`}
+          value={form.name}
+          onChange={(event) => setForm({ ...form, name: event.target.value })}
+          autoComplete="off"
+        />
+      </Field>
+      <Field id={`${id}-email`} label="Email" error={errors.email}>
+        <Input
+          id={`${id}-email`}
+          type="email"
+          value={form.email}
+          onChange={(event) => setForm({ ...form, email: event.target.value })}
+          autoComplete="off"
+        />
+      </Field>
+      <Field
+        id={`${id}-password`}
+        label="Temporary password"
+        hint={`At least ${PASSWORD_MIN_LENGTH} characters.`}
+        error={errors.password}
+      >
+        <Input
+          id={`${id}-password`}
+          type="password"
+          value={form.password}
+          onChange={(event) => setForm({ ...form, password: event.target.value })}
+          autoComplete="new-password"
+        />
+      </Field>
+      <Field id={`${id}-role`} label="Role">
+        <Select value={form.role} onValueChange={(role) => setForm({ ...form, role: role as Role })}>
+          <SelectTrigger id={`${id}-role`} className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="USER">User</SelectItem>
+            <SelectItem value="ADMIN">Admin</SelectItem>
+          </SelectContent>
+        </Select>
+      </Field>
+
+      {createUser.isError && (
+        <p className="text-sm text-destructive" role="alert">
+          {getErrorMessage(createUser.error)}
+        </p>
+      )}
+
+      <DialogFooter>
+        <Button type="submit" disabled={disabled || createUser.isPending}>
+          {createUser.isPending ? 'Adding…' : 'Add user'}
         </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
-        <form onSubmit={onSubmit} className="space-y-4" noValidate>
-          <DialogHeader>
-            <DialogTitle>Add user</DialogTitle>
-            <DialogDescription>They can sign in right away with the password you set.</DialogDescription>
-          </DialogHeader>
-
-          <Field id="name" label="Name" error={errors.name}>
-            <Input
-              id="name"
-              value={form.name}
-              onChange={(event) => setForm({ ...form, name: event.target.value })}
-              autoComplete="off"
-            />
-          </Field>
-          <Field id="email" label="Email" error={errors.email}>
-            <Input
-              id="email"
-              type="email"
-              value={form.email}
-              onChange={(event) => setForm({ ...form, email: event.target.value })}
-              autoComplete="off"
-            />
-          </Field>
-          <Field
-            id="password"
-            label="Temporary password"
-            hint={`At least ${PASSWORD_MIN_LENGTH} characters.`}
-            error={errors.password}
-          >
-            <Input
-              id="password"
-              type="password"
-              value={form.password}
-              onChange={(event) => setForm({ ...form, password: event.target.value })}
-              autoComplete="new-password"
-            />
-          </Field>
-          <Field id="role" label="Role">
-            <Select value={form.role} onValueChange={(role) => setForm({ ...form, role: role as Role })}>
-              <SelectTrigger id="role" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="USER">User</SelectItem>
-                <SelectItem value="ADMIN">Admin</SelectItem>
-              </SelectContent>
-            </Select>
-          </Field>
-
-          {createUser.isError && (
-            <p className="text-sm text-destructive" role="alert">
-              {getErrorMessage(createUser.error)}
-            </p>
-          )}
-
-          <DialogFooter>
-            <Button type="submit" disabled={createUser.isPending}>
-              {createUser.isPending ? 'Adding…' : 'Add user'}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+      </DialogFooter>
+    </form>
   );
 }
 

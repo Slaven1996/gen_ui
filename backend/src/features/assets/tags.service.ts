@@ -8,6 +8,15 @@ import { UnitOfWork } from '../../prisma/unit-of-work.service.js';
 import type { AuthUser } from '../users/user.mapper.js';
 import { tagSelect, toTag } from './asset.mapper.js';
 
+/** One tag in the assistant's pick list: enough to recognise it by, and its id. */
+export interface TagOption {
+  id: string;
+  name: string;
+  code: string;
+  unit: string | null;
+  asset: string;
+}
+
 @Injectable()
 export class TagsService {
   constructor(
@@ -42,6 +51,19 @@ export class TagsService {
       this.prisma.tag.count({ where }),
     ]);
     return toPaginated(rows.map(toTag), total, query);
+  }
+
+  /**
+   * Every tag, grouped by where it is: the choices the assistant matches the
+   * user's words against when a tool asks for a tag's id (the tag pickers'
+   * options, all at once).
+   */
+  async options(): Promise<TagOption[]> {
+    const rows = await this.prisma.tag.findMany({
+      select: { id: true, name: true, code: true, unit: true, device: { select: { asset: { select: { name: true } } } } },
+      orderBy: [{ device: { asset: { name: 'asc' } } }, { name: 'asc' }, { id: 'asc' }],
+    });
+    return rows.map(({ device, ...tag }) => ({ ...tag, asset: device.asset.name }));
   }
 
   async get(id: string): Promise<Tag> {

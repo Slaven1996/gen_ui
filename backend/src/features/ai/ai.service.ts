@@ -13,6 +13,7 @@ import type { ServerResponse } from 'node:http';
 import {
   ASSISTANT_MODELS,
   DEFAULT_EFFORT,
+  isFormToolName,
   MAX_CONVERSATION_MESSAGES,
   type AssistantModel,
   type ChatRequest,
@@ -39,7 +40,9 @@ import { buildInstructions } from './system-prompt.js';
  *  4 [app] Call the chosen model with the system prompt (system-prompt.ts),
  *          the history, and the tools this user's role may use (ai.tools.ts).
  *          The prompt lists the assets and people the pages' pickers offer,
- *          so Claude can fill asset and people filters with their ids.
+ *          so Claude can fill asset and people filters with their ids; for
+ *          admins with components on, also every alarm rule and tag, which
+ *          the form tools take by id.
  *  5 [AI]  Claude decides what to do: answer, politely refuse an off-topic
  *          request, or call tools, choosing which tools, their filters, and
  *          how many to run at once.
@@ -53,6 +56,11 @@ import { buildInstructions } from './system-prompt.js';
  *  8 [app] Each part (text, reasoning, tool input and output) streams to the
  *          browser as it is produced, over Server-Sent Events.
  *  9 [app] When the stream ends (also after Stop), save the conversation.
+ *
+ *  Form tools (create a user, create or edit an alarm rule) only open the
+ *  app's own form in the answer. The admin saves it later through the page's
+ *  REST endpoint, and the browser reports the outcome to
+ *  PUT /ai/conversations/:id/forms/:toolCallId (ai-forms.service.ts).
  *
  *  In the browser a fixed registry turns each tool part into a React
  *  component (frontend/src/features/assistant/tool-parts.tsx). Claude chooses
@@ -105,8 +113,14 @@ export class AiService {
     }
     // Dates the user mentions ("signed in yesterday") are days in their zone.
     const { timeZone } = request;
+    // The role check: the model is never offered a tool this user may not use
+    // (nor a form tool when components are off: there would be no form to show).
+    const activeTools = this.tools.activeFor(user, request.generateUi);
+    // Forms the role allows, and those it doesn't: the prompt names them where
+    // no form tool is offered, so Claude can say how to get one, or who can.
+    const forms = this.tools.formsFor(user);
     // The pickers' choices: listed in the prompt, and the only ids the tools accept.
-    const options = await this.tools.filterOptions();
+    const options = await this.tools.filterOptions({ forms: activeTools.some(isFormToolName) });
     const tools = this.tools.create({ user, timeZone, options });
     const effort = effortFor(request);
 
@@ -120,11 +134,10 @@ export class AiService {
     // reads the results, and so on until it stops calling tools.
     const result = streamText({
       model: this.anthropic(request.model),
-      instructions: buildInstructions({ user, timeZone, generateUi: request.generateUi, options }),
+      instructions: buildInstructions({ user, timeZone, generateUi: request.generateUi, forms, options }),
       messages: await convertToModelMessages(forModel(messages, request.model), { tools }),
       tools,
-      // The role check: the model is never offered a tool this user may not use.
-      activeTools: this.tools.activeFor(user),
+      activeTools,
       stopWhen: isStepCount(this.config.get('AI_MAX_STEPS')),
       maxOutputTokens: Math.min(this.config.get('AI_MAX_OUTPUT_TOKENS'), MODEL_LIMITS[request.model].maxOutputTokens),
       providerOptions: { anthropic: this.anthropicOptions(request.model, effort) },

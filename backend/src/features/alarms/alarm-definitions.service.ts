@@ -14,6 +14,14 @@ import { UnitOfWork } from '../../prisma/unit-of-work.service.js';
 import type { AuthUser } from '../users/user.mapper.js';
 import { definitionSelect, toDefinition } from './alarm.mapper.js';
 
+/** One rule in the assistant's pick list: enough to recognise it by, and its id. */
+export interface AlarmRuleOption {
+  id: string;
+  name: string;
+  tag: { name: string; code: string };
+  asset: string;
+}
+
 @Injectable()
 export class AlarmDefinitionsService {
   constructor(
@@ -51,6 +59,22 @@ export class AlarmDefinitionsService {
       this.prisma.alarmDefinition.count({ where }),
     ]);
     return toPaginated(rows.map(toDefinition), total, query);
+  }
+
+  /**
+   * Every rule, grouped by where its tag is: the choices the assistant
+   * matches the user's words against when a tool asks for a rule's id.
+   */
+  async options(): Promise<AlarmRuleOption[]> {
+    const rows = await this.prisma.alarmDefinition.findMany({
+      select: {
+        id: true,
+        name: true,
+        tag: { select: { name: true, code: true, device: { select: { asset: { select: { name: true } } } } } },
+      },
+      orderBy: [{ tag: { device: { asset: { name: 'asc' } } } }, { name: 'asc' }, { id: 'asc' }],
+    });
+    return rows.map(({ id, name, tag: { device, ...tag } }) => ({ id, name, tag, asset: device.asset.name }));
   }
 
   async get(id: string): Promise<AlarmDefinition> {
