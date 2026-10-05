@@ -1,5 +1,5 @@
-import { useState, type ComponentType } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useState, type ComponentType, type ReactNode } from 'react';
+import { useMutation, useQuery, type UseQueryResult } from '@tanstack/react-query';
 import type { LinkProps } from '@tanstack/react-router';
 import { getStaticToolName } from 'ai';
 import { CircleCheck, CircleX } from 'lucide-react';
@@ -7,21 +7,27 @@ import { toast } from 'sonner';
 import {
   FORM_TITLES,
   type AlarmSeverity,
+  type DeviceProtocol,
+  type DeviceStatus,
   type FormOutcomeRequest,
   type FormToolName,
   type FormToolOutput,
   type FormToolUIPart,
   type GenUITools,
+  type TagDataType,
 } from '@gen-ui/shared';
 import { InlineDialog } from '@/components/inline-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ViewFullPageLink } from '@/components/view-card';
 import { alarmDefinitionQueryOptions } from '@/features/alarms/api';
 import { DefinitionForm } from '@/features/alarms/definition-form-dialog';
+import { deviceQueryOptions, tagQueryOptions } from '@/features/assets/api';
+import { DeviceForm } from '@/features/devices/device-form-dialog';
+import { TagForm } from '@/features/tags/tag-form-dialog';
 import { CreateUserForm } from '@/features/users/user-form-dialog';
 import { getErrorMessage } from '@/lib/api/errors';
 import { http } from '@/lib/api/http';
-import { ALARM_CONDITION_OPTIONS, SEVERITY } from '@/lib/labels';
+import { ALARM_CONDITION_OPTIONS, DEVICE_PROTOCOL, DEVICE_STATUS, SEVERITY, TAG_DATA_TYPE } from '@/lib/labels';
 import { cn } from '@/lib/utils';
 import { patchFormOutput, useChatInstance } from './chat-store';
 import { ToolError, ToolSkeleton } from './tool-states';
@@ -69,6 +75,66 @@ function CreateUserBody({ input, disabled, onSaved }: FormProps<'createUser'>) {
   return <CreateUserForm initial={input} disabled={disabled} onCreated={(user) => onSaved(user.id)} />;
 }
 
+// ─── Edits ──────────────────────────────────────────────────────────────────
+
+/**
+ * The record an edit form opens on, loaded like any other view (not the copy
+ * Claude was given): a skeleton until it arrives, or why it can't open (e.g.
+ * deleted since).
+ */
+function WhenLoaded<T>({ query, children }: { query: UseQueryResult<T>; children: (data: T) => ReactNode }) {
+  if (query.isPending) return <Skeleton className="h-72" />;
+  if (query.isError) {
+    return (
+      <p className="pr-6 text-sm text-destructive" role="alert">
+        {getErrorMessage(query.error)}
+      </p>
+    );
+  }
+  return children(query.data);
+}
+
+type Changes = Record<string, { from: unknown; to: unknown }>;
+
+/**
+ * How a changed field reads in an edit's result line: its label (default:
+ * the field's name) and its values (`null`: just say it changed, for long text).
+ */
+type ChangeLabels = Record<string, { label?: string; show?: ((value: unknown) => string) | null }>;
+
+const shownValue = (value: unknown): string => {
+  if (value === null || value === '') return 'none';
+  if (typeof value === 'boolean') return value ? 'on' : 'off';
+  return String(value);
+};
+
+/** A value shown by its label: HIGH → High. */
+const byLabel = (label: (value: string) => string | undefined) => (value: unknown) =>
+  (typeof value === 'string' && label(value)) || shownValue(value);
+
+/** "threshold 4.5 → 5, severity High → Critical", from an edit's recorded changes. */
+function describeChanges(changed: Changes, labels: ChangeLabels): string {
+  return Object.entries(changed)
+    .map(([field, { from, to }]) => {
+      const { label = field, show = shownValue } = labels[field] ?? {};
+      return show === null ? `${label} updated` : `${label} ${show(from)} → ${show(to)}`;
+    })
+    .join(', ');
+}
+
+/** A text value after an edit: the new one if the user changed it (e.g. renamed the record). */
+function afterEdit(changed: Changes | null, field: string, before: string): string {
+  const to = changed?.[field]?.to;
+  return typeof to === 'string' ? to : before;
+}
+
+/** "Saved “PS-01 RTU”: status Online → Maintenance", or "Saved “PS-01 RTU” without changes". */
+function savedEdit(changed: Changes | null, name: string, labels: ChangeLabels): string {
+  return changed
+    ? `Saved “${afterEdit(changed, 'name', name)}”: ${describeChanges(changed, labels)}`
+    : `Saved “${name}” without changes`;
+}
+
 // ─── Alarm rules ────────────────────────────────────────────────────────────
 
 function CreateAlarmRuleBody({ input: { tagId, ...prefill }, disabled, onSaved }: FormProps<'createAlarmRule'>) {
@@ -77,53 +143,87 @@ function CreateAlarmRuleBody({ input: { tagId, ...prefill }, disabled, onSaved }
   );
 }
 
-/**
- * The rule as it is now, loaded like any other view (not the copy Claude was
- * given), with Claude's changes over it. A rule deleted since shows why.
- */
+/** The rule as it is now, with Claude's changes over it. */
 function EditAlarmRuleBody({ input, disabled, onSaved }: FormProps<'editAlarmRule'>) {
   const rule = useQuery(alarmDefinitionQueryOptions(input.ruleId));
-  if (rule.isPending) return <Skeleton className="h-72" />;
-  if (rule.isError) {
-    return (
-      <p className="pr-6 text-sm text-destructive" role="alert">
-        {getErrorMessage(rule.error)}
-      </p>
-    );
-  }
   return (
-    <DefinitionForm
-      definition={rule.data}
-      prefill={input.changes}
-      disabled={disabled}
-      onSaved={(saved) => onSaved(saved.id)}
-    />
+    <WhenLoaded query={rule}>
+      {(definition) => (
+        <DefinitionForm
+          definition={definition}
+          prefill={input.changes}
+          disabled={disabled}
+          onSaved={(saved) => onSaved(saved.id)}
+        />
+      )}
+    </WhenLoaded>
   );
 }
 
-/** "threshold 4.5 → 5, severity High → Critical", from an edit's recorded changes. */
-function describeChanges(changed: Record<string, { from: unknown; to: unknown }>): string {
-  const shown = (field: string, value: unknown): string => {
-    if (value === null || value === '') return 'none';
-    if (typeof value === 'boolean') return value ? 'on' : 'off';
-    if (field === 'severity') return SEVERITY[value as AlarmSeverity]?.label ?? String(value);
-    if (field === 'condition') {
-      return ALARM_CONDITION_OPTIONS.find((option) => option.value === value)?.label ?? String(value);
-    }
-    return String(value);
-  };
-  return Object.entries(changed)
-    .map(([field, { from, to }]) =>
-      field === 'description'
-        ? 'description updated'
-        : `${field === 'isEnabled' ? 'enabled' : field} ${shown(field, from)} → ${shown(field, to)}`,
-    )
-    .join(', ');
+const RULE_CHANGES: ChangeLabels = {
+  description: { show: null },
+  isEnabled: { label: 'enabled' },
+  severity: { show: byLabel((value) => SEVERITY[value as AlarmSeverity]?.label) },
+  condition: { show: byLabel((value) => ALARM_CONDITION_OPTIONS.find((option) => option.value === value)?.label) },
+};
+
+// ─── Devices ────────────────────────────────────────────────────────────────
+
+function CreateDeviceBody({ input, disabled, onSaved }: FormProps<'createDevice'>) {
+  return <DeviceForm prefill={input} disabled={disabled} onSaved={(device) => onSaved(device.id)} />;
 }
 
-/** The rule's name after an edit: the new one if the user renamed it. */
-const editedName = (outcome: Saved<'editAlarmRule'>, output: Output<'editAlarmRule'>) =>
-  typeof outcome.changed?.name?.to === 'string' ? outcome.changed.name.to : output.rule.name;
+/** The device as it is now, with Claude's changes over it. */
+function EditDeviceBody({ input, disabled, onSaved }: FormProps<'editDevice'>) {
+  const device = useQuery(deviceQueryOptions(input.deviceId));
+  return (
+    <WhenLoaded query={device}>
+      {(current) => (
+        <DeviceForm device={current} prefill={input.changes} disabled={disabled} onSaved={(saved) => onSaved(saved.id)} />
+      )}
+    </WhenLoaded>
+  );
+}
+
+const DEVICE_CHANGES: ChangeLabels = {
+  serialNumber: { label: 'serial number' },
+  asset: { label: 'installed on' },
+  status: { show: byLabel((value) => DEVICE_STATUS[value as DeviceStatus]?.label) },
+  protocol: { show: byLabel((value) => DEVICE_PROTOCOL[value as DeviceProtocol]) },
+  firmwareVersion: { label: 'firmware' },
+  ipAddress: { label: 'IP address' },
+  installedAt: { label: 'installed' },
+};
+
+// ─── Tags ───────────────────────────────────────────────────────────────────
+
+function CreateTagBody({ input: { deviceId, ...prefill }, disabled, onSaved }: FormProps<'createTag'>) {
+  return <TagForm deviceId={deviceId} prefill={prefill} disabled={disabled} onSaved={(tag) => onSaved(tag.id)} />;
+}
+
+/** The tag as it is now, with Claude's changes over it. */
+function EditTagBody({ input, disabled, onSaved }: FormProps<'editTag'>) {
+  const tag = useQuery(tagQueryOptions(input.tagId));
+  return (
+    <WhenLoaded query={tag}>
+      {(current) => (
+        <TagForm tag={current} prefill={input.changes} disabled={disabled} onSaved={(saved) => onSaved(saved.id)} />
+      )}
+    </WhenLoaded>
+  );
+}
+
+const TAG_CHANGES: ChangeLabels = {
+  description: { show: null },
+  dataType: { label: 'type', show: byLabel((value) => TAG_DATA_TYPE[value as TagDataType]) },
+  minValue: { label: 'range minimum' },
+  maxValue: { label: 'range maximum' },
+  logIntervalSeconds: {
+    label: 'log interval',
+    show: (value) => (typeof value === 'number' ? `${value} s` : shownValue(value)),
+  },
+  isActive: { label: 'active' },
+};
 
 // ─── Registry ───────────────────────────────────────────────────────────────
 
@@ -151,11 +251,39 @@ const FORM_RENDERERS: { [N in FormToolName]: FormRenderer<N> } = {
     pending: 'Opening the alarm rule…',
     label: FORM_TITLES.editAlarmRule,
     Form: EditAlarmRuleBody,
-    saved: (outcome, output) =>
-      outcome.changed
-        ? `Saved “${editedName(outcome, output)}”: ${describeChanges(outcome.changed)}`
-        : `Saved “${output.rule.name}” without changes`,
-    link: (outcome, output) => ({ to: '/alarm-rules', search: { search: editedName(outcome, output) } }),
+    saved: ({ changed }, { rule }) => savedEdit(changed, rule.name, RULE_CHANGES),
+    link: ({ changed }, { rule }) => ({ to: '/alarm-rules', search: { search: afterEdit(changed, 'name', rule.name) } }),
+  },
+  createDevice: {
+    pending: 'Opening the Register a device form…',
+    label: FORM_TITLES.createDevice,
+    Form: CreateDeviceBody,
+    saved: ({ device }) => `Registered ${device.name} (${device.serialNumber}) on ${device.asset}`,
+    link: ({ device }) => ({ to: '/devices', search: { search: device.serialNumber } }),
+  },
+  editDevice: {
+    pending: 'Opening the device…',
+    label: FORM_TITLES.editDevice,
+    Form: EditDeviceBody,
+    saved: ({ changed }, { device }) => savedEdit(changed, device.name, DEVICE_CHANGES),
+    link: ({ changed }, { device }) => ({
+      to: '/devices',
+      search: { search: afterEdit(changed, 'serialNumber', device.serialNumber) },
+    }),
+  },
+  createTag: {
+    pending: 'Opening the New tag form…',
+    label: FORM_TITLES.createTag,
+    Form: CreateTagBody,
+    saved: ({ tag }) => `Added ${tag.name} (${tag.code}) on ${tag.device}`,
+    link: ({ tag }) => ({ to: '/tags', search: { search: tag.code } }),
+  },
+  editTag: {
+    pending: 'Opening the tag…',
+    label: FORM_TITLES.editTag,
+    Form: EditTagBody,
+    saved: ({ changed }, { tag }) => savedEdit(changed, tag.name, TAG_CHANGES),
+    link: ({ changed }, { tag }) => ({ to: '/tags', search: { search: afterEdit(changed, 'code', tag.code) } }),
   },
 };
 

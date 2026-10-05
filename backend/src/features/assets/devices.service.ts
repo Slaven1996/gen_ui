@@ -24,6 +24,14 @@ const STATUS_SEVERITY: Record<DeviceStatus, 'INFO' | 'WARNING' | 'CRITICAL'> = {
   FAULT: 'CRITICAL',
 };
 
+/** One device in the assistant's pick list: enough to recognise it by, and its id. */
+export interface DeviceOption {
+  id: string;
+  name: string;
+  serialNumber: string;
+  asset: string;
+}
+
 @Injectable()
 export class DevicesService {
   constructor(
@@ -63,6 +71,19 @@ export class DevicesService {
       this.prisma.device.count({ where }),
     ]);
     return toPaginated(rows.map(toDevice), total, query);
+  }
+
+  /**
+   * Every device, grouped by where it is installed: the choices the assistant
+   * matches the user's words against when a tool asks for a device's id (the
+   * tag form's device picker, all at once).
+   */
+  async options(): Promise<DeviceOption[]> {
+    const rows = await this.prisma.device.findMany({
+      select: { id: true, name: true, serialNumber: true, asset: { select: { name: true } } },
+      orderBy: [{ asset: { name: 'asc' } }, { name: 'asc' }, { id: 'asc' }],
+    });
+    return rows.map(({ asset, ...device }) => ({ ...device, asset: asset.name }));
   }
 
   async get(id: string): Promise<Device> {

@@ -540,7 +540,15 @@ export const ListAssetsToolOutputSchema = z.object({
  * and its fields are the form's values, not a page's URL params.
  */
 
-export const FORM_TOOL_NAMES = ['createUser', 'createAlarmRule', 'editAlarmRule'] as const;
+export const FORM_TOOL_NAMES = [
+  'createUser',
+  'createAlarmRule',
+  'editAlarmRule',
+  'createDevice',
+  'editDevice',
+  'createTag',
+  'editTag',
+] as const;
 export type FormToolName = (typeof FORM_TOOL_NAMES)[number];
 
 export const isFormToolName = (name: string): name is FormToolName =>
@@ -554,6 +562,10 @@ export const FORM_TITLES = {
   createUser: 'Add user',
   createAlarmRule: 'New alarm rule',
   editAlarmRule: 'Edit alarm rule',
+  createDevice: 'Register a device',
+  editDevice: 'Edit device',
+  createTag: 'New tag',
+  editTag: 'Edit tag',
 } as const satisfies Record<FormToolName, string>;
 
 const OPENED_DESCRIPTION = 'The form is open in the chat, pre-filled. Nothing is saved until the user saves it.';
@@ -561,6 +573,15 @@ const OUTCOME_DESCRIPTION =
   'What the user did with the form: saved it, or closed it without saving. Missing while it is still open.';
 
 const FormClosedSchema = z.object({ status: z.literal('closed') });
+
+/** An edit's saved outcome: what the user changed, measured from the record as the form opened on it. */
+const EditSavedSchema = z.object({
+  status: z.literal('saved'),
+  changed: z
+    .record(z.string(), z.object({ from: z.unknown(), to: z.unknown() }))
+    .nullable()
+    .describe('Each value the user changed, from → to; null when they saved it unchanged.'),
+});
 
 // ─── Forms: users ───────────────────────────────────────────────────────────
 
@@ -676,19 +697,176 @@ export type RuleSnapshot = z.infer<typeof RuleSnapshotSchema>;
 export const EditAlarmRuleToolOutputSchema = z.object({
   status: z.literal('opened').describe(OPENED_DESCRIPTION),
   rule: RuleSnapshotSchema.describe('The rule as it was when the form opened.'),
+  outcome: z.discriminatedUnion('status', [EditSavedSchema, FormClosedSchema]).optional().describe(OUTCOME_DESCRIPTION),
+});
+
+// ─── Forms: devices ─────────────────────────────────────────────────────────
+
+/** A device's editable values, each optional: only what the user said. */
+const DevicePrefillSchema = z
+  .object({
+    assetId: z
+      .guid()
+      .describe(
+        "The id of the asset it is installed on, from the asset list. Match the user's words to an asset's name or code, allowing for typos: 'at Hilcrest' → the id of Hillcrest Reservoir. In an edit, only to move the device.",
+      ),
+    name: z.string().max(120).describe("The device's name, e.g. 'PS-03 RTU'."),
+    serialNumber: z.string().max(80).describe('Its serial number, only if the user gave it. Never make one up.'),
+    model: z.string().max(120).describe("Its model, e.g. 'RTU-560'."),
+    manufacturer: z.string().max(120).describe("Who makes it, e.g. 'Nordtel'."),
+    protocol: DeviceProtocolSchema.describe('How it talks to the system: MODBUS_TCP, OPC_UA, MQTT, IEC_104, DNP3 or OTHER.'),
+    status: DeviceStatusSchema.describe(
+      "ONLINE, OFFLINE, MAINTENANCE or FAULT. Only if the user said: 'put it into maintenance' → MAINTENANCE. A new device starts OFFLINE.",
+    ),
+    firmwareVersion: z.string().max(40).describe("Its firmware version, e.g. '4.2.1'."),
+    ipAddress: z
+      .union([z.ipv4(), z.ipv6()])
+      .describe('Its IP address, only if the user gave one. Never make one up.'),
+    installedAt: z.iso.date().describe('The day it was installed, YYYY-MM-DD.'),
+  })
+  .partial();
+export type DevicePrefill = z.infer<typeof DevicePrefillSchema>;
+
+export const CreateDeviceToolInputSchema = DevicePrefillSchema;
+
+export const CreateDeviceToolOutputSchema = z.object({
+  status: z.literal('opened').describe(OPENED_DESCRIPTION),
+  asset: z.string().nullable().describe('The asset chosen in the form; null when the user picks it there.'),
   outcome: z
     .discriminatedUnion('status', [
       z.object({
         status: z.literal('saved'),
-        changed: z
-          .record(z.string(), z.object({ from: z.unknown(), to: z.unknown() }))
-          .nullable()
-          .describe('Each value the user changed, from → to; null when they saved it unchanged.'),
+        device: z
+          .object({ name: z.string(), serialNumber: z.string(), asset: z.string() })
+          .describe('The device that was registered, and where it is installed.'),
       }),
       FormClosedSchema,
     ])
     .optional()
     .describe(OUTCOME_DESCRIPTION),
+});
+
+export const EditDeviceToolInputSchema = z.object({
+  deviceId: z
+    .guid()
+    .describe(
+      "The id of the device to edit, from the device list. Match the user's words to a device's name, serial number or asset, allowing for typos, partial names and words in Serbian: 'the riverside rtu' → the id of PS-01 RTU. If the user gave an id, use it.",
+    ),
+  changes: DevicePrefillSchema.optional().describe(
+    "Only the values the user asked to change: 'put the PS-02 RTU into maintenance' → { status: 'MAINTENANCE' }. The form shows everything else as it is now. Omit to just open the device.",
+  ),
+});
+
+/** The device as it was when the form opened: what Claude reads, and what `changed` is measured from. */
+export const DeviceSnapshotSchema = DeviceSchema.pick({
+  name: true,
+  serialNumber: true,
+  model: true,
+  manufacturer: true,
+  protocol: true,
+  status: true,
+  firmwareVersion: true,
+  ipAddress: true,
+}).extend({
+  installedAt: z.string().nullable().describe('The day it was installed, YYYY-MM-DD.'),
+  asset: z.string().describe('The asset it is installed on.'),
+});
+export type DeviceSnapshot = z.infer<typeof DeviceSnapshotSchema>;
+
+export const EditDeviceToolOutputSchema = z.object({
+  status: z.literal('opened').describe(OPENED_DESCRIPTION),
+  device: DeviceSnapshotSchema.describe('The device as it was when the form opened.'),
+  outcome: z.discriminatedUnion('status', [EditSavedSchema, FormClosedSchema]).optional().describe(OUTCOME_DESCRIPTION),
+});
+
+// ─── Forms: tags ────────────────────────────────────────────────────────────
+
+/** A tag's editable values, each optional: only what the user said. A tag's device is fixed. */
+const TagPrefillSchema = z
+  .object({
+    name: z.string().max(120).describe("The tag's name, e.g. 'Outlet pressure'."),
+    code: z
+      .string()
+      .max(60)
+      .regex(/^[A-Za-z0-9._-]+$/)
+      .describe(
+        "Its code, unique on the device: letters, digits, dot, dash or underscore, e.g. 'PS01.OUTLET_PRESSURE'. Only if the user gave one.",
+      ),
+    description: z.string().max(500).describe('What the tag measures, in a sentence.'),
+    unit: z.string().max(20).describe("The unit of its readings, e.g. 'bar', 'm³/h', '%'."),
+    dataType: TagDataTypeSchema.describe(
+      'ANALOG for a measured value (a level, a pressure, a flow), DIGITAL for an on/off state (a pump running, a door open), COUNTER for a running total (energy, volume).',
+    ),
+    minValue: z.number().describe('The bottom of its range, which scales chart axes and gauges.'),
+    maxValue: z.number().describe('The top of its range; above the minimum.'),
+    logIntervalSeconds: z.int().min(1).max(86_400).describe('How often a reading is logged, in seconds: 1 to 86400.'),
+    isActive: z.boolean().describe('false to keep the tag switched off.'),
+  })
+  .partial();
+export type TagPrefill = z.infer<typeof TagPrefillSchema>;
+
+export const CreateTagToolInputSchema = z.object({
+  deviceId: z
+    .guid()
+    .optional()
+    .describe(
+      "The id of the device that reports the tag, from the device list. Match the user's words to a device's name, serial number or asset, allowing for typos: 'on the reservoir PLC' → the id of Reservoir PLC. Omit if the user didn't say: they pick it in the form.",
+    ),
+  ...TagPrefillSchema.shape,
+});
+
+export const CreateTagToolOutputSchema = z.object({
+  status: z.literal('opened').describe(OPENED_DESCRIPTION),
+  device: z
+    .object({ name: z.string(), asset: z.string() })
+    .nullable()
+    .describe('The device chosen in the form, and where it is; null when the user picks it there.'),
+  outcome: z
+    .discriminatedUnion('status', [
+      z.object({
+        status: z.literal('saved'),
+        tag: z
+          .object({ name: z.string(), code: z.string(), device: z.string(), asset: z.string() })
+          .describe('The tag that was added, its device and where that device is.'),
+      }),
+      FormClosedSchema,
+    ])
+    .optional()
+    .describe(OUTCOME_DESCRIPTION),
+});
+
+export const EditTagToolInputSchema = z.object({
+  tagId: z
+    .guid()
+    .describe(
+      "The id of the tag to edit, from the tag list. Match the user's words to a tag's name, code or asset, allowing for typos, partial names and words in Serbian: 'inlet presure at riverside' → the id of that Inlet pressure. If the user gave an id, use it.",
+    ),
+  changes: TagPrefillSchema.optional().describe(
+    "Only the values the user asked to change: 'log the inlet pressure every 30 seconds' → { logIntervalSeconds: 30 }. The form shows everything else as it is now. Omit to just open the tag.",
+  ),
+});
+
+/** The tag as it was when the form opened: what Claude reads, and what `changed` is measured from. */
+export const TagSnapshotSchema = TagSchema.pick({
+  name: true,
+  code: true,
+  description: true,
+  unit: true,
+  dataType: true,
+  minValue: true,
+  maxValue: true,
+  logIntervalSeconds: true,
+  isActive: true,
+}).extend({
+  device: z.string().describe('The device that reports it. It cannot be changed.'),
+  asset: z.string().describe('Where that device is.'),
+});
+export type TagSnapshot = z.infer<typeof TagSnapshotSchema>;
+
+export const EditTagToolOutputSchema = z.object({
+  status: z.literal('opened').describe(OPENED_DESCRIPTION),
+  tag: TagSnapshotSchema.describe('The tag as it was when the form opened.'),
+  outcome: z.discriminatedUnion('status', [EditSavedSchema, FormClosedSchema]).optional().describe(OUTCOME_DESCRIPTION),
 });
 
 // ─── Forms: recording what the user did ─────────────────────────────────────
@@ -703,7 +881,7 @@ export const FormOutcomeRequestSchema = z
   .discriminatedUnion('status', [
     z.object({
       status: z.literal('saved'),
-      entityId: z.guid().describe('The record the form saved: the new user or rule, or the rule that was edited.'),
+      entityId: z.guid().describe('The record the form saved: the one it created, or the one it edited.'),
     }),
     z.object({ status: z.literal('closed') }),
   ])
@@ -712,7 +890,15 @@ export type FormOutcomeRequest = z.infer<typeof FormOutcomeRequestSchema>;
 
 /** The response: the form tool's output with its `outcome` added. */
 export const FormToolOutputSchema = z
-  .union([CreateUserToolOutputSchema, CreateAlarmRuleToolOutputSchema, EditAlarmRuleToolOutputSchema])
+  .union([
+    CreateUserToolOutputSchema,
+    CreateAlarmRuleToolOutputSchema,
+    EditAlarmRuleToolOutputSchema,
+    CreateDeviceToolOutputSchema,
+    EditDeviceToolOutputSchema,
+    CreateTagToolOutputSchema,
+    EditTagToolOutputSchema,
+  ])
   .meta({ id: 'FormToolOutput' });
 
 // ─── The tool set ───────────────────────────────────────────────────────────
@@ -782,6 +968,30 @@ export const genUiToolSchemas = {
       "Open the Edit alarm rule form in the chat for one existing rule: its current values, with the changes the user asked for already applied, so the admin can check them and save. All it needs is which rule; the changes are optional ('edit the wet well high level rule' just opens it). It doesn't change the rule itself. A rule's tag can't be changed.",
     inputSchema: EditAlarmRuleToolInputSchema,
     outputSchema: EditAlarmRuleToolOutputSchema,
+  },
+  createDevice: {
+    description:
+      "Open the Register a device form in the chat, pre-filled from the request, so the admin can check it and register the device: an RTU, PLC, drive, analyser or sensor that reports readings. Call it whenever the user wants to add or register a device, even with no details ('add a new device'): every field is optional, and the form opens with the same defaults as on the Devices page. Don't ask for the asset, serial number or anything else first. It doesn't register the device itself.",
+    inputSchema: CreateDeviceToolInputSchema,
+    outputSchema: CreateDeviceToolOutputSchema,
+  },
+  editDevice: {
+    description:
+      "Open the edit form of one existing device in the chat: its current values, with the changes the user asked for already applied, so the admin can check them and save. Use it to rename a device, move it to another asset, change its status (e.g. into maintenance), firmware or IP address. All it needs is which device; the changes are optional ('edit the PS-01 RTU' just opens it). A status change is also written to the logbook. It doesn't change the device itself.",
+    inputSchema: EditDeviceToolInputSchema,
+    outputSchema: EditDeviceToolOutputSchema,
+  },
+  createTag: {
+    description:
+      "Open the New tag form in the chat, pre-filled from the request, so the admin can check it and add the tag: a datapoint a device reports (a level, a pressure, a pump's running state). Call it whenever the user wants a new tag, even with no details ('add a tag'): every field is optional, and the form opens with the same defaults as on the Tags page. Don't ask for the device, code or anything else first. It doesn't add the tag itself.",
+    inputSchema: CreateTagToolInputSchema,
+    outputSchema: CreateTagToolOutputSchema,
+  },
+  editTag: {
+    description:
+      "Open the edit form of one existing tag in the chat: its current values, with the changes the user asked for already applied, so the admin can check them and save. Use it to rename a tag, change its unit, range or log interval, or switch it off. All it needs is which tag; the changes are optional ('edit the inlet pressure tag' just opens it). A tag can't move to another device. It doesn't change the tag itself.",
+    inputSchema: EditTagToolInputSchema,
+    outputSchema: EditTagToolOutputSchema,
   },
 } as const;
 

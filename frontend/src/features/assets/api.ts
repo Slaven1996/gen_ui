@@ -85,6 +85,12 @@ export const devicesListQueryOptions = listQuery<typeof ListDevicesQuerySchema, 
   { refetchInterval: LIVE_REFRESH_MS },
 );
 
+export const deviceQueryOptions = (id: string) =>
+  queryOptions({
+    queryKey: [...deviceKeys.all, 'detail', id] as const,
+    queryFn: async () => (await http.get<Device>(`/devices/${id}`)).data,
+  });
+
 export function useSaveDevice() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -121,6 +127,12 @@ export const tagsListQueryOptions = listQuery<typeof ListTagsQuerySchema, Pagina
   ListTagsQuerySchema,
   { refetchInterval: LIVE_REFRESH_MS },
 );
+
+export const tagQueryOptions = (id: string) =>
+  queryOptions({
+    queryKey: [...tagKeys.all, 'detail', id] as const,
+    queryFn: async () => (await http.get<Tag>(`/tags/${id}`)).data,
+  });
 
 export function useSaveTag() {
   const queryClient = useQueryClient();

@@ -14,17 +14,21 @@ import {
   ListUsersQuerySchema,
   type AlarmDefinition,
   type AssetTreeNode,
+  type Device,
+  type DeviceSnapshot,
   type FormToolName,
   type GenUIToolName,
   type GenUITools,
   type Role,
   type RuleSnapshot,
+  type Tag,
+  type TagSnapshot,
   type UserRef,
 } from '@gen-ui/shared';
 import { AlarmDefinitionsService, type AlarmRuleOption } from '../alarms/alarm-definitions.service.js';
 import { AlarmsService } from '../alarms/alarms.service.js';
 import { AssetsService } from '../assets/assets.service.js';
-import { DevicesService } from '../assets/devices.service.js';
+import { DevicesService, type DeviceOption } from '../assets/devices.service.js';
 import { TagsService, type TagOption } from '../assets/tags.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { LogbookService } from '../logbook/logbook.service.js';
@@ -50,11 +54,12 @@ export interface FilterOptions {
   assets: AssetTreeNode[];
   people: UserRef[];
   /**
-   * Every alarm rule and tag, for the form tools (`ruleId`, `tagId`): the
-   * choices the tag picker offers, and the rules a user can open to edit.
-   * Loaded only when those tools are on offer, so other prompts stay short.
+   * Every device, tag and alarm rule, for the form tools (`deviceId`,
+   * `tagId`, `ruleId`): the choices the device and tag pickers offer, and the
+   * records a user can open to edit. Loaded only when those tools are on
+   * offer, so other prompts stay short.
    */
-  forms?: { rules: AlarmRuleOption[]; tags: TagOption[] };
+  forms?: { devices: DeviceOption[]; tags: TagOption[]; rules: AlarmRuleOption[] };
 }
 
 /** The forms by role: the system prompt says what to do when the user asks for one. */
@@ -71,13 +76,17 @@ export interface FormAccess {
  * tool refuses it; Claude reads the error and tries again.
  */
 function idChecks({ assets, people, forms }: FilterOptions) {
-  const assetIds = new Set(assets.map((asset) => asset.id));
+  const assetsById = new Map(assets.map((asset) => [asset.id, asset]));
   const peopleIds = new Set(people.map((person) => person.id));
-  const rules = new Map(forms?.rules.map((rule) => [rule.id, rule]));
+  const devices = new Map(forms?.devices.map((device) => [device.id, device]));
   const tags = new Map(forms?.tags.map((tag) => [tag.id, tag]));
+  const rules = new Map(forms?.rules.map((rule) => [rule.id, rule]));
   return {
-    asset(id: string | undefined): void {
-      if (id && !assetIds.has(id)) throw new Error(`Unknown asset id ${id}: use an id from the asset list.`);
+    asset(id: string | undefined): AssetTreeNode | undefined {
+      if (id === undefined) return undefined;
+      const asset = assetsById.get(id);
+      if (!asset) throw new Error(`Unknown asset id ${id}: use an id from the asset list.`);
+      return asset;
     },
     people(ids: string[] | undefined): void {
       const unknown = ids?.find((id) => !peopleIds.has(id));
@@ -92,6 +101,11 @@ function idChecks({ assets, people, forms }: FilterOptions) {
       const tag = tags.get(id);
       if (!tag) throw new Error(`Unknown tag id ${id}: use an id from the tag list.`);
       return tag;
+    },
+    device(id: string): DeviceOption {
+      const device = devices.get(id);
+      if (!device) throw new Error(`Unknown device id ${id}: use an id from the device list.`);
+      return device;
     },
   };
 }
@@ -115,6 +129,40 @@ export function toRuleSnapshot(rule: AlarmDefinition): RuleSnapshot {
   };
 }
 
+/** A device's values as the edit form opens on them; `recordOutcome` diffs the saved device against this. */
+export function toDeviceSnapshot(device: Device): DeviceSnapshot {
+  return {
+    name: device.name,
+    serialNumber: device.serialNumber,
+    asset: device.asset.name,
+    model: device.model,
+    manufacturer: device.manufacturer,
+    protocol: device.protocol,
+    status: device.status,
+    firmwareVersion: device.firmwareVersion,
+    ipAddress: device.ipAddress,
+    // The day, as the form's date field shows it.
+    installedAt: device.installedAt?.slice(0, 10) ?? null,
+  };
+}
+
+/** A tag's values as the edit form opens on them; `recordOutcome` diffs the saved tag against this. */
+export function toTagSnapshot(tag: Tag): TagSnapshot {
+  return {
+    name: tag.name,
+    code: tag.code,
+    device: tag.device.name,
+    asset: tag.asset.name,
+    description: tag.description,
+    unit: tag.unit,
+    dataType: tag.dataType,
+    minValue: tag.minValue,
+    maxValue: tag.maxValue,
+    logIntervalSeconds: tag.logIntervalSeconds,
+    isActive: tag.isActive,
+  };
+}
+
 /**
  * Who may use each tool: the `@Roles` of the endpoint the tool mirrors. HTTP
  * guards don't run for tool calls, so this map is the tools' authorization.
@@ -131,10 +179,14 @@ const TOOL_ROLES = {
   listDevices: ['ADMIN', 'USER'],
   listTags: ['ADMIN', 'USER'],
   listAssets: ['ADMIN', 'USER'],
-  // The forms save through POST /users and POST/PATCH /alarm-definitions, which are admin-only.
+  // The forms save through POST /users and POST/PATCH on /alarm-definitions, /devices and /tags, which are admin-only.
   createUser: ['ADMIN'],
   createAlarmRule: ['ADMIN'],
   editAlarmRule: ['ADMIN'],
+  createDevice: ['ADMIN'],
+  editDevice: ['ADMIN'],
+  createTag: ['ADMIN'],
+  editTag: ['ADMIN'],
 } as const satisfies Record<GenUIToolName, readonly Role[]>;
 
 /** Whether this user's role may use the tool (also checked when a form's outcome is recorded). */
@@ -169,16 +221,25 @@ export class AiTools {
 
   /**
    * The pickers' options, for the system prompt and for `create`. With
-   * `forms`, also every alarm rule and tag, which only the form tools use.
+   * `forms`, also every device, tag and alarm rule, which only the form
+   * tools use.
    */
   async filterOptions({ forms }: { forms: boolean }): Promise<FilterOptions> {
-    const [assets, people, rules, tags] = await Promise.all([
+    const [assets, people, formOptions] = await Promise.all([
       this.assets.tree(),
       this.users.options(),
-      forms ? this.alarmRules.options() : undefined,
-      forms ? this.tags.options() : undefined,
+      forms ? this.formOptions() : undefined,
     ]);
-    return { assets, people, ...(rules && tags && { forms: { rules, tags } }) };
+    return { assets, people, ...(formOptions && { forms: formOptions }) };
+  }
+
+  private async formOptions(): Promise<NonNullable<FilterOptions['forms']>> {
+    const [devices, tags, rules] = await Promise.all([
+      this.devices.options(),
+      this.tags.options(),
+      this.alarmRules.options(),
+    ]);
+    return { devices, tags, rules };
   }
 
   /**
@@ -419,6 +480,44 @@ export class AiTools {
           known.rule(ruleId);
           // The form loads the rule again itself; this copy is for Claude, and for the outcome's diff.
           return { status: 'opened' as const, rule: toRuleSnapshot(await this.alarmRules.get(ruleId)) };
+        },
+      }),
+
+      createDevice: tool({
+        ...genUiToolSchemas.createDevice,
+        execute: async ({ assetId }): Promise<FormOutput<'createDevice'>> => {
+          adminOnly('Registering devices');
+          return { status: 'opened' as const, asset: known.asset(assetId)?.name ?? null };
+        },
+      }),
+
+      editDevice: tool({
+        ...genUiToolSchemas.editDevice,
+        execute: async ({ deviceId, changes }): Promise<FormOutput<'editDevice'>> => {
+          adminOnly('Editing devices');
+          known.device(deviceId);
+          known.asset(changes?.assetId);
+          // The form loads the device again itself; this copy is for Claude, and for the outcome's diff.
+          return { status: 'opened' as const, device: toDeviceSnapshot(await this.devices.get(deviceId)) };
+        },
+      }),
+
+      createTag: tool({
+        ...genUiToolSchemas.createTag,
+        execute: async ({ deviceId }): Promise<FormOutput<'createTag'>> => {
+          adminOnly('Adding tags');
+          const device = deviceId === undefined ? null : known.device(deviceId);
+          return { status: 'opened' as const, device: device && { name: device.name, asset: device.asset } };
+        },
+      }),
+
+      editTag: tool({
+        ...genUiToolSchemas.editTag,
+        execute: async ({ tagId }): Promise<FormOutput<'editTag'>> => {
+          adminOnly('Editing tags');
+          known.tag(tagId);
+          // The form loads the tag again itself; this copy is for Claude, and for the outcome's diff.
+          return { status: 'opened' as const, tag: toTagSnapshot(await this.tags.get(tagId)) };
         },
       }),
     };

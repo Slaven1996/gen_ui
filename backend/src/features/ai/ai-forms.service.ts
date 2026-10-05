@@ -11,10 +11,12 @@ import {
   type GenUITools,
 } from '@gen-ui/shared';
 import { AlarmDefinitionsService } from '../alarms/alarm-definitions.service.js';
+import { DevicesService } from '../assets/devices.service.js';
+import { TagsService } from '../assets/tags.service.js';
 import { diff } from '../audit/audit.service.js';
 import type { AuthUser } from '../users/user.mapper.js';
 import { UsersService } from '../users/users.service.js';
-import { mayUse, toRuleSnapshot } from './ai.tools.js';
+import { mayUse, toDeviceSnapshot, toRuleSnapshot, toTagSnapshot } from './ai.tools.js';
 import { ConversationsService } from './conversations.service.js';
 
 type Output<N extends FormToolName> = GenUITools[N]['output'];
@@ -39,6 +41,8 @@ export class AiFormsService {
     private readonly conversations: ConversationsService,
     private readonly users: UsersService,
     private readonly alarmRules: AlarmDefinitionsService,
+    private readonly devices: DevicesService,
+    private readonly tags: TagsService,
   ) {}
 
   /**
@@ -59,6 +63,30 @@ export class AiFormsService {
       if (entityId !== input.ruleId) throw new BadRequestException('That is not the rule this form edits.');
       const rule = await this.alarmRules.get(entityId);
       return { status: 'saved', changed: diff(output.rule, toRuleSnapshot(rule)) };
+    },
+    createDevice: async ({ entityId }) => {
+      const device = await this.devices.get(entityId);
+      return {
+        status: 'saved',
+        device: { name: device.name, serialNumber: device.serialNumber, asset: device.asset.name },
+      };
+    },
+    editDevice: async ({ input, output, entityId }) => {
+      if (entityId !== input.deviceId) throw new BadRequestException('That is not the device this form edits.');
+      const device = await this.devices.get(entityId);
+      return { status: 'saved', changed: diff(output.device, toDeviceSnapshot(device)) };
+    },
+    createTag: async ({ entityId }) => {
+      const tag = await this.tags.get(entityId);
+      return {
+        status: 'saved',
+        tag: { name: tag.name, code: tag.code, device: tag.device.name, asset: tag.asset.name },
+      };
+    },
+    editTag: async ({ input, output, entityId }) => {
+      if (entityId !== input.tagId) throw new BadRequestException('That is not the tag this form edits.');
+      const tag = await this.tags.get(entityId);
+      return { status: 'saved', changed: diff(output.tag, toTagSnapshot(tag)) };
     },
   };
 

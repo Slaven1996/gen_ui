@@ -14,7 +14,7 @@ import type { FilterOptions, FormAccess } from './ai.tools.js';
  * only when the user's role allows it. A new domain doesn't touch this file.
  * Besides the page map, it carries the pick lists the tools share: the
  * assets and the people the app's dropdowns offer, with their ids, and for
- * the form tools every alarm rule and tag. Claude matches the user's words
+ * the form tools every device, tag and alarm rule. Claude matches the user's words
  * to these lists itself (typos, partial names, Serbian); no code does.
  * Forms are also named, by their titles, where there is no form tool to open
  * them: with components off (Claude points to the switch that brings them
@@ -44,7 +44,7 @@ const BASE_INSTRUCTIONS = `You are the assistant inside this web app, a monitori
 - If the request is about the app but none of your tools covers it, say you can't look that up yet and name the page where the user can find it.
 
 ## Pick lists
-Fields that name an asset, a person, an alarm rule or a tag take ids. Use only the ids in the lists below (<assets>, <people>, and <alarm-rules> and <tags> when given): the same choices the app's dropdowns offer.
+Fields that name an asset, a person, a device, a tag or an alarm rule take ids. Use only the ids in the lists below (<assets>, <people>, and <devices>, <tags> and <alarm-rules> when given): the same choices the app's dropdowns offer.
 - Match the user's words to a name or code there, allowing for typos and partial names. Words in Serbian, or a description ("visok nivo u mokrom bunaru"), match the entry they mean.
 - An asset covers everything indented under it, so a site brings all its equipment and a district all its sites.
 - One asset per lookup. For several assets, make one call for each.
@@ -96,7 +96,13 @@ When the user wants to add or change something one of these forms covers, answer
  * user to a page that doesn't offer them the form either.
  */
 function formsDenied(denied: FormAccess['denied']): string {
-  const lines = denied.map(({ name, roles }) => `- ${FORM_TITLES[name]}: role ${roles.join(' or ')} only`).join('\n');
+  // One line per set of roles: "- Role ADMIN only: Add user, New alarm rule, …".
+  const byRoles = new Map<string, string[]>();
+  for (const { name, roles } of denied) {
+    const key = roles.join(' or ');
+    byRoles.set(key, [...(byRoles.get(key) ?? []), FORM_TITLES[name]]);
+  }
+  const lines = [...byRoles].map(([roles, titles]) => `- Role ${roles} only: ${titles.join(', ')}`).join('\n');
   return `## Forms for other roles
 The app has forms for adding and changing records that this user's role can't use, neither here nor on any page:
 ${lines}
@@ -112,9 +118,10 @@ function listed<T>(items: T[], line: (item: T) => string): string {
  * The dropdowns' choices, one per line. Assets keep the tree's depth-first
  * order, indented by depth, so Claude sees what lies below what:
  * "  Hillcrest Reservoir · RES-01 · site · <id>". For the form tools, also
- * every rule ("Wet well high level · tag Wet well level (PS01.WET_WELL_LEVEL)
- * · Riverside Pumping Station · <id>") and every tag
- * ("Inlet pressure · PS01.INLET_PRESSURE · bar · Riverside Pumping Station · <id>").
+ * every device ("PS-01 RTU · RTU-PS01-001 · Riverside Pumping Station · <id>"),
+ * every tag ("Inlet pressure · PS01.INLET_PRESSURE · bar · Riverside Pumping
+ * Station · <id>") and every rule ("Wet well high level · tag Wet well level
+ * (PS01.WET_WELL_LEVEL) · Riverside Pumping Station · <id>").
  */
 function pickLists({ assets, people, forms }: FilterOptions): string {
   const assetLines = listed(
@@ -124,14 +131,22 @@ function pickLists({ assets, people, forms }: FilterOptions): string {
   const peopleLines = listed(people, (person) => `${person.name} · ${person.id}`);
   const lists = [`<assets>\n${assetLines}\n</assets>`, `<people>\n${peopleLines}\n</people>`];
   if (forms) {
-    const ruleLines = listed(
-      forms.rules,
-      (rule) => `${rule.name} · tag ${rule.tag.name} (${rule.tag.code}) · ${rule.asset} · ${rule.id}`,
+    const deviceLines = listed(
+      forms.devices,
+      (device) => `${device.name} · ${device.serialNumber} · ${device.asset} · ${device.id}`,
     );
     const tagLines = listed(forms.tags, (tag) =>
       [tag.name, tag.code, tag.unit, tag.asset, tag.id].filter(Boolean).join(' · '),
     );
-    lists.push(`<alarm-rules>\n${ruleLines}\n</alarm-rules>`, `<tags>\n${tagLines}\n</tags>`);
+    const ruleLines = listed(
+      forms.rules,
+      (rule) => `${rule.name} · tag ${rule.tag.name} (${rule.tag.code}) · ${rule.asset} · ${rule.id}`,
+    );
+    lists.push(
+      `<devices>\n${deviceLines}\n</devices>`,
+      `<tags>\n${tagLines}\n</tags>`,
+      `<alarm-rules>\n${ruleLines}\n</alarm-rules>`,
+    );
   }
   return lists.join('\n\n');
 }

@@ -1,10 +1,11 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useId, useState, type FormEvent } from 'react';
 import {
   CreateDeviceSchema,
   DEVICE_PROTOCOLS,
   DEVICE_STATUSES,
   UpdateDeviceSchema,
   type Device,
+  type DevicePrefill,
   type DeviceProtocol,
   type DeviceStatus,
 } from '@gen-ui/shared';
@@ -51,6 +52,21 @@ const fromDevice = (device?: Device, assetId?: string): FormState => ({
   installedAt: device?.installedAt?.slice(0, 10) ?? '',
 });
 
+/** `form`, with the values the assistant filled in put over it. */
+const withPrefill = (form: FormState, prefill: DevicePrefill = {}): FormState => ({
+  ...form,
+  assetId: prefill.assetId ?? form.assetId,
+  name: prefill.name ?? form.name,
+  serialNumber: prefill.serialNumber ?? form.serialNumber,
+  model: prefill.model ?? form.model,
+  manufacturer: prefill.manufacturer ?? form.manufacturer,
+  protocol: prefill.protocol ?? form.protocol,
+  status: prefill.status ?? form.status,
+  firmwareVersion: prefill.firmwareVersion ?? form.firmwareVersion,
+  ipAddress: prefill.ipAddress ?? form.ipAddress,
+  installedAt: prefill.installedAt ?? form.installedAt,
+});
+
 export function DeviceFormDialog({
   open,
   onOpenChange,
@@ -62,20 +78,50 @@ export function DeviceFormDialog({
   device?: Device;
   assetId?: string;
 }) {
-  const [form, setForm] = useState(() => fromDevice(device, assetId));
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        {/* Opening mounts the form afresh, with the values of the device it opens on. */}
+        <DeviceForm device={device} assetId={assetId} onSaved={() => onOpenChange(false)} />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * The device form: the dialog's header, fields and button. The pages show it
+ * in `DeviceFormDialog`; the assistant shows it inside an answer
+ * (`InlineDialog`), with `prefill` over the device's values (or the
+ * defaults), each changed value hinting what it was. Either way it sits
+ * inside a `Dialog`, which its title and description need.
+ */
+export function DeviceForm({
+  device,
+  assetId,
+  prefill,
+  disabled = false,
+  onSaved,
+}: {
+  device?: Device;
+  assetId?: string;
+  prefill?: DevicePrefill;
+  /** Keeps the button off, e.g. while the answer that opened the form is still streaming. */
+  disabled?: boolean;
+  onSaved: (device: Device) => void;
+}) {
+  const id = useId();
+  const [form, setForm] = useState(() => withPrefill(fromDevice(device, assetId), prefill));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const save = useSaveDevice();
 
-  useEffect(() => {
-    if (open) {
-      setForm(fromDevice(device, assetId));
-      setErrors({});
-      save.reset();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset only when (re)opened.
-  }, [open, device?.id]);
-
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((current) => ({ ...current, [key]: value }));
+
+  // When editing, a value the assistant changed says what it was.
+  const before = device && fromDevice(device);
+  const was = (key: keyof FormState, show: (value: string) => string = (value) => value || 'empty') =>
+    before && prefill?.[key] !== undefined && withPrefill(before, prefill)[key] !== before[key]
+      ? `Was ${show(before[key] ?? '')}`
+      : undefined;
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -97,89 +143,90 @@ export function DeviceFormDialog({
       return;
     }
     setErrors({});
-    save.mutate({ id: device?.id, input: parsed.data }, { onSuccess: () => onOpenChange(false) });
+    save.mutate({ id: device?.id, input: parsed.data }, { onSuccess: onSaved });
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <form onSubmit={onSubmit} className="space-y-4" noValidate>
-          <DialogHeader>
-            <DialogTitle>{device ? `Edit ${device.name}` : 'Register a device'}</DialogTitle>
-            <DialogDescription>A status change is also written to the logbook.</DialogDescription>
-          </DialogHeader>
-          <div className="grid grid-cols-2 gap-3">
-            <Field id="device-name" label="Name" error={errors.name}>
-              <Input id="device-name" value={form.name} onChange={(event) => set('name', event.target.value)} />
-            </Field>
-            <Field id="device-serial" label="Serial number" error={errors.serialNumber}>
-              <Input id="device-serial" value={form.serialNumber} onChange={(event) => set('serialNumber', event.target.value)} />
-            </Field>
-          </div>
-          <Field id="device-asset" label="Installed on" error={errors.assetId && 'Choose an asset'}>
-            <AssetSelect id="device-asset" value={form.assetId} onChange={(value) => set('assetId', value)} allLabel={null} className="w-full" />
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field id="device-status" label="Status">
-              <Select value={form.status} onValueChange={(value) => set('status', value as DeviceStatus)}>
-                <SelectTrigger id="device-status" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {DEVICE_STATUSES.map((status) => (
-                    <SelectItem key={status} value={status}>
-                      {DEVICE_STATUS[status].label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field id="device-protocol" label="Protocol">
-              <Select value={form.protocol} onValueChange={(value) => set('protocol', value as DeviceProtocol)}>
-                <SelectTrigger id="device-protocol" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {DEVICE_PROTOCOLS.map((protocol) => (
-                    <SelectItem key={protocol} value={protocol}>
-                      {DEVICE_PROTOCOL[protocol]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Field id="device-model" label="Model" error={errors.model}>
-              <Input id="device-model" value={form.model} onChange={(event) => set('model', event.target.value)} />
-            </Field>
-            <Field id="device-manufacturer" label="Manufacturer" error={errors.manufacturer}>
-              <Input id="device-manufacturer" value={form.manufacturer} onChange={(event) => set('manufacturer', event.target.value)} />
-            </Field>
-          </div>
-          <div className="grid grid-cols-3 gap-3">
-            <Field id="device-ip" label="IP address" error={errors.ipAddress && 'Not a valid IP'}>
-              <Input id="device-ip" value={form.ipAddress} onChange={(event) => set('ipAddress', event.target.value)} />
-            </Field>
-            <Field id="device-firmware" label="Firmware" error={errors.firmwareVersion}>
-              <Input id="device-firmware" value={form.firmwareVersion} onChange={(event) => set('firmwareVersion', event.target.value)} />
-            </Field>
-            <Field id="device-installed" label="Installed">
-              <Input id="device-installed" type="date" value={form.installedAt} onChange={(event) => set('installedAt', event.target.value)} />
-            </Field>
-          </div>
-          {save.isError && (
-            <p className="text-sm text-destructive" role="alert">
-              {getErrorMessage(save.error)}
-            </p>
-          )}
-          <DialogFooter>
-            <Button type="submit" disabled={save.isPending}>
-              {save.isPending ? 'Saving…' : device ? 'Save' : 'Register device'}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+    <form onSubmit={onSubmit} className="space-y-4" noValidate>
+      <DialogHeader>
+        <DialogTitle>{device ? `Edit ${device.name}` : 'Register a device'}</DialogTitle>
+        <DialogDescription>A status change is also written to the logbook.</DialogDescription>
+      </DialogHeader>
+      <div className="grid grid-cols-2 gap-3">
+        <Field id={`${id}-name`} label="Name" hint={was('name')} error={errors.name}>
+          <Input id={`${id}-name`} value={form.name} onChange={(event) => set('name', event.target.value)} />
+        </Field>
+        <Field id={`${id}-serial`} label="Serial number" hint={was('serialNumber')} error={errors.serialNumber}>
+          <Input id={`${id}-serial`} value={form.serialNumber} onChange={(event) => set('serialNumber', event.target.value)} />
+        </Field>
+      </div>
+      <Field
+        id={`${id}-asset`}
+        label="Installed on"
+        hint={was('assetId', () => device?.asset.name ?? '')}
+        error={errors.assetId && 'Choose an asset'}
+      >
+        <AssetSelect id={`${id}-asset`} value={form.assetId} onChange={(value) => set('assetId', value)} allLabel={null} className="w-full" />
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field id={`${id}-status`} label="Status" hint={was('status', (value) => DEVICE_STATUS[value as DeviceStatus].label)}>
+          <Select value={form.status} onValueChange={(value) => set('status', value as DeviceStatus)}>
+            <SelectTrigger id={`${id}-status`} className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {DEVICE_STATUSES.map((status) => (
+                <SelectItem key={status} value={status}>
+                  {DEVICE_STATUS[status].label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+        <Field id={`${id}-protocol`} label="Protocol" hint={was('protocol', (value) => DEVICE_PROTOCOL[value as DeviceProtocol])}>
+          <Select value={form.protocol} onValueChange={(value) => set('protocol', value as DeviceProtocol)}>
+            <SelectTrigger id={`${id}-protocol`} className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {DEVICE_PROTOCOLS.map((protocol) => (
+                <SelectItem key={protocol} value={protocol}>
+                  {DEVICE_PROTOCOL[protocol]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Field id={`${id}-model`} label="Model" hint={was('model')} error={errors.model}>
+          <Input id={`${id}-model`} value={form.model} onChange={(event) => set('model', event.target.value)} />
+        </Field>
+        <Field id={`${id}-manufacturer`} label="Manufacturer" hint={was('manufacturer')} error={errors.manufacturer}>
+          <Input id={`${id}-manufacturer`} value={form.manufacturer} onChange={(event) => set('manufacturer', event.target.value)} />
+        </Field>
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        <Field id={`${id}-ip`} label="IP address" hint={was('ipAddress')} error={errors.ipAddress && 'Not a valid IP'}>
+          <Input id={`${id}-ip`} value={form.ipAddress} onChange={(event) => set('ipAddress', event.target.value)} />
+        </Field>
+        <Field id={`${id}-firmware`} label="Firmware" hint={was('firmwareVersion')} error={errors.firmwareVersion}>
+          <Input id={`${id}-firmware`} value={form.firmwareVersion} onChange={(event) => set('firmwareVersion', event.target.value)} />
+        </Field>
+        <Field id={`${id}-installed`} label="Installed" hint={was('installedAt')}>
+          <Input id={`${id}-installed`} type="date" value={form.installedAt} onChange={(event) => set('installedAt', event.target.value)} />
+        </Field>
+      </div>
+      {save.isError && (
+        <p className="text-sm text-destructive" role="alert">
+          {getErrorMessage(save.error)}
+        </p>
+      )}
+      <DialogFooter>
+        <Button type="submit" disabled={disabled || save.isPending}>
+          {save.isPending ? 'Saving…' : device ? 'Save' : 'Register device'}
+        </Button>
+      </DialogFooter>
+    </form>
   );
 }
