@@ -6,7 +6,7 @@ export const Route = createFileRoute('/_authenticated/assistant')({
   component: AssistantPage,
 });
 
-/** Full-page view of the same conversation as the side panel. */
+/** The assistant: the signed-in user's saved conversation. */
 function AssistantPage() {
   return (
     <div className="mx-auto flex h-[calc(100svh-3.5rem)] w-full max-w-3xl flex-col">

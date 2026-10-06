@@ -75,9 +75,9 @@ function createChat(conversationId = newConversationId(), saved: GenUIMessage[] 
 }
 
 /*
- * One saved conversation per user, shared by the side panel and the
- * /assistant page. It is loaded the first time either opens, and forgotten on
- * sign-out so the next user loads their own.
+ * One saved conversation per user, shown on the /assistant page. It is
+ * loaded the first time the page opens, and forgotten on sign-out so the next
+ * user loads their own.
  */
 let chat: Chat<GenUIMessage> | undefined;
 let loading: Promise<void> | undefined;

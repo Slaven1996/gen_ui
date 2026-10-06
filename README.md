@@ -217,7 +217,7 @@ Email is not editable: it is the sign-in identifier, and changing it safely need
 
 ## Generative UI
 
-Ask "all admins, and also users named John" and the answer contains two live users tables: the same `UsersTable` component as the Users page, with every column and, for admins, the same row actions (make admin, deactivate, reactivate). Each has **Open in new tab**, which opens `/users` with that table's filters; the new tab starts with the assistant panel closed. The full flow, with diagrams, is in [`docs/ai-assistant-flow.md`](docs/ai-assistant-flow.md).
+Ask "all admins, and also users named John" and the answer contains two live users tables: the same `UsersTable` component as the Users page, with every column and, for admins, the same row actions (make admin, deactivate, reactivate). Each has **Open in new tab**, which opens `/users` with that table's filters. The full flow, with diagrams, is in [`docs/ai-assistant-flow.md`](docs/ai-assistant-flow.md).
 
 The assistant has one tool per domain view, and seven that open a form:
 
@@ -274,7 +274,7 @@ To add a domain:
 
 TypeScript fails the build if the backend tools and the shared contract drift apart, or if a tool has no renderer. A tool that creates or edits something is a form tool instead; see "Adding a form tool" in [`docs/ai-assistant-flow.md`](docs/ai-assistant-flow.md#adding-the-next-domain).
 
-The assistant is available as a right-hand panel on every page (Ctrl/Cmd + J) and as a full page at `/assistant`. Both show the same conversation. The assistant doesn't know which page is open; each request carries only the browser's time zone besides the settings.
+The assistant has its own page at `/assistant`, linked from the sidebar. The assistant doesn't know which page is open; each request carries only the browser's time zone besides the settings.
 
 ### Model and effort
 

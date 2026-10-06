@@ -10,21 +10,15 @@ import {
 } from '@gen-ui/shared';
 
 /**
- * A UI preference kept in the browser. `localStorage` is shared by every tab
- * and survives restarts; `sessionStorage` belongs to one tab and survives its
- * reloads only. A stored value that no longer fits the schema, or storage
- * that is unavailable, just means the default.
+ * A UI preference kept in `localStorage`, shared by every tab and surviving
+ * restarts. A stored value that no longer fits the schema, or storage that is
+ * unavailable, just means the default.
  */
-function preference<T>(
-  key: string,
-  schema: z.ZodType<T>,
-  fallback: T,
-  storage: 'localStorage' | 'sessionStorage' = 'localStorage',
-) {
+function preference<T>(key: string, schema: z.ZodType<T>, fallback: T) {
   const listeners = new Set<() => void>();
   let value = fallback;
   try {
-    const stored = window[storage].getItem(key);
+    const stored = window.localStorage.getItem(key);
     const parsed = stored === null ? undefined : schema.safeParse(JSON.parse(stored));
     if (parsed?.success) value = parsed.data;
   } catch {
@@ -36,7 +30,7 @@ function preference<T>(
     set(next: T): void {
       value = next;
       try {
-        window[storage].setItem(key, JSON.stringify(next));
+        window.localStorage.setItem(key, JSON.stringify(next));
       } catch {
         // UI preference only — fine to lose.
       }
@@ -47,18 +41,6 @@ function preference<T>(
       return () => listeners.delete(listener);
     },
   };
-}
-
-/**
- * Whether the side panel is open — per tab, so a page opened in a new tab
- * (such as "Open in new tab" from a chat answer) starts with it closed.
- */
-const open = preference('gen-ui:assistant-open', z.boolean(), false, 'sessionStorage');
-
-export const setAssistantOpen = open.set;
-export const toggleAssistant = (): void => open.set(!open.get());
-export function useAssistantOpen(): boolean {
-  return useSyncExternalStore(open.subscribe, open.get);
 }
 
 /**

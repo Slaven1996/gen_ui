@@ -163,7 +163,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-  OPEN(["Open the assistant panel or /assistant"]) --> LOADED{"Chat already loaded<br/>in this tab?"}
+  OPEN(["Open /assistant"]) --> LOADED{"Chat already loaded<br/>in this tab?"}
   LOADED -- yes --> SHOW["Show the thread"]
   LOADED -- no --> GET["GET /api/ai/conversations/latest"]
   GET --> HAS{"Saved conversation?"}
@@ -273,7 +273,7 @@ The system prompt doesn't change. TypeScript fails the build if the backend tool
 
 | Step | File |
 |---|---|
-| Model, effort, components toggle, panel open state (per tab) | `frontend/src/features/assistant/assistant-preferences.ts` |
+| Model, effort, components toggle | `frontend/src/features/assistant/assistant-preferences.ts` |
 | Load, send, clear, auth | `frontend/src/features/assistant/chat-store.ts` |
 | Thread, model/effort pickers, toolbar, composer | `frontend/src/features/assistant/chat-thread.tsx` |
 | Render parts, Markdown | `frontend/src/features/assistant/chat-message.tsx` |

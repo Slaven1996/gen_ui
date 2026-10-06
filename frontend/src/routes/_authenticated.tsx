@@ -1,8 +1,7 @@
 import { createFileRoute, Outlet, redirect } from '@tanstack/react-router';
 import { AppSidebar } from '@/components/layout/app-sidebar';
-import { SiteHeader, useAssistantShortcut } from '@/components/layout/site-header';
+import { SiteHeader } from '@/components/layout/site-header';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
-import { AssistantPanel } from '@/features/assistant/assistant-panel';
 import { useNotificationsSocket } from '@/features/notifications/notifications-store';
 
 /** Pathless layout: everything under it requires a session and gets the app shell. */
@@ -18,7 +17,6 @@ export const Route = createFileRoute('/_authenticated')({
 });
 
 function AuthenticatedLayout() {
-  useAssistantShortcut();
   // One notifications WebSocket for as long as someone is signed in here.
   useNotificationsSocket();
 
@@ -31,7 +29,6 @@ function AuthenticatedLayout() {
           <Outlet />
         </div>
       </SidebarInset>
-      <AssistantPanel />
     </SidebarProvider>
   );
 }

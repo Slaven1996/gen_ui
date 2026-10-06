@@ -17,7 +17,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { getErrorMessage } from '@/lib/api/errors';
-import { cn } from '@/lib/utils';
 import {
   setAssistantEffort,
   setAssistantModel,
@@ -30,7 +29,7 @@ import { ChatMessage } from './chat-message';
 import { clearChat, loadChat, useChatInstance } from './chat-store';
 
 /** The conversation, restored from the server the first time it is shown. */
-export function ChatThread({ className }: { className?: string }) {
+export function ChatThread() {
   const chat = useChatInstance();
   const [loadError, setLoadError] = useState<unknown>(null);
 
@@ -45,7 +44,7 @@ export function ChatThread({ className }: { className?: string }) {
 
   if (!chat) {
     return (
-      <div className={cn('flex h-full min-h-0 flex-col gap-3 p-4', className)}>
+      <div className="flex h-full min-h-0 flex-col gap-3 p-4">
         {loadError ? (
           <div className="space-y-2 text-sm" role="alert">
             <p className="text-destructive">{getErrorMessage(loadError, 'The conversation could not be loaded.')}</p>
@@ -64,10 +63,10 @@ export function ChatThread({ className }: { className?: string }) {
   }
 
   // Remount when the conversation changes (cleared, another user) so the hook binds to it.
-  return <ChatThreadView key={chat.id} chat={chat} className={className} />;
+  return <ChatThreadView key={chat.id} chat={chat} />;
 }
 
-function ChatThreadView({ chat, className }: { chat: Chat<GenUIMessage>; className?: string }) {
+function ChatThreadView({ chat }: { chat: Chat<GenUIMessage> }) {
   const { messages, sendMessage, status, stop, error, regenerate, clearError } = useChat({ chat });
   const generateUi = useGenerateUi();
   const toggleId = useId();
@@ -113,7 +112,7 @@ function ChatThreadView({ chat, className }: { chat: Chat<GenUIMessage>; classNa
   };
 
   return (
-    <div className={cn('flex h-full min-h-0 flex-col', className)}>
+    <div className="flex h-full min-h-0 flex-col">
       <div ref={scrollRef} className="flex-1 space-y-5 overflow-y-auto px-4 py-4" aria-live="polite">
         {messages.length === 0 ? (
           <p className="pt-6 text-sm text-muted-foreground">
