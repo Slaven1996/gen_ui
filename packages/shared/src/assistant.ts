@@ -24,6 +24,7 @@ import {
   LogbookCategorySchema,
   LogbookEntrySchema,
   LogSeveritySchema,
+  UserLogbookCategorySchema,
 } from './logbook.js';
 import { LastSignInFilterSchema, UserStatusSchema } from './users.js';
 
@@ -548,6 +549,10 @@ export const FORM_TOOL_NAMES = [
   'editDevice',
   'createTag',
   'editTag',
+  'createAsset',
+  'editAsset',
+  'createLogbookEntry',
+  'editLogbookEntry',
 ] as const;
 export type FormToolName = (typeof FORM_TOOL_NAMES)[number];
 
@@ -566,6 +571,10 @@ export const FORM_TITLES = {
   editDevice: 'Edit device',
   createTag: 'New tag',
   editTag: 'Edit tag',
+  createAsset: 'New asset',
+  editAsset: 'Edit asset',
+  createLogbookEntry: 'Write in the logbook',
+  editLogbookEntry: 'Edit logbook entry',
 } as const satisfies Record<FormToolName, string>;
 
 const OPENED_DESCRIPTION = 'The form is open in the chat, pre-filled. Nothing is saved until the user saves it.';
@@ -869,6 +878,176 @@ export const EditTagToolOutputSchema = z.object({
   outcome: z.discriminatedUnion('status', [EditSavedSchema, FormClosedSchema]).optional().describe(OUTCOME_DESCRIPTION),
 });
 
+// ─── Forms: assets ──────────────────────────────────────────────────────────
+
+/** An asset's editable values, each optional: only what the user said. */
+const AssetPrefillSchema = z
+  .object({
+    parentId: z
+      .guid()
+      .nullable()
+      .describe(
+        "The id of the asset it sits under, from the asset list. Match the user's words to an asset's name or code, allowing for typos: 'under the pump hall at Riverside' → the id of Pump hall. null for the top of the tree. In an edit, only to move it: everything below it moves along.",
+      ),
+    name: z.string().max(120).describe("The asset's name, e.g. 'Pump 3'."),
+    code: z
+      .string()
+      .max(40)
+      .regex(/^[A-Za-z0-9._-]+$/)
+      .describe(
+        "Its code, unique across the tree: letters, digits, dot, dash or underscore, e.g. 'PS-01-P3'. Only if the user gave one.",
+      ),
+    type: AssetTypeSchema.describe(
+      "Its level in the tree: REGION (a district or supply zone), SITE (a pumping station, reservoir, monitoring station), AREA (part of a site, e.g. a pump hall), EQUIPMENT (a pump, a tank). Omit if unclear: a new asset starts as SITE at the top and EQUIPMENT under a parent.",
+    ),
+    description: z.string().max(1000).describe('What the asset is, in a sentence.'),
+    address: z.string().max(300).describe('Its street address, only if the user gave one.'),
+    latitude: z.number().min(-90).max(90).describe('Its latitude, only if the user gave it.'),
+    longitude: z.number().min(-180).max(180).describe('Its longitude, only if the user gave it.'),
+    isActive: z.boolean().describe('false for an asset taken out of service.'),
+  })
+  .partial();
+export type AssetPrefill = z.infer<typeof AssetPrefillSchema>;
+
+export const CreateAssetToolInputSchema = AssetPrefillSchema;
+
+export const CreateAssetToolOutputSchema = z.object({
+  status: z.literal('opened').describe(OPENED_DESCRIPTION),
+  parent: z
+    .string()
+    .nullable()
+    .describe('The asset it goes under; null at the top of the tree, or when the user picks it there.'),
+  outcome: z
+    .discriminatedUnion('status', [
+      z.object({
+        status: z.literal('saved'),
+        asset: z
+          .object({ name: z.string(), code: z.string(), type: AssetTypeSchema, parent: z.string().nullable() })
+          .describe('The asset that was created, and the one it sits under (null at the top of the tree).'),
+      }),
+      FormClosedSchema,
+    ])
+    .optional()
+    .describe(OUTCOME_DESCRIPTION),
+});
+
+export const EditAssetToolInputSchema = z.object({
+  assetId: z
+    .guid()
+    .describe(
+      "The id of the asset to edit, from the asset list. Match the user's words to an asset's name or code, allowing for typos, partial names and words in Serbian: 'rezervoar hilkrest' → the id of Hillcrest Reservoir. If the user gave an id, use it.",
+    ),
+  changes: AssetPrefillSchema.optional().describe(
+    "Only the values the user asked to change: 'take pump 2 at Riverside out of service' → { isActive: false }. The form shows everything else as it is now. Omit to just open the asset.",
+  ),
+});
+
+/** The asset as it was when the form opened: what Claude reads, and what `changed` is measured from. */
+export const AssetSnapshotSchema = AssetSchema.pick({
+  name: true,
+  code: true,
+  type: true,
+  description: true,
+  address: true,
+  latitude: true,
+  longitude: true,
+  isActive: true,
+}).extend({
+  parent: z.string().nullable().describe('The asset it sits under; null at the top of the tree.'),
+});
+export type AssetSnapshot = z.infer<typeof AssetSnapshotSchema>;
+
+export const EditAssetToolOutputSchema = z.object({
+  status: z.literal('opened').describe(OPENED_DESCRIPTION),
+  asset: AssetSnapshotSchema.describe('The asset as it was when the form opened.'),
+  outcome: z.discriminatedUnion('status', [EditSavedSchema, FormClosedSchema]).optional().describe(OUTCOME_DESCRIPTION),
+});
+
+// ─── Forms: logbook ─────────────────────────────────────────────────────────
+
+/** A logbook entry's values, each optional: only what the user said. */
+const EntryPrefillSchema = z
+  .object({
+    category: UserLogbookCategorySchema.describe(
+      "The kind of entry: NOTE (an operator note), MAINTENANCE (work done on equipment) or SHIFT (a shift handover). 'log that I replaced the pump seal' → MAINTENANCE. Omit if unclear: a new entry starts as NOTE.",
+    ),
+    severity: LogSeveritySchema.describe(
+      "INFO, WARNING or CRITICAL: how much it matters to whoever reads it next. Omit if the user didn't say: a new entry starts as INFO.",
+    ),
+    title: z
+      .string()
+      .max(200)
+      .describe("A short headline, from the user's own words: 'log that I replaced the seal on pump 2' → 'Pump 2 seal replaced'."),
+    body: z
+      .string()
+      .max(5000)
+      .describe("The details, in the user's own words. Never add facts, readings or times they didn't give."),
+    assetId: z
+      .guid()
+      .nullable()
+      .describe(
+        "The id of the asset the entry is about, from the asset list. Match the user's words to an asset's name or code, allowing for typos: 'at Hilcrest' → the id of Hillcrest Reservoir. null for no asset.",
+      ),
+    occurredAt: z.iso
+      .datetime({ offset: true })
+      .describe(
+        "When it happened, in ISO 8601 with the session's UTC offset, only if the user said: 'at 6 this morning' → today at 06:00. A new entry without it happened now.",
+      ),
+  })
+  .partial();
+export type EntryPrefill = z.infer<typeof EntryPrefillSchema>;
+
+export const CreateLogbookEntryToolInputSchema = EntryPrefillSchema;
+
+export const CreateLogbookEntryToolOutputSchema = z.object({
+  status: z.literal('opened').describe(OPENED_DESCRIPTION),
+  asset: z
+    .string()
+    .nullable()
+    .describe('The asset the entry is about; null for none, or when the user picks it there.'),
+  outcome: z
+    .discriminatedUnion('status', [
+      z.object({
+        status: z.literal('saved'),
+        entry: LogbookEntrySchema.pick({ category: true, title: true, occurredAt: true })
+          .extend({ asset: z.string().nullable() })
+          .describe('The entry that was written: its kind, title, when it happened and the asset it is about.'),
+      }),
+      FormClosedSchema,
+    ])
+    .optional()
+    .describe(OUTCOME_DESCRIPTION),
+});
+
+export const EditLogbookEntryToolInputSchema = z.object({
+  entryId: z
+    .guid()
+    .describe(
+      "The id of the entry to edit, from the list of the user's own entries. Match the user's words to an entry's title, kind, time or asset, allowing for typos and words in Serbian: 'my handover from this morning' → the id of that SHIFT entry. If the user gave an id, use it.",
+    ),
+  changes: EntryPrefillSchema.optional().describe(
+    "Only the values the user asked to change: 'mark my tank 1 note as critical' → { severity: 'CRITICAL' }. The form shows everything else as it is now. Omit to just open the entry.",
+  ),
+});
+
+/** The entry as it was when the form opened: what Claude reads, and what `changed` is measured from. */
+export const EntrySnapshotSchema = LogbookEntrySchema.pick({
+  category: true,
+  severity: true,
+  title: true,
+  body: true,
+  occurredAt: true,
+}).extend({
+  asset: z.string().nullable().describe('The asset it is about; null for none.'),
+});
+export type EntrySnapshot = z.infer<typeof EntrySnapshotSchema>;
+
+export const EditLogbookEntryToolOutputSchema = z.object({
+  status: z.literal('opened').describe(OPENED_DESCRIPTION),
+  entry: EntrySnapshotSchema.describe('The entry as it was when the form opened.'),
+  outcome: z.discriminatedUnion('status', [EditSavedSchema, FormClosedSchema]).optional().describe(OUTCOME_DESCRIPTION),
+});
+
 // ─── Forms: recording what the user did ─────────────────────────────────────
 
 /**
@@ -898,6 +1077,10 @@ export const FormToolOutputSchema = z
     EditDeviceToolOutputSchema,
     CreateTagToolOutputSchema,
     EditTagToolOutputSchema,
+    CreateAssetToolOutputSchema,
+    EditAssetToolOutputSchema,
+    CreateLogbookEntryToolOutputSchema,
+    EditLogbookEntryToolOutputSchema,
   ])
   .meta({ id: 'FormToolOutput' });
 
@@ -992,6 +1175,30 @@ export const genUiToolSchemas = {
       "Open the edit form of one existing tag in the chat: its current values, with the changes the user asked for already applied, so the admin can check them and save. Use it to rename a tag, change its unit, range or log interval, or switch it off. All it needs is which tag; the changes are optional ('edit the inlet pressure tag' just opens it). A tag can't move to another device. It doesn't change the tag itself.",
     inputSchema: EditTagToolInputSchema,
     outputSchema: EditTagToolOutputSchema,
+  },
+  createAsset: {
+    description:
+      "Open the New asset form in the chat, pre-filled from the request, so the admin can check it and add the asset to the plant's tree: a region, site, area or piece of equipment. Call it whenever the user wants to add an asset, even with no details ('add a new site'): every field is optional, and the form opens with the same defaults as on the Assets page. Don't ask for the code, the parent or anything else first. It doesn't create the asset itself.",
+    inputSchema: CreateAssetToolInputSchema,
+    outputSchema: CreateAssetToolOutputSchema,
+  },
+  editAsset: {
+    description:
+      "Open the edit form of one existing asset in the chat: its current values, with the changes the user asked for already applied, so the admin can check them and save. Use it to rename an asset, change its code, type, description, address or coordinates, take it out of service, or move it under another asset (everything below it moves along; never under itself or anything below it). All it needs is which asset; the changes are optional ('edit Hillcrest Reservoir' just opens it). It doesn't change the asset itself.",
+    inputSchema: EditAssetToolInputSchema,
+    outputSchema: EditAssetToolOutputSchema,
+  },
+  createLogbookEntry: {
+    description:
+      "Open the Write in the logbook form in the chat, pre-filled from the request, so the user can check it and add the entry: an operator note, a maintenance record or a shift handover, which everyone on the team sees. Call it whenever the user wants to write, log or note something in the logbook, even with no details ('I want to write a handover'): every field is optional, and the form opens with the same defaults as on the Logbook page (a note, Info, now). Don't ask for anything first. It doesn't add the entry itself.",
+    inputSchema: CreateLogbookEntryToolInputSchema,
+    outputSchema: CreateLogbookEntryToolOutputSchema,
+  },
+  editLogbookEntry: {
+    description:
+      "Open the edit form of one of the user's own logbook entries in the chat: its current values, with the changes the user asked for already applied, so they can check them and save. Only its author can edit an entry: nobody can edit someone else's entry or an event the system recorded, so say that instead of calling this. The list holds only the user's latest entries; for an older one, say so and point to the Logbook page, where the entry's row has Edit. All it needs is which entry; the changes are optional. It doesn't change the entry itself.",
+    inputSchema: EditLogbookEntryToolInputSchema,
+    outputSchema: EditLogbookEntryToolOutputSchema,
   },
 } as const;
 

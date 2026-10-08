@@ -48,6 +48,15 @@ const toEntry = (row: EntryRecord): LogbookEntry => ({
   updatedAt: iso(row.updatedAt),
 });
 
+/** One of a person's own entries in the assistant's pick list: enough to recognise it by, and its id. */
+export interface EntryOption {
+  id: string;
+  occurredAt: string;
+  category: LogbookCategory;
+  title: string;
+  asset: string | null;
+}
+
 /** What the system writes: alarm transitions, device status changes. */
 export interface SystemEvent {
   category: LogbookCategory;
@@ -94,6 +103,21 @@ export class LogbookService {
       this.prisma.logbookEntry.count({ where }),
     ]);
     return toPaginated(rows.map(toEntry), total, query);
+  }
+
+  /**
+   * The latest `take` entries `authorId` wrote, newest first: the ones they
+   * may edit (only an entry's author can), as the choices the assistant
+   * matches the user's words against when a tool asks for an entry's id.
+   */
+  async options(authorId: string, take: number): Promise<EntryOption[]> {
+    const rows = await this.prisma.logbookEntry.findMany({
+      where: { authorId },
+      select: { id: true, occurredAt: true, category: true, title: true, asset: { select: { name: true } } },
+      orderBy: [{ occurredAt: 'desc' }, { id: 'asc' }],
+      take,
+    });
+    return rows.map(({ occurredAt, asset, ...entry }) => ({ ...entry, occurredAt: iso(occurredAt), asset: asset?.name ?? null }));
   }
 
   async get(id: string): Promise<LogbookEntry> {

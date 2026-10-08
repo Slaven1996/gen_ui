@@ -88,7 +88,7 @@ export class AiController {
   @ApiOperation({
     summary: 'Record what happened to a form',
     description:
-      'When the assistant opens a form in an answer (add a user; create or edit an alarm rule, a device or a tag), the tool call ends there and the user saves through the same endpoint the page uses, as from the modal. The web app then calls this with `saved` and the id of the saved record, or with `closed` when the form was closed unsaved. The server reads the record and adds the outcome to the output of that tool call in the saved conversation, so a reload shows the result instead of the form and Claude knows on its next turn. Once per form. No model call.',
+      'When the assistant opens a form in an answer (add a user; create or edit an alarm rule, a device, a tag, an asset or a logbook entry), the tool call ends there and the user saves through the same endpoint the page uses, as from the modal. The web app then calls this with `saved` and the id of the saved record, or with `closed` when the form was closed unsaved. The server reads the record and adds the outcome to the output of that tool call in the saved conversation, so a reload shows the result instead of the form and Claude knows on its next turn. Once per form. No model call.',
   })
   @ApiParam({ name: 'id', format: 'uuid', description: 'The conversation.' })
   @ApiParam({ name: 'toolCallId', description: "The form tool call's id, from its part in the conversation." })

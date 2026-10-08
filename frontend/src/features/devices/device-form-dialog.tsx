@@ -135,7 +135,9 @@ export function DeviceForm({
       status: form.status,
       firmwareVersion: blankToNull(form.firmwareVersion),
       ipAddress: blankToNull(form.ipAddress),
-      installedAt: form.installedAt ? new Date(`${form.installedAt}T00:00:00`).toISOString() : null,
+      // A day, not a moment: midnight UTC, as the seed stores it, so `.slice(0, 10)` reads back the same day in
+      // every time zone. (Local midnight east of UTC is the day before in UTC, and each save moved it back a day.)
+      installedAt: form.installedAt ? `${form.installedAt}T00:00:00.000Z` : null,
     };
     const parsed = device ? UpdateDeviceSchema.safeParse(values) : CreateDeviceSchema.safeParse(values);
     if (!parsed.success) {

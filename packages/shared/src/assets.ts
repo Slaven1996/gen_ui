@@ -212,7 +212,10 @@ const deviceFields = {
   status: DeviceStatusSchema,
   firmwareVersion: nullableText(40),
   ipAddress: z.union([z.ipv4(), z.ipv6()]).nullable(),
-  installedAt: z.iso.datetime({ offset: true }).nullable(),
+  installedAt: z.iso
+    .datetime({ offset: true })
+    .nullable()
+    .describe('The day it was installed, as midnight UTC: `2019-03-01T00:00:00Z`. Clients show its first 10 characters.'),
 };
 
 export const CreateDeviceSchema = z

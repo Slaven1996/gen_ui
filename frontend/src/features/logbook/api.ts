@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   ListAuditLogsQuerySchema,
@@ -22,7 +22,13 @@ export const logbookListQueryOptions = listQuery<typeof ListLogbookQuerySchema, 
   { refetchInterval: LIVE_REFRESH_MS },
 );
 
-export const auditLogsListQueryOptions = listQuery<typeof ListAuditLogsQuerySchema, Paginated<AuditLog>>(
+export const logbookEntryQueryOptions = (id: string) =>
+  queryOptions({
+    queryKey: [...logbookKeys.all, 'detail', id] as const,
+    queryFn: async () => (await http.get<LogbookEntry>(`/logbook/${id}`)).data,
+  });
+
+export const auditLogsListQueryOptions =listQuery<typeof ListAuditLogsQuerySchema, Paginated<AuditLog>>(
   'audit-logs',
   '/audit-logs',
   ListAuditLogsQuerySchema,

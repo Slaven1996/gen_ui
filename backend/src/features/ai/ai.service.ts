@@ -13,7 +13,6 @@ import type { ServerResponse } from 'node:http';
 import {
   ASSISTANT_MODELS,
   DEFAULT_EFFORT,
-  isFormToolName,
   MAX_CONVERSATION_MESSAGES,
   type AssistantModel,
   type ChatRequest,
@@ -119,8 +118,9 @@ export class AiService {
     // Forms the role allows, and those it doesn't: the prompt names them where
     // no form tool is offered, so Claude can say how to get one, or who can.
     const forms = this.tools.formsFor(user);
-    // The pickers' choices: listed in the prompt, and the only ids the tools accept.
-    const options = await this.tools.filterOptions({ forms: activeTools.some(isFormToolName) });
+    // The pickers' choices (and, for the form tools on offer, the records they
+    // take): listed in the prompt, and the only ids the tools accept.
+    const options = await this.tools.filterOptions(user, activeTools);
     const tools = this.tools.create({ user, timeZone, options });
     const effort = effortFor(request);
 

@@ -14,8 +14,9 @@ import type { FilterOptions, FormAccess } from './ai.tools.js';
  * only when the user's role allows it. A new domain doesn't touch this file.
  * Besides the page map, it carries the pick lists the tools share: the
  * assets and the people the app's dropdowns offer, with their ids, and for
- * the form tools every device, tag and alarm rule. Claude matches the user's words
- * to these lists itself (typos, partial names, Serbian); no code does.
+ * the form tools on offer every device, tag and alarm rule, and the user's
+ * own latest logbook entries. Claude matches the user's words to these
+ * lists itself (typos, partial names, Serbian); no code does.
  * Forms are also named, by their titles, where there is no form tool to open
  * them: with components off (Claude points to the switch that brings them
  * back), and for a role that can't use them (Claude says who can).
@@ -44,7 +45,7 @@ const BASE_INSTRUCTIONS = `You are the assistant inside this web app, a monitori
 - If the request is about the app but none of your tools covers it, say you can't look that up yet and name the page where the user can find it.
 
 ## Pick lists
-Fields that name an asset, a person, a device, a tag or an alarm rule take ids. Use only the ids in the lists below (<assets>, <people>, and <devices>, <tags> and <alarm-rules> when given): the same choices the app's dropdowns offer.
+Fields that name an asset, a person, a device, a tag, an alarm rule or a logbook entry take ids. Use only the ids in the lists below (<assets>, <people>, and <devices>, <tags>, <alarm-rules> and <your-logbook-entries> when given): the same choices the app's dropdowns offer. <your-logbook-entries> holds only the user's own latest entries, with times in the session's time zone.
 - Match the user's words to a name or code there, allowing for typos and partial names. Words in Serbian, or a description ("visok nivo u mokrom bunaru"), match the entry they mean.
 - An asset covers everything indented under it, so a site brings all its equipment and a district all its sites.
 - One asset per lookup. For several assets, make one call for each.
@@ -109,46 +110,68 @@ ${lines}
 When the user wants to add or change something one of these covers, say in one sentence that only that role can do it (e.g. "Only admins can add users."), so they need to ask someone who has it. Don't ask for the details, and don't send them to a page: it won't offer them the form either.`;
 }
 
-/** Every item, one per line: the tools accept only ids Claude was shown. */
-function listed<T>(items: T[], line: (item: T) => string): string {
-  return items.map(line).join('\n') || '(none)';
+/** `<tag>` with every item on its own line: the tools accept only ids Claude was shown. */
+function listed<T>(tag: string, items: T[], line: (item: T) => string): string {
+  return `<${tag}>\n${items.map(line).join('\n') || '(none)'}\n</${tag}>`;
 }
 
 /**
  * The dropdowns' choices, one per line. Assets keep the tree's depth-first
  * order, indented by depth, so Claude sees what lies below what:
- * "  Hillcrest Reservoir · RES-01 · site · <id>". For the form tools, also
- * every device ("PS-01 RTU · RTU-PS01-001 · Riverside Pumping Station · <id>"),
- * every tag ("Inlet pressure · PS01.INLET_PRESSURE · bar · Riverside Pumping
- * Station · <id>") and every rule ("Wet well high level · tag Wet well level
- * (PS01.WET_WELL_LEVEL) · Riverside Pumping Station · <id>").
+ * "  Hillcrest Reservoir · RES-01 · site · <id>". For the form tools on
+ * offer, also every device ("PS-01 RTU · RTU-PS01-001 · Riverside Pumping
+ * Station · <id>"), every tag ("Inlet pressure · PS01.INLET_PRESSURE · bar ·
+ * Riverside Pumping Station · <id>"), every rule ("Wet well high level · tag
+ * Wet well level (PS01.WET_WELL_LEVEL) · Riverside Pumping Station · <id>")
+ * and the user's own entries, at the user's local time ("2026-10-06 14:05 ·
+ * maintenance · Pump 1 drive firmware updated · Pump 1 · <id>").
  */
-function pickLists({ assets, people, forms }: FilterOptions): string {
-  const assetLines = listed(
-    assets,
-    (asset) => `${'  '.repeat(asset.depth)}${asset.name} · ${asset.code} · ${asset.type.toLowerCase()} · ${asset.id}`,
-  );
-  const peopleLines = listed(people, (person) => `${person.name} · ${person.id}`);
-  const lists = [`<assets>\n${assetLines}\n</assets>`, `<people>\n${peopleLines}\n</people>`];
-  if (forms) {
-    const deviceLines = listed(
-      forms.devices,
-      (device) => `${device.name} · ${device.serialNumber} · ${device.asset} · ${device.id}`,
-    );
-    const tagLines = listed(forms.tags, (tag) =>
-      [tag.name, tag.code, tag.unit, tag.asset, tag.id].filter(Boolean).join(' · '),
-    );
-    const ruleLines = listed(
-      forms.rules,
-      (rule) => `${rule.name} · tag ${rule.tag.name} (${rule.tag.code}) · ${rule.asset} · ${rule.id}`,
-    );
+function pickLists({ assets, people, devices, tags, rules, entries }: FilterOptions, timeZone: string): string {
+  const lists = [
+    listed(
+      'assets',
+      assets,
+      (asset) => `${'  '.repeat(asset.depth)}${asset.name} · ${asset.code} · ${asset.type.toLowerCase()} · ${asset.id}`,
+    ),
+    listed('people', people, (person) => `${person.name} · ${person.id}`),
+  ];
+  if (devices) {
     lists.push(
-      `<devices>\n${deviceLines}\n</devices>`,
-      `<tags>\n${tagLines}\n</tags>`,
-      `<alarm-rules>\n${ruleLines}\n</alarm-rules>`,
+      listed('devices', devices, (device) => `${device.name} · ${device.serialNumber} · ${device.asset} · ${device.id}`),
+    );
+  }
+  if (tags) {
+    lists.push(listed('tags', tags, (tag) => [tag.name, tag.code, tag.unit, tag.asset, tag.id].filter(Boolean).join(' · ')));
+  }
+  if (rules) {
+    lists.push(
+      listed(
+        'alarm-rules',
+        rules,
+        (rule) => `${rule.name} · tag ${rule.tag.name} (${rule.tag.code}) · ${rule.asset} · ${rule.id}`,
+      ),
+    );
+  }
+  if (entries) {
+    lists.push(
+      listed('your-logbook-entries', entries, (entry) => {
+        const at = new Date(entry.occurredAt);
+        const when = `${dayIn(timeZone, at)} ${clockIn(timeZone, at)}`;
+        return [when, entry.category.toLowerCase(), entry.title, entry.asset, entry.id].filter(Boolean).join(' · ');
+      }),
     );
   }
   return lists.join('\n\n');
+}
+
+/** "2026-09-28": the day `at` falls on in `timeZone`. */
+function dayIn(timeZone: string, at: Date): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(at);
+}
+
+/** "14:05": the time `at` shows on a clock in `timeZone`. */
+function clockIn(timeZone: string, at: Date): string {
+  return new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at);
 }
 
 /**
@@ -158,9 +181,7 @@ function pickLists({ assets, people, forms }: FilterOptions): string {
  */
 function nowIn(timeZone: string, now = new Date()): string {
   const weekday = new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'long' }).format(now);
-  const date = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
-  const time = new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(now);
-  return `${weekday} ${date} ${time} (time zone ${timeZone}, UTC${utcOffset(timeZone, now)})`;
+  return `${weekday} ${dayIn(timeZone, now)} ${clockIn(timeZone, now)} (time zone ${timeZone}, UTC${utcOffset(timeZone, now)})`;
 }
 
 export function buildInstructions({
@@ -181,6 +202,6 @@ export function buildInstructions({
   const sections = [BASE_INSTRUCTIONS, generateUi ? COMPONENTS_ON : COMPONENTS_OFF];
   if (forms.allowed.length > 0) sections.push(generateUi ? FORMS : formsOff(forms.allowed));
   if (forms.denied.length > 0) sections.push(formsDenied(forms.denied));
-  sections.push(pickLists(options), `<session>\n${session}\n</session>`);
+  sections.push(pickLists(options, timeZone), `<session>\n${session}\n</session>`);
   return sections.join('\n\n');
 }

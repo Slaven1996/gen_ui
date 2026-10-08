@@ -11,12 +11,21 @@ import {
   type GenUITools,
 } from '@gen-ui/shared';
 import { AlarmDefinitionsService } from '../alarms/alarm-definitions.service.js';
+import { AssetsService } from '../assets/assets.service.js';
 import { DevicesService } from '../assets/devices.service.js';
 import { TagsService } from '../assets/tags.service.js';
 import { diff } from '../audit/audit.service.js';
+import { LogbookService } from '../logbook/logbook.service.js';
 import type { AuthUser } from '../users/user.mapper.js';
 import { UsersService } from '../users/users.service.js';
-import { mayUse, toDeviceSnapshot, toRuleSnapshot, toTagSnapshot } from './ai.tools.js';
+import {
+  mayUse,
+  toAssetSnapshot,
+  toDeviceSnapshot,
+  toEntrySnapshot,
+  toRuleSnapshot,
+  toTagSnapshot,
+} from './ai.tools.js';
 import { ConversationsService } from './conversations.service.js';
 
 type Output<N extends FormToolName> = GenUITools[N]['output'];
@@ -43,6 +52,8 @@ export class AiFormsService {
     private readonly alarmRules: AlarmDefinitionsService,
     private readonly devices: DevicesService,
     private readonly tags: TagsService,
+    private readonly assets: AssetsService,
+    private readonly logbook: LogbookService,
   ) {}
 
   /**
@@ -87,6 +98,35 @@ export class AiFormsService {
       if (entityId !== input.tagId) throw new BadRequestException('That is not the tag this form edits.');
       const tag = await this.tags.get(entityId);
       return { status: 'saved', changed: diff(output.tag, toTagSnapshot(tag)) };
+    },
+    createAsset: async ({ entityId }) => {
+      const asset = await this.assets.get(entityId);
+      return {
+        status: 'saved',
+        asset: { name: asset.name, code: asset.code, type: asset.type, parent: asset.parent?.name ?? null },
+      };
+    },
+    editAsset: async ({ input, output, entityId }) => {
+      if (entityId !== input.assetId) throw new BadRequestException('That is not the asset this form edits.');
+      const asset = await this.assets.get(entityId);
+      return { status: 'saved', changed: diff(output.asset, toAssetSnapshot(asset)) };
+    },
+    createLogbookEntry: async ({ entityId }) => {
+      const entry = await this.logbook.get(entityId);
+      return {
+        status: 'saved',
+        entry: {
+          category: entry.category,
+          title: entry.title,
+          occurredAt: entry.occurredAt,
+          asset: entry.asset?.name ?? null,
+        },
+      };
+    },
+    editLogbookEntry: async ({ input, output, entityId }) => {
+      if (entityId !== input.entryId) throw new BadRequestException('That is not the entry this form edits.');
+      const entry = await this.logbook.get(entityId);
+      return { status: 'saved', changed: diff(output.entry, toEntrySnapshot(entry)) };
     },
   };
 

@@ -13,12 +13,16 @@ import {
   ListTagsQuerySchema,
   ListUsersQuerySchema,
   type AlarmDefinition,
+  type Asset,
+  type AssetSnapshot,
   type AssetTreeNode,
   type Device,
   type DeviceSnapshot,
+  type EntrySnapshot,
   type FormToolName,
   type GenUIToolName,
   type GenUITools,
+  type LogbookEntry,
   type Role,
   type RuleSnapshot,
   type Tag,
@@ -31,7 +35,7 @@ import { AssetsService } from '../assets/assets.service.js';
 import { DevicesService, type DeviceOption } from '../assets/devices.service.js';
 import { TagsService, type TagOption } from '../assets/tags.service.js';
 import { AuditService } from '../audit/audit.service.js';
-import { LogbookService } from '../logbook/logbook.service.js';
+import { LogbookService, type EntryOption } from '../logbook/logbook.service.js';
 import type { AuthUser } from '../users/user.mapper.js';
 import { UsersService } from '../users/users.service.js';
 
@@ -44,22 +48,28 @@ const TEXT_FOR_MODEL = 300;
 const clip = (text: string | null) =>
   text && text.length > TEXT_FOR_MODEL ? `${text.slice(0, TEXT_FOR_MODEL - 1)}…` : text;
 
+/** The user's own entries listed for the edit form, newest first; older ones are edited on the Logbook page. */
+const OWN_ENTRIES_FOR_MODEL = 30;
+
 /**
  * The choices the pages' pickers offer: the asset tree (`AssetSelect`, from
  * `GET /assets/tree`) and the active people (`UserFilter`, from
  * `GET /users/options`). The system prompt lists them, so Claude fills
  * `assetId`, `authorId` and `actorId` with ids a dropdown can show.
+ *
+ * The other lists are for the form tools, and each is loaded only when a
+ * tool on offer takes it, so other prompts stay short: every device, tag
+ * and alarm rule (`deviceId`, `tagId`, `ruleId`: the choices the device and
+ * tag pickers offer, and the records an admin can open to edit), and the
+ * user's own latest logbook entries (`entryId`: the ones they may edit).
  */
 export interface FilterOptions {
   assets: AssetTreeNode[];
   people: UserRef[];
-  /**
-   * Every device, tag and alarm rule, for the form tools (`deviceId`,
-   * `tagId`, `ruleId`): the choices the device and tag pickers offer, and the
-   * records a user can open to edit. Loaded only when those tools are on
-   * offer, so other prompts stay short.
-   */
-  forms?: { devices: DeviceOption[]; tags: TagOption[]; rules: AlarmRuleOption[] };
+  devices?: DeviceOption[];
+  tags?: TagOption[];
+  rules?: AlarmRuleOption[];
+  entries?: EntryOption[];
 }
 
 /** The forms by role: the system prompt says what to do when the user asks for one. */
@@ -75,37 +85,58 @@ export interface FormAccess {
  * quietly filter everything out, or open the wrong record in a form, so the
  * tool refuses it; Claude reads the error and tries again.
  */
-function idChecks({ assets, people, forms }: FilterOptions) {
+function idChecks({ assets, people, devices, tags, rules, entries }: FilterOptions) {
   const assetsById = new Map(assets.map((asset) => [asset.id, asset]));
   const peopleIds = new Set(people.map((person) => person.id));
-  const devices = new Map(forms?.devices.map((device) => [device.id, device]));
-  const tags = new Map(forms?.tags.map((tag) => [tag.id, tag]));
-  const rules = new Map(forms?.rules.map((rule) => [rule.id, rule]));
+  const devicesById = new Map(devices?.map((device) => [device.id, device]));
+  const tagsById = new Map(tags?.map((tag) => [tag.id, tag]));
+  const rulesById = new Map(rules?.map((rule) => [rule.id, rule]));
+  const entriesById = new Map(entries?.map((entry) => [entry.id, entry]));
+  // `null` is a form's "none" (no parent, no asset): nothing to check.
+  const asset = (id: string | null | undefined): AssetTreeNode | undefined => {
+    if (id === undefined || id === null) return undefined;
+    const node = assetsById.get(id);
+    if (!node) throw new Error(`Unknown asset id ${id}: use an id from the asset list.`);
+    return node;
+  };
   return {
-    asset(id: string | undefined): AssetTreeNode | undefined {
-      if (id === undefined) return undefined;
-      const asset = assetsById.get(id);
-      if (!asset) throw new Error(`Unknown asset id ${id}: use an id from the asset list.`);
-      return asset;
+    asset,
+    /** A new parent for `assetId`: a listed asset, and neither that asset nor anything below it. */
+    newParent(assetId: string, parentId: string | null | undefined): void {
+      // Walk up from the new parent; meeting the asset means it would end up below itself.
+      for (let node = asset(parentId); node; node = node.parentId ? assetsById.get(node.parentId) : undefined) {
+        if (node.id === assetId) {
+          throw new Error("An asset can't move under itself or anything below it: choose another parent.");
+        }
+      }
     },
     people(ids: string[] | undefined): void {
       const unknown = ids?.find((id) => !peopleIds.has(id));
       if (unknown) throw new Error(`Unknown person id ${unknown}: use an id from the people list.`);
     },
     rule(id: string): AlarmRuleOption {
-      const rule = rules.get(id);
+      const rule = rulesById.get(id);
       if (!rule) throw new Error(`Unknown alarm rule id ${id}: use an id from the alarm rule list.`);
       return rule;
     },
     tag(id: string): TagOption {
-      const tag = tags.get(id);
+      const tag = tagsById.get(id);
       if (!tag) throw new Error(`Unknown tag id ${id}: use an id from the tag list.`);
       return tag;
     },
     device(id: string): DeviceOption {
-      const device = devices.get(id);
+      const device = devicesById.get(id);
       if (!device) throw new Error(`Unknown device id ${id}: use an id from the device list.`);
       return device;
+    },
+    entry(id: string): EntryOption {
+      const entry = entriesById.get(id);
+      if (!entry) {
+        throw new Error(
+          `Unknown entry id ${id}: use an id from the list of the user's own entries. Only its author can edit an entry.`,
+        );
+      }
+      return entry;
     },
   };
 }
@@ -163,6 +194,33 @@ export function toTagSnapshot(tag: Tag): TagSnapshot {
   };
 }
 
+/** An asset's values as the edit form opens on them; `recordOutcome` diffs the saved asset against this. */
+export function toAssetSnapshot(asset: Asset): AssetSnapshot {
+  return {
+    name: asset.name,
+    code: asset.code,
+    type: asset.type,
+    parent: asset.parent?.name ?? null,
+    description: asset.description,
+    address: asset.address,
+    latitude: asset.latitude,
+    longitude: asset.longitude,
+    isActive: asset.isActive,
+  };
+}
+
+/** An entry's values as the edit form opens on them; `recordOutcome` diffs the saved entry against this. */
+export function toEntrySnapshot(entry: LogbookEntry): EntrySnapshot {
+  return {
+    category: entry.category,
+    severity: entry.severity,
+    title: entry.title,
+    body: entry.body,
+    asset: entry.asset?.name ?? null,
+    occurredAt: entry.occurredAt,
+  };
+}
+
 /**
  * Who may use each tool: the `@Roles` of the endpoint the tool mirrors. HTTP
  * guards don't run for tool calls, so this map is the tools' authorization.
@@ -179,7 +237,8 @@ const TOOL_ROLES = {
   listDevices: ['ADMIN', 'USER'],
   listTags: ['ADMIN', 'USER'],
   listAssets: ['ADMIN', 'USER'],
-  // The forms save through POST /users and POST/PATCH on /alarm-definitions, /devices and /tags, which are admin-only.
+  // The forms save through POST /users and POST/PATCH on /alarm-definitions,
+  // /devices, /tags and /assets, which are admin-only…
   createUser: ['ADMIN'],
   createAlarmRule: ['ADMIN'],
   editAlarmRule: ['ADMIN'],
@@ -187,6 +246,10 @@ const TOOL_ROLES = {
   editDevice: ['ADMIN'],
   createTag: ['ADMIN'],
   editTag: ['ADMIN'],
+  createAsset: ['ADMIN'],
+  editAsset: ['ADMIN'],
+  createLogbookEntry: ['ADMIN', 'USER'],
+  editLogbookEntry: ['ADMIN', 'USER'],
 } as const satisfies Record<GenUIToolName, readonly Role[]>;
 
 /** Whether this user's role may use the tool (also checked when a form's outcome is recorded). */
@@ -220,26 +283,21 @@ export class AiTools {
   ) {}
 
   /**
-   * The pickers' options, for the system prompt and for `create`. With
-   * `forms`, also every device, tag and alarm rule, which only the form
-   * tools use.
+   * The pickers' options, for the system prompt and for `create`. A list
+   * only form tools use is loaded only when one of the `active` tools takes
+   * it; `user`'s own entries are the ones they may edit.
    */
-  async filterOptions({ forms }: { forms: boolean }): Promise<FilterOptions> {
-    const [assets, people, formOptions] = await Promise.all([
+  async filterOptions(user: AuthUser, active: GenUIToolName[]): Promise<FilterOptions> {
+    const takenBy = (...names: FormToolName[]) => names.some((name) => active.includes(name));
+    const [assets, people, devices, tags, rules, entries] = await Promise.all([
       this.assets.tree(),
       this.users.options(),
-      forms ? this.formOptions() : undefined,
+      takenBy('editDevice', 'createTag') ? this.devices.options() : undefined,
+      takenBy('createAlarmRule', 'editTag') ? this.tags.options() : undefined,
+      takenBy('editAlarmRule') ? this.alarmRules.options() : undefined,
+      takenBy('editLogbookEntry') ? this.logbook.options(user.id, OWN_ENTRIES_FOR_MODEL) : undefined,
     ]);
-    return { assets, people, ...(formOptions && { forms: formOptions }) };
-  }
-
-  private async formOptions(): Promise<NonNullable<FilterOptions['forms']>> {
-    const [devices, tags, rules] = await Promise.all([
-      this.devices.options(),
-      this.tags.options(),
-      this.alarmRules.options(),
-    ]);
-    return { devices, tags, rules };
+    return { assets, people, devices, tags, rules, entries };
   }
 
   /**
@@ -518,6 +576,46 @@ export class AiTools {
           known.tag(tagId);
           // The form loads the tag again itself; this copy is for Claude, and for the outcome's diff.
           return { status: 'opened' as const, tag: toTagSnapshot(await this.tags.get(tagId)) };
+        },
+      }),
+
+      createAsset: tool({
+        ...genUiToolSchemas.createAsset,
+        execute: async ({ parentId }): Promise<FormOutput<'createAsset'>> => {
+          adminOnly('Adding assets');
+          return { status: 'opened' as const, parent: known.asset(parentId)?.name ?? null };
+        },
+      }),
+
+      editAsset: tool({
+        ...genUiToolSchemas.editAsset,
+        execute: async ({ assetId, changes }): Promise<FormOutput<'editAsset'>> => {
+          adminOnly('Editing assets');
+          known.asset(assetId);
+          known.newParent(assetId, changes?.parentId);
+          // The form loads the asset again itself; this copy is for Claude, and for the outcome's diff.
+          return { status: 'opened' as const, asset: toAssetSnapshot(await this.assets.get(assetId)) };
+        },
+      }),
+
+      // Anyone signed in may write in the logbook, so there is no role to check.
+      createLogbookEntry: tool({
+        ...genUiToolSchemas.createLogbookEntry,
+        execute: async ({ assetId }): Promise<FormOutput<'createLogbookEntry'>> => {
+          return { status: 'opened' as const, asset: known.asset(assetId)?.name ?? null };
+        },
+      }),
+
+      editLogbookEntry: tool({
+        ...genUiToolSchemas.editLogbookEntry,
+        execute: async ({ entryId, changes }): Promise<FormOutput<'editLogbookEntry'>> => {
+          known.entry(entryId);
+          known.asset(changes?.assetId);
+          const entry = await this.logbook.get(entryId);
+          // The list holds only the user's own entries; this is the second lock, as on PATCH /logbook/:id.
+          if (entry.author?.id !== user.id) throw new ForbiddenException('Only its author can edit an entry.');
+          // The form loads the entry again itself; this copy is for Claude, and for the outcome's diff.
+          return { status: 'opened' as const, entry: toEntrySnapshot(entry) };
         },
       }),
     };

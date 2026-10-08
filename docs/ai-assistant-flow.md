@@ -21,8 +21,12 @@ How one chat message becomes a rendered answer, how a conversation is saved and 
 | `editDevice` | ADMIN (checked again in `execute`) | checks `deviceId` against the prompt's device list (and a new `assetId` against the tree); `DevicesService.get` for Claude's copy | the device's edit form, loaded with the device as it is now | `/devices`, once saved |
 | `createTag` | ADMIN (checked again in `execute`) | checks `deviceId` against the prompt's device list | the New tag form (`TagForm`), inside the answer | `/tags`, once saved |
 | `editTag` | ADMIN (checked again in `execute`) | checks `tagId` against the prompt's tag list; `TagsService.get` for Claude's copy | the tag's edit form, loaded with the tag as it is now | `/tags`, once saved |
+| `createAsset` | ADMIN (checked again in `execute`) | checks `parentId` against the prompt's asset tree | the New asset form (`AssetForm`), inside the answer | `/assets`, once saved |
+| `editAsset` | ADMIN (checked again in `execute`) | checks `assetId` against the prompt's asset tree, and a new `parentId` too (not the asset itself or anything below it); `AssetsService.get` for Claude's copy | the asset's edit form, loaded with the asset as it is now | `/assets`, once saved |
+| `createLogbookEntry` | ADMIN, USER | checks `assetId` against the prompt's asset tree | the Write in the logbook form (`EntryForm`), inside the answer | `/logbook`, once saved |
+| `editLogbookEntry` | ADMIN, USER (only the entry's author, checked again in `execute`) | checks `entryId` against the prompt's list of the user's own entries; `LogbookService.get` for Claude's copy | the entry's edit form, loaded with the entry as it is now | `/logbook`, once saved |
 
-The list tools all work the same way, so the diagrams below follow `listUsers`. Swap in another list tool and the flow is identical. The seven form tools open a form instead of a table and never write anything themselves; they have [their own section](#4-forms-in-the-chat-open-save-record).
+The list tools all work the same way, so the diagrams below follow `listUsers`. Swap in another list tool and the flow is identical. The eleven form tools open a form instead of a table and never write anything themselves; they have [their own section](#4-forms-in-the-chat-open-save-record).
 
 Example request: *"Get me all admins, and also users named John."*
 
@@ -54,7 +58,7 @@ flowchart TD
     MERGE["submit: append the message<br/>regenerate: drop a trailing answer<br/>max 200 messages"]
     VAL["safeValidateUIMessages against the tool schemas<br/>last message must be the user's"]
     SAVE1["save the conversation<br/>the question survives a failed model call"]
-    PROMPT["buildInstructions<br/>generic rules + app map + guardrails (English/Serbian only, off-topic)<br/>+ components or text-only section<br/>+ every asset and active person with ids (the dropdowns' choices)<br/>+ for admins with components on: the forms section, every device, tag and alarm rule with ids<br/>+ for admins with components off: the forms by title, and the switch that opens them<br/>+ for other roles: the forms they can't open, and which role can<br/>+ session: user, role, now in their time zone with its UTC offset"]
+    PROMPT["buildInstructions<br/>generic rules + app map + guardrails (English/Serbian only, off-topic)<br/>+ components or text-only section<br/>+ every asset and active person with ids (the dropdowns' choices)<br/>+ with components on: the forms section, the lists the offered forms take:<br/>for admins every device, tag and alarm rule, for everyone their own latest logbook entries, with ids<br/>+ with components off: the role's forms by title, and the switch that opens them<br/>+ the forms the role can't open, and which role can<br/>+ session: user, role, now in their time zone with its UTC offset"]
     ROLES["AiTools.activeFor(user, generateUi)<br/>TOOL_ROLES · the chat's @Roles<br/>form tools only with components on"]
     CALL["streamText<br/>chosen model · effort + adaptive thinking (not Haiku)<br/>instructions · history · tools<br/>activeTools · stopWhen AI_MAX_STEPS · abortSignal"]
     GUARD --> CTRL --> KEY
@@ -147,7 +151,7 @@ flowchart TD
 | Step | Decided by | Where |
 |---|---|---|
 | Which model and effort answer | the user (pickers) | `assistant-preferences.ts` → request body |
-| Which tools may be offered | code: role map (the audit and form tools are admin-only; form tools need components on) | `TOOL_ROLES`, `activeFor` in `ai.tools.ts` |
+| Which tools may be offered | code: role map (the audit tool and the form tools are admin-only, except the logbook forms; form tools need components on) | `TOOL_ROLES`, `activeFor` in `ai.tools.ts` |
 | Answer, refuse (off topic or not English/Serbian) or look something up | **Claude** | steered by `system-prompt.ts` |
 | Which tool, with which filters, how many in parallel | **Claude** | steered by the tool descriptions in `assistant.ts` |
 | Validating the tool input and running the query | code | AI SDK + `ListUsersQuerySchema` → `UsersService` |
@@ -155,8 +159,8 @@ flowchart TD
 | Which component draws a tool call, and its data | code | `tool-parts.tsx` registry; the table fetches via the REST API |
 | Row actions in that component | code: the user's role | the `use…Actions` hooks in `users-table.tsx`, `definitions-table.tsx`, `devices-table.tsx`, `tags-table.tsx`, `assets-table.tsx`, `logbook-table.tsx`; the alarm sheet in `tool-parts.tsx` |
 | Saving and restoring the conversation | code | `conversations.service.ts`, `chat-store.ts` |
-| Which form to open, pre-filled with what, on which rule or tag | **Claude** | steered by the form tools' descriptions; ids from `<alarm-rules>` and `<tags>` |
-| Saving the form | **the user**, through the page's REST endpoint | `useCreateUser`, `useSaveAlarmDefinition` |
+| Which form to open, pre-filled with what, on which record | **Claude** | steered by the form tools' descriptions; ids from the prompt's pick lists |
+| Saving the form | **the user**, through the page's REST endpoint | the page's own hook: `useCreateUser`, `useSaveAlarmDefinition`, `useSaveDevice`, `useSaveTag`, `useSaveAsset`, `useSaveLogbookEntry` |
 | Recording what the user did with a form | code | `ai-forms.service.ts`, `form-parts.tsx` |
 
 ## 2. Conversation lifecycle: open, restore, clear, sign out
@@ -234,11 +238,11 @@ sequenceDiagram
   Chat->>User: "✓ Saved Wet well high level: threshold 4.5 → 5 · Open in new tab"
 ```
 
-**Names are Claude's job, ids are the tool's input.** As with assets and people, every request from an admin with components on lists every device (`<devices>`, `DevicesService.options()`), every tag (`<tags>`, `TagsService.options()`) and every alarm rule (`<alarm-rules>`, `AlarmDefinitionsService.options()`) with its id. Claude matches the user's words to an entry, typos, partial names and Serbian included, and writes the id. If the words fit several rules equally well ("the wet well level rule"), it asks which one before calling a tool; if nothing fits, it says so. No code matches names. `execute` rejects an id that isn't on the lists, and Claude tries again. Users, and everyone with components off, get none of this: the form tools aren't offered and the lists aren't sent.
+**Names are Claude's job, ids are the tool's input.** As with assets and people, every request from an admin with components on lists every device (`<devices>`, `DevicesService.options()`), every tag (`<tags>`, `TagsService.options()`) and every alarm rule (`<alarm-rules>`, `AlarmDefinitionsService.options()`) with its id. The logbook forms are for everyone, and only an entry's author may edit it, so every request with components on also lists the user's own 30 latest entries (`<your-logbook-entries>`, `LogbookService.options()`), with times in their time zone. Claude matches the user's words to an entry, typos, partial names and Serbian included, and writes the id. If the words fit several rules equally well ("the wet well level rule"), it asks which one before calling a tool; if nothing fits, it says so. No code matches names. `execute` rejects an id that isn't on the lists, and Claude tries again. Each list is sent only when a form tool that takes it is offered (`AiTools.filterOptions`), so a user gets only their own entries, and nobody with components off gets any of them.
 
 **With components off.** A text-only answer has nowhere to show a form, so the form tools aren't offered. An admin's prompt still names the forms, by their titles (`FORM_TITLES` in `assistant.ts`), so a request for one ("add rule with condition not equal to") gets one or two sentences: turn on the **Generate UI components** switch and ask again, or use the page. Claude doesn't ask for the values, since it has nothing to put them in. Once the switch is on, the earlier request is still in the conversation, so "ask again" can be as short as "now".
 
-**For a role without forms.** A user's prompt lists the forms their role can't open, with the role that can (`AiTools.formsFor`, from `TOOL_ROLES`). Asked to "create a new user", Claude says only admins can, instead of sending them to a page that hides the button from them.
+**Forms of another role.** A user (not an admin) has only the logbook forms. Their prompt lists the forms their role can't open, with the role that can (`AiTools.formsFor`, from `TOOL_ROLES`). Asked to "create a new user", Claude says only admins can, instead of sending them to a page that hides the button from them.
 
 **States of a form part** (`frontend/src/features/assistant/form-parts.tsx`):
 
@@ -266,7 +270,7 @@ The system prompt doesn't change. TypeScript fails the build if the backend tool
 
 **Adding a form tool** (create or edit something):
 1. **Contract:** input and output schemas in `assistant.ts` (the input is the form's pre-fill; an edit takes the record's id from a prompt list), the output with `status: 'opened'` and an optional `outcome`, the name in `FORM_TOOL_NAMES`, and the dialog's title in `FORM_TITLES` (the chat labels the form with it, and a text-only answer names it).
-2. **Tool:** `execute` checks the role and the ids and returns `opened`; it never writes. Add a `TOOL_ROLES` line, and an entry in `AiFormsService`'s `saved` map that reads the saved record. If Claude must pick a record by name, give it a pick list: an `options()` method on the service, a block in `pickLists()`, and an `idChecks` entry. Don't match names in code.
+2. **Tool:** `execute` checks the role and the ids and returns `opened`; it never writes. Add a `TOOL_ROLES` line, and an entry in `AiFormsService`'s `saved` map that reads the saved record. If Claude must pick a record by name, give it a pick list: an `options()` method on the service, loaded in `filterOptions` when a tool that takes it is offered, a block in `pickLists()`, and an `idChecks` entry. Don't match names in code.
 3. **Form:** split the page's dialog into the dialog and a form component that sits inside it (`CreateUserForm`, `DefinitionForm`), so the modal is unchanged, then add a `FORM_RENDERERS` entry in `form-parts.tsx` that renders that form.
 
 ## Where the code lives
@@ -279,10 +283,10 @@ The system prompt doesn't change. TypeScript fails the build if the backend tool
 | Render parts, Markdown | `frontend/src/features/assistant/chat-message.tsx` |
 | Tool → component registry | `frontend/src/features/assistant/tool-parts.tsx` |
 | Form tools: the form in the answer, its states, recording the outcome | `frontend/src/features/assistant/form-parts.tsx`, `frontend/src/components/inline-dialog.tsx` |
-| The forms (page modal and chat) | `frontend/src/features/users/user-form-dialog.tsx`, `frontend/src/features/alarms/definition-form-dialog.tsx`, `frontend/src/features/devices/device-form-dialog.tsx`, `frontend/src/features/tags/tag-form-dialog.tsx` |
+| The forms (page modal and chat) | `frontend/src/features/users/user-form-dialog.tsx`, `frontend/src/features/alarms/definition-form-dialog.tsx`, `frontend/src/features/devices/device-form-dialog.tsx`, `frontend/src/features/tags/tag-form-dialog.tsx`, `frontend/src/features/assets/asset-form-dialog.tsx`, `frontend/src/features/logbook/entry-form-dialog.tsx` |
 | "Open in new tab" link | `frontend/src/components/view-card.tsx` |
 | The tables (page and chat) | `frontend/src/features/`: `alarms/alarms-table.tsx`, `alarms/definitions-table.tsx`, `logbook/logbook-table.tsx`, `devices/devices-table.tsx`, `tags/tags-table.tsx`, `assets/assets-table.tsx`, `users/users-table.tsx`, `logbook/audit-table.tsx` |
-| Asset, people, device, tag and alarm rule lists, id check | `backend/src/features/ai/ai.tools.ts` (`filterOptions`, `idChecks`); listed by `system-prompt.ts` |
+| Asset, people, device, tag, alarm rule and own logbook entry lists, id check | `backend/src/features/ai/ai.tools.ts` (`filterOptions`, `idChecks`); listed by `system-prompt.ts` |
 | Recording a form's outcome | `backend/src/features/ai/ai-forms.service.ts`; `keepOutcomes` in `conversations.service.ts` |
 | Contract: models, request, tools, messages | `packages/shared/src/assistant.ts` |
 | Endpoints | `backend/src/features/ai/ai.controller.ts` |

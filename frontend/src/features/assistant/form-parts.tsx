@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import {
   FORM_TITLES,
   type AlarmSeverity,
+  type AssetType,
   type DeviceProtocol,
   type DeviceStatus,
   type FormOutcomeRequest,
@@ -14,6 +15,8 @@ import {
   type FormToolOutput,
   type FormToolUIPart,
   type GenUITools,
+  type LogbookCategory,
+  type LogSeverity,
   type TagDataType,
 } from '@gen-ui/shared';
 import { InlineDialog } from '@/components/inline-dialog';
@@ -21,20 +24,33 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ViewFullPageLink } from '@/components/view-card';
 import { alarmDefinitionQueryOptions } from '@/features/alarms/api';
 import { DefinitionForm } from '@/features/alarms/definition-form-dialog';
-import { deviceQueryOptions, tagQueryOptions } from '@/features/assets/api';
+import { assetQueryOptions, deviceQueryOptions, tagQueryOptions } from '@/features/assets/api';
+import { AssetForm } from '@/features/assets/asset-form-dialog';
 import { DeviceForm } from '@/features/devices/device-form-dialog';
+import { logbookEntryQueryOptions } from '@/features/logbook/api';
+import { EntryForm } from '@/features/logbook/entry-form-dialog';
 import { TagForm } from '@/features/tags/tag-form-dialog';
 import { CreateUserForm } from '@/features/users/user-form-dialog';
 import { getErrorMessage } from '@/lib/api/errors';
 import { http } from '@/lib/api/http';
-import { ALARM_CONDITION_OPTIONS, DEVICE_PROTOCOL, DEVICE_STATUS, SEVERITY, TAG_DATA_TYPE } from '@/lib/labels';
+import { formatDateTime } from '@/lib/format';
+import {
+  ALARM_CONDITION_OPTIONS,
+  ASSET_TYPE,
+  DEVICE_PROTOCOL,
+  DEVICE_STATUS,
+  LOG_SEVERITY,
+  LOGBOOK_CATEGORY,
+  SEVERITY,
+  TAG_DATA_TYPE,
+} from '@/lib/labels';
 import { cn } from '@/lib/utils';
 import { patchFormOutput, useChatInstance } from './chat-store';
 import { ToolError, ToolSkeleton } from './tool-states';
 
 /*
  * Generative UI for forms. A form tool's call is what Claude decided [AI]:
- * which form, pre-filled with what (and for an edit, which rule). The view
+ * which form, pre-filled with what (and for an edit, which record). The view
  * is fixed code [app]: the app's own form, drawn inside the answer by
  * `InlineDialog`, saving through the same REST endpoint as on its page. When
  * the user saves or closes it, the browser records that on the call
@@ -128,10 +144,14 @@ function afterEdit(changed: Changes | null, field: string, before: string): stri
   return typeof to === 'string' ? to : before;
 }
 
-/** "Saved “PS-01 RTU”: status Online → Maintenance", or "Saved “PS-01 RTU” without changes". */
-function savedEdit(changed: Changes | null, name: string, labels: ChangeLabels): string {
+/**
+ * "Saved “PS-01 RTU”: status Online → Maintenance", or "Saved “PS-01 RTU”
+ * without changes". `nameField`: the field `name` comes from, in case the
+ * user changed it.
+ */
+function savedEdit(changed: Changes | null, name: string, labels: ChangeLabels, nameField = 'name'): string {
   return changed
-    ? `Saved “${afterEdit(changed, 'name', name)}”: ${describeChanges(changed, labels)}`
+    ? `Saved “${afterEdit(changed, nameField, name)}”: ${describeChanges(changed, labels)}`
     : `Saved “${name}” without changes`;
 }
 
@@ -225,6 +245,66 @@ const TAG_CHANGES: ChangeLabels = {
   isActive: { label: 'active' },
 };
 
+// ─── Assets ─────────────────────────────────────────────────────────────────
+
+/** The parent goes in as where the asset goes, which also picks its starting type. */
+function CreateAssetBody({ input: { parentId, ...prefill }, disabled, onSaved }: FormProps<'createAsset'>) {
+  return (
+    <AssetForm
+      parentId={parentId ?? undefined}
+      prefill={prefill}
+      disabled={disabled}
+      onSaved={(asset) => onSaved(asset.id)}
+    />
+  );
+}
+
+/** The asset as it is now, with Claude's changes over it. */
+function EditAssetBody({ input, disabled, onSaved }: FormProps<'editAsset'>) {
+  const asset = useQuery(assetQueryOptions(input.assetId));
+  return (
+    <WhenLoaded query={asset}>
+      {(current) => (
+        <AssetForm asset={current} prefill={input.changes} disabled={disabled} onSaved={(saved) => onSaved(saved.id)} />
+      )}
+    </WhenLoaded>
+  );
+}
+
+const ASSET_CHANGES: ChangeLabels = {
+  type: { show: byLabel((value) => ASSET_TYPE[value as AssetType]?.label) },
+  parent: { show: (value) => (value === null ? 'top level' : shownValue(value)) },
+  description: { show: null },
+  isActive: { label: 'in service' },
+};
+
+// ─── Logbook ────────────────────────────────────────────────────────────────
+
+function CreateLogbookEntryBody({ input, disabled, onSaved }: FormProps<'createLogbookEntry'>) {
+  return <EntryForm prefill={input} disabled={disabled} onSaved={(entry) => onSaved(entry.id)} />;
+}
+
+/** The entry as it is now, with Claude's changes over it. */
+function EditLogbookEntryBody({ input, disabled, onSaved }: FormProps<'editLogbookEntry'>) {
+  const entry = useQuery(logbookEntryQueryOptions(input.entryId));
+  return (
+    <WhenLoaded query={entry}>
+      {(current) => (
+        <EntryForm entry={current} prefill={input.changes} disabled={disabled} onSaved={(saved) => onSaved(saved.id)} />
+      )}
+    </WhenLoaded>
+  );
+}
+
+const categoryLabel = (category: LogbookCategory) => LOGBOOK_CATEGORY[category].label.toLowerCase();
+
+const ENTRY_CHANGES: ChangeLabels = {
+  category: { label: 'type', show: byLabel((value) => LOGBOOK_CATEGORY[value as LogbookCategory]?.label) },
+  severity: { show: byLabel((value) => LOG_SEVERITY[value as LogSeverity]?.label) },
+  body: { label: 'details', show: null },
+  occurredAt: { label: 'time', show: (value) => (typeof value === 'string' ? formatDateTime(value) : shownValue(value)) },
+};
+
 // ─── Registry ───────────────────────────────────────────────────────────────
 
 /**
@@ -284,6 +364,36 @@ const FORM_RENDERERS: { [N in FormToolName]: FormRenderer<N> } = {
     Form: EditTagBody,
     saved: ({ changed }, { tag }) => savedEdit(changed, tag.name, TAG_CHANGES),
     link: ({ changed }, { tag }) => ({ to: '/tags', search: { search: afterEdit(changed, 'code', tag.code) } }),
+  },
+  createAsset: {
+    pending: 'Opening the New asset form…',
+    label: FORM_TITLES.createAsset,
+    Form: CreateAssetBody,
+    saved: ({ asset }) =>
+      `Added ${asset.name} (${asset.code}) ${asset.parent ? `under ${asset.parent}` : 'at the top of the tree'}`,
+    link: ({ asset }) => ({ to: '/assets', search: { search: asset.code } }),
+  },
+  editAsset: {
+    pending: 'Opening the asset…',
+    label: FORM_TITLES.editAsset,
+    Form: EditAssetBody,
+    saved: ({ changed }, { asset }) => savedEdit(changed, asset.name, ASSET_CHANGES),
+    link: ({ changed }, { asset }) => ({ to: '/assets', search: { search: afterEdit(changed, 'code', asset.code) } }),
+  },
+  createLogbookEntry: {
+    pending: 'Opening the logbook form…',
+    label: FORM_TITLES.createLogbookEntry,
+    Form: CreateLogbookEntryBody,
+    saved: ({ entry }) =>
+      `Wrote ${categoryLabel(entry.category)} “${entry.title}”${entry.asset ? ` on ${entry.asset}` : ''}`,
+    link: ({ entry }) => ({ to: '/logbook', search: { search: entry.title } }),
+  },
+  editLogbookEntry: {
+    pending: 'Opening the entry…',
+    label: FORM_TITLES.editLogbookEntry,
+    Form: EditLogbookEntryBody,
+    saved: ({ changed }, { entry }) => savedEdit(changed, entry.title, ENTRY_CHANGES, 'title'),
+    link: ({ changed }, { entry }) => ({ to: '/logbook', search: { search: afterEdit(changed, 'title', entry.title) } }),
   },
 };
 
