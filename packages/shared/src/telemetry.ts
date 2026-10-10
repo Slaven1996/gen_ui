@@ -50,6 +50,15 @@ export const TelemetrySeriesQuerySchema = z.object({
 export type TelemetrySeriesQueryInput = z.input<typeof TelemetrySeriesQuerySchema>;
 export type TelemetrySeriesQuery = z.output<typeof TelemetrySeriesQuerySchema>;
 
+/**
+ * The Graphs page's query: the series it plots, plus how to draw them. It is
+ * the page's URL, the state of a chart in a chat answer, and what the chart
+ * tool fills in. A bookmark is a saved chart.
+ */
+export const GraphQuerySchema = z.object({ ...seriesParams, chartType: ChartTypeSchema.default('line') });
+export type GraphQueryInput = z.input<typeof GraphQuerySchema>;
+export type GraphQuery = z.output<typeof GraphQuerySchema>;
+
 export const SeriesTagSchema = TagRefSchema.extend({
   asset: AssetRefSchema,
   minValue: z.number().nullable(),

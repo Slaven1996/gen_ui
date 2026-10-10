@@ -9,7 +9,7 @@ export const Route = createFileRoute('/_authenticated/assistant')({
 /** The assistant: the signed-in user's saved conversation. */
 function AssistantPage() {
   return (
-    <div className="mx-auto flex h-[calc(100svh-3.5rem)] w-full max-w-3xl flex-col">
+    <div className="mx-auto flex h-[calc(100svh-3.5rem)] w-full max-w-5xl flex-col">
       <ChatThread />
     </div>
   );

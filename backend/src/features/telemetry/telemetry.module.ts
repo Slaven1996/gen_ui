@@ -9,5 +9,6 @@ import { TelemetryService } from './telemetry.service.js';
   imports: [AlarmsModule, AssetsModule],
   controllers: [TelemetryController],
   providers: [TelemetryService, TelemetrySimulator],
+  exports: [TelemetryService],
 })
 export class TelemetryModule {}

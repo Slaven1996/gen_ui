@@ -2,6 +2,7 @@ import { useState, type ComponentType } from 'react';
 import { useNavigate, type LinkProps } from '@tanstack/react-router';
 import { getStaticToolName, type ToolUIPart } from 'ai';
 import {
+  GraphQuerySchema,
   isFormToolPart,
   ListAlarmDefinitionsQuerySchema,
   ListAlarmsQuerySchema,
@@ -24,6 +25,7 @@ import { DevicesTable } from '@/features/devices/devices-table';
 import { AuditTable } from '@/features/logbook/audit-table';
 import { LogbookTable } from '@/features/logbook/logbook-table';
 import { TagsTable } from '@/features/tags/tags-table';
+import { TelemetryExplorer } from '@/features/telemetry/telemetry-explorer';
 import { UsersTable } from '@/features/users/users-table';
 import { FormPartView, FormStatusLine } from './form-parts';
 import { ToolError, ToolSkeleton } from './tool-states';
@@ -46,15 +48,21 @@ type ListToolName = Exclude<GenUIToolName, FormToolName>;
 type Input<N extends GenUIToolName> = GenUITools[N]['input'];
 type Output<N extends GenUIToolName> = GenUITools[N]['output'];
 
+type ToolLink = Pick<LinkProps, 'to' | 'search'>;
+
 /** How one list tool's calls show in the chat. */
 interface ToolRenderer<N extends ListToolName> {
   /** Shown while the model is still writing the call. */
   pending: string;
   title: (input: Input<N>) => string;
   /** The full page with the same query, for "Open in new tab". */
-  link: (input: Input<N>) => Pick<LinkProps, 'to' | 'search'>;
-  /** The view inside the frame, once the call is complete — usually the domain's own table. */
-  Body: ComponentType<{ input: Input<N> }>;
+  link: (input: Input<N>) => ToolLink;
+  /**
+   * The view inside the frame, once the call is complete — usually the
+   * domain's own table. A view with its own filters reports them through
+   * `onLinkChange`, so "Open in new tab" opens what the user now sees.
+   */
+  Body: ComponentType<{ input: Input<N>; onLinkChange?: (link: ToolLink) => void }>;
   /** The result in a few words, for text-only answers. */
   found: (output: Output<N>) => string;
 }
@@ -165,6 +173,28 @@ function AssetsBody({ input }: { input: Input<'listAssets'> }) {
   );
 }
 
+// ─── Graphs ─────────────────────────────────────────────────────────────────
+
+/** A chart call as a `/graphs` query: every field but the title. */
+const graphQuery = ({ title: _title, ...filters }: Input<'plotTags'>) => filters;
+
+/** The Graphs page's chart with its filters, without the stats table; the link follows the filters. */
+function GraphBody({ input, onLinkChange }: { input: Input<'plotTags'>; onLinkChange?: (link: ToolLink) => void }) {
+  const [query, setQuery] = useState(() => GraphQuerySchema.parse(graphQuery(input)));
+  return (
+    <TelemetryExplorer
+      query={query}
+      onQueryChange={(next) => {
+        setQuery(next);
+        onLinkChange?.({ to: '/graphs', search: next });
+      }}
+      height={300}
+      framed={false}
+      className="space-y-3"
+    />
+  );
+}
+
 // ─── Registry ───────────────────────────────────────────────────────────────
 
 /**
@@ -229,6 +259,13 @@ const RENDERERS: { [N in ListToolName]: ToolRenderer<N> } = {
     Body: AssetsBody,
     found: (output) => `${output.total} found`,
   },
+  plotTags: {
+    pending: 'Drawing the chart…',
+    title: (input) => input.title,
+    link: (input) => ({ to: '/graphs', search: graphQuery(input) }),
+    Body: GraphBody,
+    found: (output) => (output.tags.length === 1 ? '1 tag' : `${output.tags.length} tags`),
+  },
 };
 
 function rendererFor(part: GenUIToolPart): ToolRenderer<ListToolName> {
@@ -250,19 +287,21 @@ export function ToolPartView({ part, streaming = false }: { part: GenUIToolPart;
       return <ToolSkeleton label={renderer.pending} />;
     case 'output-error':
       return <ToolError message={part.errorText} />;
-    default: {
+    default:
       // The query is complete, so the view can fetch while the server still runs the tool.
-      const { Body } = renderer;
-      return (
-        <ViewCard
-          title={renderer.title(part.input)}
-          action={<ViewFullPageLink {...renderer.link(part.input)} newTab />}
-        >
-          <Body input={part.input} />
-        </ViewCard>
-      );
-    }
+      return <ListToolCard renderer={renderer} input={part.input} />;
   }
+}
+
+/** A list tool's view in its frame. The link starts as the call's query and follows the view's filters. */
+function ListToolCard({ renderer, input }: { renderer: ToolRenderer<ListToolName>; input: Input<ListToolName> }) {
+  const [link, setLink] = useState(() => renderer.link(input));
+  const { Body } = renderer;
+  return (
+    <ViewCard title={renderer.title(input)} action={<ViewFullPageLink {...link} newTab />}>
+      <Body input={input} onLinkChange={setLink} />
+    </ViewCard>
+  );
 }
 
 /** A tool call in a text-only answer: one muted line, with the same link. */

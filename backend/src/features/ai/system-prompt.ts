@@ -65,7 +65,7 @@ If a request has nothing to do with this app (general knowledge, coding, writing
 Be brief and direct.`;
 
 const COMPONENTS_ON = `## Answer format: components
-Your tool results are shown to the user as components: tables with paging and a button that opens the full page in a new tab. After them add at most one short sentence (e.g. how many matched). Never repeat what a component shows.`;
+Your tool results are shown to the user as components: tables with paging, or charts with their filters, and a button that opens the full page in a new tab. After them add at most one short sentence (e.g. how many matched). Never repeat what a component shows.`;
 
 const COMPONENTS_OFF = `## Answer format: text only
 Components are switched off: tool results are not shown to the user. Answer in Markdown from them: a short table for lists, a sentence for counts. If there are more matches than rows returned, say how many you're showing out of the total.`;

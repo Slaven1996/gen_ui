@@ -26,6 +26,13 @@ import {
   LogSeveritySchema,
   UserLogbookCategorySchema,
 } from './logbook.js';
+import {
+  ChartTypeSchema,
+  MAX_SERIES_TAGS,
+  SeriesAggregateSchema,
+  SeriesIntervalSchema,
+  TagStatsSchema,
+} from './telemetry.js';
 import { LastSignInFilterSchema, UserStatusSchema } from './users.js';
 
 // ─── Models ─────────────────────────────────────────────────────────────────
@@ -466,6 +473,45 @@ export const ListTagsToolOutputSchema = z.object({
         .describe('The latest reading; for DIGITAL tags 1 is on and 0 is off. null before the first one.'),
       device: z.string().describe('The device that reports it.'),
       asset: z.string().describe('Where that device is installed.'),
+    }),
+  ),
+});
+
+// ─── Graphs ─────────────────────────────────────────────────────────────────
+
+/** Apart from `title`, every field is also a `/graphs` URL param. */
+export const PlotTagsToolInputSchema = z.object({
+  title: titleField("'Wet well level, last 7 days' or 'Riverside pressures today'"),
+  tagIds: z
+    .array(z.guid())
+    .min(1)
+    .max(MAX_SERIES_TAGS)
+    .describe(
+      `The ids of the tags to plot, from the tag list, at most ${MAX_SERIES_TAGS}. Match the user's words to a tag's name, code, unit or asset, allowing for typos, partial names and words in Serbian: 'the wet well level' → that tag's id; 'pressures at Riverside' → the id of every pressure tag at Riverside Pumping Station.`,
+    ),
+  ...timeWindowFields('readings'),
+  interval: z
+    .union([z.literal('auto'), SeriesIntervalSchema])
+    .optional()
+    .describe(
+      "Bucket width: each point on the chart combines the readings in one bucket. 'hourly' → 1h, 'daily' → 1d, 'per minute' → 1m. Omit (auto) unless the user asks for one; auto fits the window.",
+    ),
+  aggregate: SeriesAggregateSchema.optional().describe(
+    "How the readings in one bucket are combined: avg (the default), min, max, sum, or last (the bucket's last reading). 'daily peaks' → max with interval 1d; 'total per hour' → sum with interval 1h. Omit for the average.",
+  ),
+  chartType: ChartTypeSchema.optional().describe(
+    'line (the default), step (values held until the next reading, good for on/off tags), area, or bar. Omit unless the user asks for a kind of chart.',
+  ),
+});
+
+export const PlotTagsToolOutputSchema = z.object({
+  interval: SeriesIntervalSchema.describe('The bucket width the chart uses.'),
+  tags: z.array(
+    TagStatsSchema.pick({ min: true, max: true, avg: true, last: true, lastAt: true }).extend({
+      name: z.string(),
+      unit: z.string().nullable(),
+      asset: z.string().describe('Where the tag is.'),
+      count: z.int().describe('Readings in the window; 0 means the chart shows no line for this tag.'),
     }),
   ),
 });
@@ -1127,6 +1173,12 @@ export const genUiToolSchemas = {
       "Find tags: the datapoints devices report (a level, a pressure, a pump's running state), each with its latest reading. Use it for current values, e.g. 'what is the wet well level now'. Filter by name, code or unit, asset and type.",
     inputSchema: ListTagsToolInputSchema,
     outputSchema: ListTagsToolOutputSchema,
+  },
+  plotTags: {
+    description:
+      "Draw a chart of up to eight tags' readings over a time window, the one the Graphs page draws, with its filters so the user can change tags, window, buckets and chart type. Use it for trends, history and comparisons over time ('show the wet well level this week', 'how did pressure change since yesterday', 'chart the pump flows'). The result gives each tag's minimum, maximum, average and last reading in the window. For the current value only, find the tag instead.",
+    inputSchema: PlotTagsToolInputSchema,
+    outputSchema: PlotTagsToolOutputSchema,
   },
   listAssets: {
     description:

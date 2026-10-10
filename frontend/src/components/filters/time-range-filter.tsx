@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { CalendarClock, ChevronDown } from 'lucide-react';
 import { RELATIVE_RANGE_LABELS, RELATIVE_RANGES, type RelativeRange } from '@gen-ui/shared';
 import { Button } from '@/components/ui/button';
@@ -53,6 +53,7 @@ export function TimeRangeFilter({
   allowAny?: boolean;
   className?: string;
 }) {
+  const id = useId();
   const [open, setOpen] = useState(false);
   const [draftFrom, setDraftFrom] = useState(toLocalInput(value.from));
   const [draftTo, setDraftTo] = useState(toLocalInput(value.to));
@@ -105,16 +106,16 @@ export function TimeRangeFilter({
         <div className="space-y-2 p-1">
           <p className="text-xs font-medium text-muted-foreground">Custom range</p>
           <div className="space-y-1">
-            <Label htmlFor="range-from" className="text-xs">
+            <Label htmlFor={`${id}-from`} className="text-xs">
               From
             </Label>
-            <Input id="range-from" type="datetime-local" value={draftFrom} onChange={(event) => setDraftFrom(event.target.value)} />
+            <Input id={`${id}-from`} type="datetime-local" value={draftFrom} onChange={(event) => setDraftFrom(event.target.value)} />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="range-to" className="text-xs">
+            <Label htmlFor={`${id}-to`} className="text-xs">
               To <span className="text-muted-foreground">(empty = now)</span>
             </Label>
-            <Input id="range-to" type="datetime-local" value={draftTo} onChange={(event) => setDraftTo(event.target.value)} />
+            <Input id={`${id}-to`} type="datetime-local" value={draftTo} onChange={(event) => setDraftTo(event.target.value)} />
           </div>
           {invalid && <p className="text-xs text-destructive">“From” must be before “To”.</p>}
           <Button size="sm" className="w-full" disabled={!draftFrom || invalid} onClick={applyCustom}>

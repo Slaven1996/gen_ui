@@ -3,6 +3,7 @@ import { tool, type InferUITools } from 'ai';
 import {
   FORM_TOOL_NAMES,
   genUiToolSchemas,
+  GraphQuerySchema,
   isFormToolName,
   ListAlarmDefinitionsQuerySchema,
   ListAlarmsQuerySchema,
@@ -36,6 +37,7 @@ import { DevicesService, type DeviceOption } from '../assets/devices.service.js'
 import { TagsService, type TagOption } from '../assets/tags.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { LogbookService, type EntryOption } from '../logbook/logbook.service.js';
+import { TelemetryService } from '../telemetry/telemetry.service.js';
 import type { AuthUser } from '../users/user.mapper.js';
 import { UsersService } from '../users/users.service.js';
 
@@ -57,11 +59,11 @@ const OWN_ENTRIES_FOR_MODEL = 30;
  * `GET /users/options`). The system prompt lists them, so Claude fills
  * `assetId`, `authorId` and `actorId` with ids a dropdown can show.
  *
- * The other lists are for the form tools, and each is loaded only when a
- * tool on offer takes it, so other prompts stay short: every device, tag
- * and alarm rule (`deviceId`, `tagId`, `ruleId`: the choices the device and
- * tag pickers offer, and the records an admin can open to edit), and the
- * user's own latest logbook entries (`entryId`: the ones they may edit).
+ * The other lists are loaded only when a tool on offer takes them, so other
+ * prompts stay short: every device, tag and alarm rule (`deviceId`, `tagId`,
+ * `tagIds`, `ruleId`: the choices the device and tag pickers offer, the tags
+ * a chart plots, and the records an admin can open to edit), and the user's
+ * own latest logbook entries (`entryId`: the ones they may edit).
  */
 export interface FilterOptions {
   assets: AssetTreeNode[];
@@ -237,8 +239,7 @@ const TOOL_ROLES = {
   listDevices: ['ADMIN', 'USER'],
   listTags: ['ADMIN', 'USER'],
   listAssets: ['ADMIN', 'USER'],
-  // The forms save through POST /users and POST/PATCH on /alarm-definitions,
-  // /devices, /tags and /assets, which are admin-only…
+  plotTags: ['ADMIN', 'USER'],
   createUser: ['ADMIN'],
   createAlarmRule: ['ADMIN'],
   editAlarmRule: ['ADMIN'],
@@ -280,20 +281,21 @@ export class AiTools {
     private readonly devices: DevicesService,
     private readonly tags: TagsService,
     private readonly assets: AssetsService,
+    private readonly telemetry: TelemetryService,
   ) {}
 
   /**
    * The pickers' options, for the system prompt and for `create`. A list
-   * only form tools use is loaded only when one of the `active` tools takes
-   * it; `user`'s own entries are the ones they may edit.
+   * beyond assets and people is loaded only when one of the `active` tools
+   * takes it; `user`'s own entries are the ones they may edit.
    */
   async filterOptions(user: AuthUser, active: GenUIToolName[]): Promise<FilterOptions> {
-    const takenBy = (...names: FormToolName[]) => names.some((name) => active.includes(name));
+    const takenBy = (...names: GenUIToolName[]) => names.some((name) => active.includes(name));
     const [assets, people, devices, tags, rules, entries] = await Promise.all([
       this.assets.tree(),
       this.users.options(),
       takenBy('editDevice', 'createTag') ? this.devices.options() : undefined,
-      takenBy('createAlarmRule', 'editTag') ? this.tags.options() : undefined,
+      takenBy('createAlarmRule', 'editTag', 'plotTags') ? this.tags.options() : undefined,
       takenBy('editAlarmRule') ? this.alarmRules.options() : undefined,
       takenBy('editLogbookEntry') ? this.logbook.options(user.id, OWN_ENTRIES_FOR_MODEL) : undefined,
     ]);
@@ -500,6 +502,26 @@ export class AiTools {
               deviceCount: asset.deviceCount,
               openAlarmCount: openAlarms.get(asset.id) ?? 0,
             })),
+          };
+        },
+      }),
+
+      plotTags: tool({
+        ...genUiToolSchemas.plotTags,
+        // `title` only labels the chart; the rest is the `/graphs` query.
+        execute: async ({ title: _title, ...filters }) => {
+          const query = GraphQuerySchema.parse(filters);
+          const tags = (query.tagIds ?? []).map((id) => known.tag(id));
+          // The chart fetches its own buckets; Claude reads a summary of each tag's window.
+          const { interval } = this.telemetry.window(query);
+          // In `tagIds` order, one row per tag.
+          const stats = await this.telemetry.stats(query);
+          return {
+            interval,
+            tags: tags.map((tag, index) => {
+              const { count, min, max, avg, last, lastAt } = stats[index];
+              return { name: tag.name, unit: tag.unit, asset: tag.asset, count, min, max, avg, last, lastAt };
+            }),
           };
         },
       }),

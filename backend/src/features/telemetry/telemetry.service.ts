@@ -61,12 +61,7 @@ export class TelemetryService {
    * `timeZone`, so a "day" starts at local midnight.
    */
   async series(query: TelemetrySeriesQuery): Promise<TelemetrySeries> {
-    const { from, to } = requiredWindow(query);
-    const span = to.getTime() - from.getTime();
-    const interval = query.interval === 'auto' ? autoInterval(span) : query.interval;
-    if (span / SERIES_INTERVAL_MS[interval] > MAX_BUCKETS_PER_SERIES) {
-      throw new BadRequestException(`\`${interval}\` is too fine for this range; choose a larger interval or \`auto\``);
-    }
+    const { from, to, interval } = this.window(query);
 
     const tagIds = query.tagIds ?? [];
     const tags = tagIds.length
@@ -122,6 +117,21 @@ export class TelemetryService {
         return [{ tag: { ...ref, asset: device.asset }, points: pointsByTag.get(id) ?? [] }];
       }),
     };
+  }
+
+  /** A series query's window and the bucket width it draws with; refuses buckets too fine for the window. */
+  window(query: Pick<TelemetrySeriesQuery, 'range' | 'from' | 'to' | 'interval'>): {
+    from: Date;
+    to: Date;
+    interval: SeriesInterval;
+  } {
+    const { from, to } = requiredWindow(query);
+    const span = to.getTime() - from.getTime();
+    const interval = query.interval === 'auto' ? autoInterval(span) : query.interval;
+    if (span / SERIES_INTERVAL_MS[interval] > MAX_BUCKETS_PER_SERIES) {
+      throw new BadRequestException(`\`${interval}\` is too fine for this range; choose a larger interval or \`auto\``);
+    }
+    return { from, to, interval };
   }
 
   async stats(query: TelemetryStatsQuery): Promise<TagStats[]> {
