@@ -131,22 +131,22 @@
           <mxGeometry height="90" width="280" y="140" as="geometry" />
         </mxCell>
         <mxCell id="assignment" parent="1" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;html=1;whiteSpace=wrap;fontSize=12;swimlaneFillColor=#ffffff;fillColor=#d5e8d4;strokeColor=#82b366;" value="ShiftAssignment" vertex="1">
-          <mxGeometry height="134" width="280" x="880" y="940" as="geometry" />
+          <mxGeometry height="182" width="280" x="880" y="940" as="geometry" />
         </mxCell>
-        <mxCell id="assignment-a" parent="assignment" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;html=1;whiteSpace=wrap;fontSize=11;" value="+ role: ShiftRole = OPERATOR&lt;br&gt;+ startsAt: DateTime&lt;br&gt;+ endsAt: DateTime {after startsAt}&lt;br&gt;+ notes: String [0..1]" vertex="1">
-          <mxGeometry height="74" width="280" y="26" as="geometry" />
+        <mxCell id="assignment-a" parent="assignment" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;html=1;whiteSpace=wrap;fontSize=11;" value="+ seriesId: UUID [0..1]&lt;br&gt;+ role: ShiftRole = OPERATOR&lt;br&gt;+ startsAt: DateTime&lt;br&gt;+ endsAt: DateTime {after startsAt}&lt;br&gt;+ notes: String [0..1]&lt;br&gt;{a user&#39;s shifts never overlap}" vertex="1">
+          <mxGeometry height="106" width="280" y="26" as="geometry" />
         </mxCell>
         <mxCell id="assignment-l" parent="assignment" style="line;strokeWidth=1;fillColor=none;align=left;verticalAlign=middle;spacingTop=-1;spacingLeft=3;spacingRight=3;rotatable=0;labelPosition=right;points=[];portConstraint=eastwest;strokeColor=inherit;" value="" vertex="1">
-          <mxGeometry height="8" width="280" y="100" as="geometry" />
+          <mxGeometry height="8" width="280" y="132" as="geometry" />
         </mxCell>
-        <mxCell id="assignment-o" parent="assignment" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;html=1;whiteSpace=wrap;fontSize=11;" value="&lt;u&gt;+ onDuty(at: DateTime): ShiftAssignment [*]&lt;/u&gt;" vertex="1">
-          <mxGeometry height="26" width="280" y="108" as="geometry" />
+        <mxCell id="assignment-o" parent="assignment" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;html=1;whiteSpace=wrap;fontSize=11;" value="&lt;u&gt;+ onDuty(at: DateTime): ShiftAssignment [*]&lt;/u&gt;&lt;br&gt;+ update(scope: one | following | series)&lt;br&gt;&lt;u&gt;+ copyWeek(week: Date, weeks: Int): ShiftAssignment [*]&lt;/u&gt;" vertex="1">
+          <mxGeometry height="42" width="280" y="140" as="geometry" />
         </mxCell>
         <mxCell id="template" parent="1" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;html=1;whiteSpace=wrap;fontSize=12;swimlaneFillColor=#ffffff;fillColor=#d5e8d4;strokeColor=#82b366;" value="ShiftTemplate" vertex="1">
-          <mxGeometry height="116" width="280" x="1300" y="940" as="geometry" />
+          <mxGeometry height="132" width="280" x="1300" y="940" as="geometry" />
         </mxCell>
-        <mxCell id="template-a" parent="template" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;html=1;whiteSpace=wrap;fontSize=11;" value="+ name: String {unique}&lt;br&gt;+ startTime: String {HH:mm}&lt;br&gt;+ durationMinutes: Int&lt;br&gt;+ color: String&lt;br&gt;+ isActive: Boolean = true" vertex="1">
-          <mxGeometry height="90" width="280" y="26" as="geometry" />
+        <mxCell id="template-a" parent="template" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;html=1;whiteSpace=wrap;fontSize=11;" value="+ name: String {unique}&lt;br&gt;+ startTime: String {HH:mm, plant time zone}&lt;br&gt;+ durationMinutes: Int {wall clock}&lt;br&gt;+ color: String&lt;br&gt;+ isActive: Boolean = true&lt;br&gt;+ coverage: CoverageRule [*] {role, weekdays, headcount}" vertex="1">
+          <mxGeometry height="106" width="280" y="26" as="geometry" />
         </mxCell>
         <mxCell id="token" parent="1" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;html=1;whiteSpace=wrap;fontSize=12;swimlaneFillColor=#ffffff;fillColor=#e1d5e7;strokeColor=#9673a6;" value="RefreshToken" vertex="1">
           <mxGeometry height="230" width="280" x="40" y="1250" as="geometry" />

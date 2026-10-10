@@ -1,3 +1,4 @@
+import { isTimeZone } from '@gen-ui/shared';
 import { z } from 'zod';
 
 /** Treat empty env values (`FOO=`) as "not set". */
@@ -69,6 +70,16 @@ export const EnvSchema = z
 
     /** Temporary demo: a made-up alarm notification every 60 s, 40% of the time, over the notifications socket. */
     MOCK_ALARM_NOTIFICATIONS: booleanFlag(true),
+
+    /** The plant's IANA zone: shift templates' times and the shift calendar's days are in it. */
+    SHIFT_TIME_ZONE: z.preprocess(
+      blankToUndefined,
+      z
+        .string()
+        .trim()
+        .refine(isTimeZone, 'must be an IANA time zone such as Europe/Budapest')
+        .default('Europe/Budapest'),
+    ),
 
     /** The assistant's only provider. Without it the chat answers 503 and the rest of the app runs. */
     ANTHROPIC_API_KEY: optionalString,

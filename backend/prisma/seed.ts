@@ -29,6 +29,9 @@ if (files.length === 0) {
 
 const client = new Client({ connectionString });
 await client.connect();
+// The shift plan is laid out in the plant time zone; the SQL reads it back
+// with current_setting('app.shift_time_zone', true).
+await client.query("SELECT set_config('app.shift_time_zone', $1, false)", [process.env.SHIFT_TIME_ZONE ?? '']);
 
 try {
   for (const file of files) {

@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { LastSignInFilter, Role, UserStatus } from '@gen-ui/shared';
-import { zonedDay } from '../../common/zoned-time.js';
+import { zonedDay, type LastSignInFilter, type Role, type UserStatus } from '@gen-ui/shared';
 import type { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import type { Db } from '../../prisma/transaction.js';

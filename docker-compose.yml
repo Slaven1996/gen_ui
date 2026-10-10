@@ -67,6 +67,9 @@ services:
       # Temporary demo: a made-up alarm notification every 60 s, 40% of the time.
       MOCK_ALARM_NOTIFICATIONS: ${MOCK_ALARM_NOTIFICATIONS:-true}
 
+      # The plant's time zone: shift times and the shift calendar's days are in it.
+      SHIFT_TIME_ZONE: ${SHIFT_TIME_ZONE:-Europe/Budapest}
+
       # Demo data from backend/prisma/seed/*.sql. Set false to skip.
       SEED_ON_START: ${SEED_ON_START:-true}
     # Not published on purpose: the browser reaches the API through the

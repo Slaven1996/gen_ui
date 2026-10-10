@@ -385,11 +385,14 @@ enum ShiftRole {
 model ShiftTemplate {
   id              String   @id @default(uuid()) @db.Uuid
   name            String   @unique
-  /// Local time of day, `HH:mm`.
+  /// Time of day in the plant time zone (SHIFT_TIME_ZONE), `HH:mm`.
   startTime       String   @map("start_time")
+  /// Wall-clock length: 22:00 + 8 h ends at 06:00 even when the clocks change.
   durationMinutes Int      @map("duration_minutes")
   color           String
   isActive        Boolean  @default(true) @map("is_active")
+  /// Staffing target, `ShiftCoverageRule[]` in @gen-ui/shared. Empty: none.
+  coverage        Json     @default("[]")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
@@ -399,9 +402,13 @@ model ShiftTemplate {
 }
 
 /// One person on one shift. Start and end are stored as instants, so editing
-/// the template later never rewrites past schedules.
+/// the template later never rewrites past schedules. init.sql also forbids
+/// one person's shifts from overlapping (shift_assignments_no_overlap), which
+/// Prisma cannot express.
 model ShiftAssignment {
   id          String        @id @default(uuid()) @db.Uuid
+  /// Shared by the shifts one repeat or copy created.
+  seriesId    String?       @map("series_id") @db.Uuid
   templateId  String        @map("template_id") @db.Uuid
   template    ShiftTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
   userId      String        @map("user_id") @db.Uuid
@@ -417,6 +424,8 @@ model ShiftAssignment {
 
   @@index([startsAt, endsAt])
   @@index([userId, startsAt])
+  @@index([templateId])
+  @@index([seriesId])
   @@map("shift_assignments")
 }
 

@@ -21,6 +21,10 @@
 
 BEGIN;
 
+-- Lets an exclusion constraint mix `=` on a uuid with `&&` on a range
+-- (shift_assignments_no_overlap). Ships with Postgres and is trusted.
+CREATE EXTENSION IF NOT EXISTS btree_gist;
+
 -- ─── Enums ──────────────────────────────────────────────────────────────────
 
 -- Users & sessions
@@ -295,7 +299,11 @@ CREATE INDEX "audit_logs_actor_id_idx" ON "audit_logs"("actor_id");
 
 -- ─── Shift scheduling ───────────────────────────────────────────────────────
 
--- A reusable shift pattern: "Night, 22:00, 8 hours". start_time is HH:mm.
+-- A reusable shift pattern: "Night, 22:00, 8 hours". start_time is HH:mm in
+-- the plant time zone (SHIFT_TIME_ZONE); the duration is wall-clock, so a
+-- 22:00, 8 h shift ends at 06:00 even on the nights the clocks change.
+-- coverage is the staffing target: [{ "role", "weekdays": [0-6], "headcount" }],
+-- weekdays being the days the shift starts on (0 = Sunday). Empty: no target.
 CREATE TABLE "shift_templates" (
     "id"               UUID         NOT NULL,
     "name"             TEXT         NOT NULL,
@@ -303,17 +311,23 @@ CREATE TABLE "shift_templates" (
     "duration_minutes" INTEGER      NOT NULL,
     "color"            TEXT         NOT NULL,
     "is_active"        BOOLEAN      NOT NULL DEFAULT true,
+    "coverage"         JSONB        NOT NULL DEFAULT '[]',
     "created_at"       TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at"       TIMESTAMP(3) NOT NULL,
 
-    CONSTRAINT "shift_templates_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "shift_templates_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "shift_templates_coverage_check" CHECK (jsonb_typeof("coverage") = 'array')
 );
 CREATE UNIQUE INDEX "shift_templates_name_key" ON "shift_templates"("name");
 
 -- One person on one shift. Start and end are instants, so editing the
--- template later never rewrites past schedules.
+-- template later never rewrites past schedules. series_id groups the shifts
+-- one repeat or copy created, for "change this and the following ones".
+-- Nobody can be on two shifts at once (shift_assignments_no_overlap); the
+-- default [) bounds let one shift end exactly when the next begins.
 CREATE TABLE "shift_assignments" (
     "id"            UUID         NOT NULL,
+    "series_id"     UUID,
     "template_id"   UUID         NOT NULL,
     "user_id"       UUID         NOT NULL,
     "role"          "ShiftRole"  NOT NULL DEFAULT 'OPERATOR',
@@ -331,10 +345,16 @@ CREATE TABLE "shift_assignments" (
         REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT "shift_assignments_created_by_id_fkey" FOREIGN KEY ("created_by_id")
         REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT "shift_assignments_period_check" CHECK ("ends_at" > "starts_at")
+    CONSTRAINT "shift_assignments_period_check" CHECK ("ends_at" > "starts_at"),
+    CONSTRAINT "shift_assignments_no_overlap" EXCLUDE USING gist (
+        "user_id" WITH =,
+        tsrange("starts_at", "ends_at") WITH &&
+    )
 );
 CREATE INDEX "shift_assignments_starts_at_ends_at_idx" ON "shift_assignments"("starts_at", "ends_at");
 CREATE INDEX "shift_assignments_user_id_starts_at_idx" ON "shift_assignments"("user_id", "starts_at");
+CREATE INDEX "shift_assignments_template_id_idx" ON "shift_assignments"("template_id");
+CREATE INDEX "shift_assignments_series_id_idx" ON "shift_assignments"("series_id");
 
 -- ─── Dashboards ─────────────────────────────────────────────────────────────
 

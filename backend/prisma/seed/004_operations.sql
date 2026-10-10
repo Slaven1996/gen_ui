@@ -232,10 +232,13 @@ ON CONFLICT (id) DO NOTHING;
 -- ─── Shift plan ─────────────────────────────────────────────────────────────
 -- Three operators rotate weekly through morning, afternoon and night; Ava
 -- supervises weekday mornings; the admin covers weekend on-call.
--- From a week back to three weeks ahead of whenever the seed runs.
+-- From a week back to three weeks ahead of whenever the seed runs, in the
+-- plant time zone (SHIFT_TIME_ZONE, which seed.ts hands over as a setting).
+-- Each person's week on one shift is a series. The night operator nine days
+-- ahead is left out, so the calendar has a staffing gap to show.
 
 WITH params AS (
-  SELECT 'Europe/Budapest'::text AS tz -- SHIFT_TIME_ZONE
+  SELECT COALESCE(NULLIF(current_setting('app.shift_time_zone', true), ''), 'Europe/Budapest') AS tz
 ),
 days AS (
   SELECT d::date AS day
@@ -268,20 +271,27 @@ plan AS (
   FROM days JOIN users u ON u.email = 'admin@example.com'
   WHERE extract(isodow FROM days.day) IN (6, 7)
 )
-INSERT INTO shift_assignments (id, template_id, user_id, role, starts_at, ends_at, notes, created_by_id, updated_at)
+INSERT INTO shift_assignments (id, series_id, template_id, user_id, role, starts_at, ends_at, notes, created_by_id, updated_at)
 SELECT
   pg_temp.seed_uuid('shift-' || p.day || '-' || p.template_id || '-' || p.user_id),
+  pg_temp.seed_uuid('series-' || p.template_id || '-' || p.user_id || '-' || p.role || '-'
+    || extract(isoyear FROM p.day) || '-' || extract(week FROM p.day)),
   p.template_id, p.user_id, p.role::"ShiftRole",
-  -- Local wall-clock start in the plan's zone, stored as UTC.
+  -- Local wall-clock start and end in the plan's zone, stored as UTC. The end
+  -- is wall-clock too: a night shift ends at 06:00 even when the clocks change.
   ((p.day + t.start_time::time) AT TIME ZONE params.tz) AT TIME ZONE 'UTC',
-  ((p.day + t.start_time::time) AT TIME ZONE params.tz) AT TIME ZONE 'UTC' + make_interval(mins => t.duration_minutes),
+  ((p.day + t.start_time::time + make_interval(mins => t.duration_minutes)) AT TIME ZONE params.tz) AT TIME ZONE 'UTC',
   NULL,
   (SELECT id FROM users WHERE email = 'admin@example.com'),
   now()
 FROM plan p
 JOIN shift_templates t ON t.id = p.template_id
 CROSS JOIN params
-ON CONFLICT (id) DO NOTHING;
+WHERE NOT (p.template_id = '50000000-0000-4000-8000-000000000003' AND p.role = 'OPERATOR'
+           AND p.day = (now() AT TIME ZONE params.tz)::date + 9)
+-- No conflict target: besides re-runs (same id), this also skips a seeded
+-- shift that would overlap one somebody scheduled by hand since.
+ON CONFLICT DO NOTHING;
 
 -- ─── Audit trail ────────────────────────────────────────────────────────────
 -- The configuration work that set the plant up, then every acknowledgement.

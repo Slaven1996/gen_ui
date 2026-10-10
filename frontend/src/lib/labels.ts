@@ -41,7 +41,9 @@ import {
   type DeviceStatus,
   type LogbookCategory,
   type LogSeverity,
+  type ShiftCalendarView,
   type ShiftRole,
+  type ShiftScope,
   type TagDataType,
 } from '@gen-ui/shared';
 import type { FilterOption } from '@/components/filters/multi-select-filter';
@@ -124,6 +126,30 @@ export const SHIFT_ROLE: Record<ShiftRole, string> = {
   SUPERVISOR: 'Supervisor',
   ON_CALL: 'On call',
 };
+
+/** Which shifts of a series a change or removal applies to. */
+export const SHIFT_SCOPE: Record<ShiftScope, string> = {
+  one: 'This shift',
+  following: 'This and the following ones',
+  series: 'The whole series',
+};
+
+export const CALENDAR_VIEW: Record<ShiftCalendarView, string> = {
+  month: 'Month',
+  week: 'Week',
+  day: 'Day',
+};
+
+/** Monday first, as the calendars show them; values are JavaScript's (0 = Sunday). */
+export const WEEKDAYS = [
+  { value: 1, label: 'Mon' },
+  { value: 2, label: 'Tue' },
+  { value: 3, label: 'Wed' },
+  { value: 4, label: 'Thu' },
+  { value: 5, label: 'Fri' },
+  { value: 6, label: 'Sat' },
+  { value: 0, label: 'Sun' },
+] as const;
 
 export const AUDIT_ENTITY: Record<AuditEntityType, string> = {
   ASSET: 'Asset',

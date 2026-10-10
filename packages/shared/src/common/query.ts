@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isTimeZone } from './zoned-time.js';
 
 /**
  * Building blocks for list-endpoint query schemas.
@@ -154,14 +155,7 @@ export const timeZoneParam = () =>
   z
     .string()
     .max(64)
-    .refine((value) => {
-      try {
-        new Intl.DateTimeFormat('en', { timeZone: value });
-        return true;
-      } catch {
-        return false;
-      }
-    }, 'Unknown time zone')
+    .refine(isTimeZone, 'Unknown time zone')
     .default('UTC')
     .describe('IANA time zone for day-sized buckets, e.g. Europe/Zagreb.');
 

@@ -20,8 +20,22 @@ export class PrismaExceptionFilter extends AllExceptionsFilter {
         return super.catch(new ConflictException('A record with this value already exists'), host);
       case 'P2025':
         return super.catch(new NotFoundException('Record not found'), host);
+      // A Postgres error the driver adapter has no code for, e.g. an exclusion
+      // constraint (23P01) such as the one that keeps shifts from overlapping.
+      case 'P2039':
+        if (sqlState(exception) === '23P01') {
+          return super.catch(new ConflictException('Overlaps another shift of the same person'), host);
+        }
+        return super.catch(exception, host);
       default:
         return super.catch(exception, host);
     }
   }
+}
+
+/** The Postgres SQLSTATE behind a driver-adapter error, when there is one. */
+function sqlState(exception: Prisma.PrismaClientKnownRequestError): string | undefined {
+  const adapterError = exception.meta?.driverAdapterError as { cause?: { originalCode?: unknown } } | undefined;
+  const code = adapterError?.cause?.originalCode;
+  return typeof code === 'string' ? code : undefined;
 }

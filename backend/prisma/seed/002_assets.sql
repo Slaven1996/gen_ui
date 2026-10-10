@@ -141,11 +141,18 @@ VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- ─── Shift templates ────────────────────────────────────────────────────────
+-- Coverage: one operator on every shift, every day; a supervisor on weekday
+-- mornings; someone on call at weekends. Weekdays: 0 = Sunday … 6 = Saturday.
 
-INSERT INTO shift_templates (id, name, start_time, duration_minutes, color, is_active, updated_at)
+INSERT INTO shift_templates (id, name, start_time, duration_minutes, color, is_active, coverage, updated_at)
 VALUES
-  ('50000000-0000-4000-8000-000000000001', 'Morning', '06:00', 480, '#f59e0b', true, NOW()),
-  ('50000000-0000-4000-8000-000000000002', 'Afternoon', '14:00', 480, '#3b82f6', true, NOW()),
-  ('50000000-0000-4000-8000-000000000003', 'Night', '22:00', 480, '#6366f1', true, NOW()),
-  ('50000000-0000-4000-8000-000000000004', 'Weekend on-call', '08:00', 720, '#10b981', true, NOW())
+  ('50000000-0000-4000-8000-000000000001', 'Morning', '06:00', 480, '#f59e0b', true,
+   '[{"role": "OPERATOR", "weekdays": [0, 1, 2, 3, 4, 5, 6], "headcount": 1},
+     {"role": "SUPERVISOR", "weekdays": [1, 2, 3, 4, 5], "headcount": 1}]', NOW()),
+  ('50000000-0000-4000-8000-000000000002', 'Afternoon', '14:00', 480, '#3b82f6', true,
+   '[{"role": "OPERATOR", "weekdays": [0, 1, 2, 3, 4, 5, 6], "headcount": 1}]', NOW()),
+  ('50000000-0000-4000-8000-000000000003', 'Night', '22:00', 480, '#6366f1', true,
+   '[{"role": "OPERATOR", "weekdays": [0, 1, 2, 3, 4, 5, 6], "headcount": 1}]', NOW()),
+  ('50000000-0000-4000-8000-000000000004', 'Weekend on-call', '08:00', 720, '#10b981', true,
+   '[{"role": "ON_CALL", "weekdays": [0, 6], "headcount": 1}]', NOW())
 ON CONFLICT (id) DO NOTHING;

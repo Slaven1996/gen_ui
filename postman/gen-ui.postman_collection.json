@@ -2201,13 +2201,14 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{newTemplateName}}\",\n  \"startTime\": \"10:00\",\n  \"durationMinutes\": 240,\n  \"color\": \"#0ea5e9\"\n}",
+              "raw": "{\n  \"name\": \"{{newTemplateName}}\",\n  \"startTime\": \"10:00\",\n  \"durationMinutes\": 240,\n  \"color\": \"#0ea5e9\",\n  \"coverage\": [\n    {\n      \"role\": \"OPERATOR\",\n      \"weekdays\": [\n        1,\n        2,\n        3,\n        4,\n        5\n      ],\n      \"headcount\": 1\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
                 }
               }
-            }
+            },
+            "description": "A reusable shift: start time in the plant time zone (`SHIFT_TIME_ZONE`), wall-clock length, colour and `coverage` — whom it needs on which weekdays (0 = Sunday). The calendar marks days where that isn't met."
           },
           "response": [],
           "event": [
@@ -2228,6 +2229,63 @@
                   "pm.test('201', () => pm.response.to.have.status(201));",
                   "",
                   "pm.collectionVariables.set('createdTemplateId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Shift calendar (this week)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/shifts/calendar?view=week",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "shifts",
+                "calendar"
+              ],
+              "query": [
+                {
+                  "key": "view",
+                  "value": "week",
+                  "description": "month, week or day"
+                },
+                {
+                  "key": "date",
+                  "value": "2026-10-05",
+                  "description": "Any day of the period; default today (plant time zone)",
+                  "disabled": true
+                },
+                {
+                  "key": "role",
+                  "value": "SUPERVISOR,ON_CALL",
+                  "disabled": true
+                },
+                {
+                  "key": "userId",
+                  "value": "{{userId}}",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "One month, week or day of the plan in the plant time zone — the same query as the Shifts page's URL. Returns the days (real instants: 23 or 25 hours when the clocks change), the shifts overlapping the period, the templates and every staffing target with how many people fill it."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "const gaps = body.coverage.filter((entry) => entry.filled < entry.required);",
+                  "console.log(body.timeZone + ' ' + body.from + '–' + body.to + ': ' + body.items.length + ' shifts, ' + gaps.length + ' unfilled targets');"
                 ]
               }
             }
@@ -2317,10 +2375,10 @@
                 "assignments"
               ]
             },
-            "description": "Mondays, Wednesdays and Fridays for two weeks, well in the future so it never overlaps the seeded plan. All or nothing: any overlap is a 409.",
+            "description": "Mondays, Wednesdays and Fridays for two weeks, well in the future so it never overlaps the seeded plan: one series. Dates and times are in the plant time zone (`SHIFT_TIME_ZONE`); `startTime`/`durationMinutes` would set custom hours. All or nothing: any overlap is a 409.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"templateId\": \"{{createdTemplateId}}\",\n  \"userId\": \"{{userId}}\",\n  \"role\": \"OPERATOR\",\n  \"date\": \"{{shiftDate}}\",\n  \"timeZone\": \"Europe/Budapest\",\n  \"repeat\": {\n    \"until\": \"{{shiftUntil}}\",\n    \"weekdays\": [\n      1,\n      3,\n      5\n    ]\n  }\n}",
+              "raw": "{\n  \"templateId\": \"{{createdTemplateId}}\",\n  \"userId\": \"{{userId}}\",\n  \"role\": \"OPERATOR\",\n  \"date\": \"{{shiftDate}}\",\n  \"repeat\": {\n    \"until\": \"{{shiftUntil}}\",\n    \"weekdays\": [\n      1,\n      3,\n      5\n    ]\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2374,7 +2432,7 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/shifts/assignments/{{createdAssignmentId}}",
+              "raw": "{{baseUrl}}/shifts/assignments/{{createdAssignmentId}}?scope=series",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -2382,6 +2440,13 @@
                 "shifts",
                 "assignments",
                 "{{createdAssignmentId}}"
+              ],
+              "query": [
+                {
+                  "key": "scope",
+                  "value": "series",
+                  "description": "one, following or series"
+                }
               ]
             },
             "body": {
@@ -2392,7 +2457,8 @@
                   "language": "json"
                 }
               }
-            }
+            },
+            "description": "Person, role or notes of this shift, the following ones of its series, or the whole series (`scope`); shifts that already started are left alone. Only `scope=one` may change `templateId`, `date`, `startTime` or `durationMinutes`."
           },
           "response": [],
           "event": [
@@ -2401,7 +2467,55 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('200', () => pm.response.to.have.status(200));"
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('the whole series changed', () => pm.expect(body.items.every((item) => item.role === 'SUPERVISOR')).to.be.true);",
+                  "console.log('Updated ' + body.items.length + ' shifts, skipped ' + body.skipped);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Copy a week",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"week\": \"{{shiftUntil}}\",\n  \"weeks\": 1,\n  \"templateId\": [\n    \"{{createdTemplateId}}\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/shifts/assignments/copy-week",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "shifts",
+                "assignments",
+                "copy-week"
+              ]
+            },
+            "description": "Repeats the shifts starting in `week` (Monday–Sunday, plant time zone) in the next `weeks` weeks at the same local times, optionally only some people (`userId`) or shifts (`templateId`). All or nothing: a copy that would overlap a planned shift is a 409 listing the clashes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201', () => pm.response.to.have.status(201));",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set('copiedAssignmentIds', JSON.stringify(body.items.map((item) => item.id)));",
+                  "console.log('Copied ' + body.items.length + ' shifts');"
                 ]
               }
             }
@@ -2433,7 +2547,8 @@
                   "disabled": true
                 }
               ]
-            }
+            },
+            "description": "Active people on shift at `at` (default now), by role, and `next`: the shifts of the next handover within 24 hours. Times come with the plant `timeZone`."
           },
           "response": [],
           "event": [
@@ -2454,7 +2569,7 @@
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/shifts/assignments/{{createdAssignmentId}}",
+              "raw": "{{baseUrl}}/shifts/assignments/{{createdAssignmentId}}?scope=series",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -2462,9 +2577,16 @@
                 "shifts",
                 "assignments",
                 "{{createdAssignmentId}}"
+              ],
+              "query": [
+                {
+                  "key": "scope",
+                  "value": "series",
+                  "description": "one, following or series"
+                }
               ]
             },
-            "description": "Removes the first scheduled shift; the test script removes the rest of the series so the template can be deleted."
+            "description": "This shift, the following ones of its series, or the whole series (`scope`). Shifts that already started stay."
           },
           "response": [],
           "event": [
@@ -2473,10 +2595,13 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('204', () => pm.response.to.have.status(204));",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
                   "",
-                  "const rest = JSON.parse(pm.collectionVariables.get('createdAssignmentIds') || '[]').slice(1);",
-                  "rest.forEach((id) => pm.sendRequest({",
+                  "const body = pm.response.json();",
+                  "console.log('Removed ' + body.removed + ', kept ' + body.skipped);",
+                  "",
+                  "// The copies made by \"Copy a week\", so the template can be deleted next.",
+                  "JSON.parse(pm.collectionVariables.get('copiedAssignmentIds') || '[]').forEach((id) => pm.sendRequest({",
                   "  url: pm.variables.replaceIn('{{baseUrl}}/shifts/assignments/') + id,",
                   "  method: 'DELETE',",
                   "  header: { Authorization: 'Bearer ' + pm.collectionVariables.get('accessToken') },",
@@ -3336,6 +3461,11 @@
     },
     {
       "key": "shiftUntil",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "copiedAssignmentIds",
       "value": "",
       "type": "string"
     },

@@ -95,7 +95,7 @@ The app monitors a small water utility (the seed data): a tree of **assets** (re
 | `/alarms` | `/api/alarms` | The alarm console: filter, acknowledge (one or many), open an alarm's timeline |
 | `/alarm-rules` | `/api/alarm-definitions` | Threshold rules on tags (admins edit) |
 | `/logbook` | `/api/logbook` | Operator notes, maintenance, shift handovers — and system events |
-| `/shifts` | `/api/shifts/*` | Week plan, shift templates, who is on duty now |
+| `/shifts` | `/api/shifts/*` | Shift calendar (month, week, day), staffing gaps, shift templates, who is on duty now |
 | `/assets`, `/assets/:id` | `/api/assets` | The asset tree; an asset page is built from embedded, pre-filtered views |
 | `/devices`, `/tags` | `/api/devices`, `/api/tags` | RTUs/PLCs/sensors and their datapoints with live values |
 | `/graphs` | `/api/telemetry/series`, `/stats` | Trend explorer: up to 8 tags, server-side buckets, one chart per unit |
@@ -136,6 +136,16 @@ The bell in the header shows alarm notifications the moment the server sends the
 ### Users
 
 `/users` filters by name or email, role, **status** (active / deactivated) and **last sign-in**: *All*, *Never signed in*, or *Exact date* with a date picker. They are URL and API parameters like every other list filter: `GET /api/users?status=DEACTIVATED&lastSignIn=never`, or `lastSignIn=2026-05-03` for a day. That day is read in `timeZone`, which the web app sets to the browser's zone, so the filter matches the date the *Last sign-in* column shows. Choosing *Exact date* opens an empty date field; nothing is filtered until a date is picked.
+
+### Shifts
+
+`/shifts` is a calendar of who works when, in three views: **Month** (per day, one line per shift with the initials of who is on it), **Week** (rows per shift, the roster, or rows per person with their hours) and **Day** (a midnight-to-midnight timeline with a now-line). The page's URL is the calendar's query, `GET /api/shifts/calendar?view=week&date=2026-10-05&role=SUPERVISOR` (`ShiftCalendarQuerySchema`); `group=person` only changes how the week is drawn. Above it, *On duty now* — the people alarm escalation would page — and who takes over next (`GET /api/shifts/on-duty`).
+
+- **Plant time zone.** Every date and time is in `SHIFT_TIME_ZONE` (default `Europe/Budapest`): a template's "06:00" is 06:00 there, a day runs from midnight to midnight there, and a shift belongs to the day it starts on there. A shift's length is wall-clock: Night, 22:00 + 8 h, ends at 06:00 even on the nights the clocks change (it then runs 7 or 9 hours), so it still meets the morning shift. Changing the zone later re-files existing shifts by the new zone.
+- **Staffing targets.** A template's `coverage` says whom it needs on which weekdays (Morning: an operator every day, a supervisor Monday–Friday). The calendar marks every day where a target isn't met, by role, and admins schedule into the gap from there. Deactivated people keep their shifts but no longer count, so their gaps show.
+- **Series.** Repeating a shift weekly creates a series. Changing or removing one of its shifts asks whether to apply to it, to it and the following ones, or to the whole series (`?scope=one|following|series`); wider scopes leave shifts that already started alone. Only one shift at a time can move to another day, time or template — doing so, or handing it to someone else, takes it out of its series.
+- **Copy a week.** `POST /api/shifts/assignments/copy-week` repeats a week's shifts in the next 1–8 weeks at the same local times. All or nothing, like scheduling.
+- **No double booking.** Nobody can be on two overlapping shifts. The API checks first and names the clash (409); a Postgres exclusion constraint (`shift_assignments_no_overlap`) backs it against concurrent requests.
 
 ### Asset and people filters
 
@@ -180,9 +190,9 @@ Make each file re-runnable (`ON CONFLICT ... DO NOTHING`, or `WHERE NOT EXISTS`)
 
 `id` and `updated_at` have to be set explicitly in SQL (`gen_random_uuid()`, `NOW()`) because Prisma generates those values in the client rather than in the database.
 
-The domain seed comes in three files: `002_assets.sql` (asset tree, devices, tags, alarm rules, shift templates — fixed, readable UUIDs such as `10000000-0000-4000-8000-000000000003` for the Riverside pumping station), `003_telemetry.sql` (14 days of 15-minute readings; a re-run tops them up to the current time) and `004_operations.sql` (alarm history consistent with the readings, logbook, a rotating shift plan from a week back to three weeks ahead, audit trail, two dashboards). Generated rows get deterministic ids from `md5`, so re-runs skip them. Shifts are planned in `Europe/Budapest` — change `SHIFT_TIME_ZONE` at the top of the shift section to plan in another zone.
+The domain seed comes in three files: `002_assets.sql` (asset tree, devices, tags, alarm rules, shift templates — fixed, readable UUIDs such as `10000000-0000-4000-8000-000000000003` for the Riverside pumping station), `003_telemetry.sql` (14 days of 15-minute readings; a re-run tops them up to the current time) and `004_operations.sql` (alarm history consistent with the readings, logbook, a rotating shift plan from a week back to three weeks ahead, audit trail, two dashboards). Generated rows get deterministic ids from `md5`, so re-runs skip them. Shifts are planned in the plant time zone, `SHIFT_TIME_ZONE` (the seed runner passes it to the SQL), each person's week on a shift is a series, and the night shift nine days ahead is left empty so the calendar has a staffing gap to show.
 
-A few rules Prisma cannot express live in `init.sql` as `CHECK` constraints (an asset is not its own parent, a shift ends after it starts, widget sizes are on the grid).
+A few rules Prisma cannot express live in `init.sql` as `CHECK` and exclusion constraints (an asset is not its own parent, a shift ends after it starts, nobody is on two shifts at once, widget sizes are on the grid).
 
 ## Scripts (root)
 

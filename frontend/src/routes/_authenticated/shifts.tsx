@@ -1,38 +1,54 @@
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, stripSearchParams } from '@tanstack/react-router';
-import { CalendarPlus, ChevronLeft, ChevronRight, Settings2 } from 'lucide-react';
+import { CalendarPlus, Settings2 } from 'lucide-react';
 import { z } from 'zod';
-import { shiftAssignmentFilters, type ShiftAssignment } from '@gen-ui/shared';
+import { ShiftCalendarQuerySchema, zonedDate, type ShiftCalendar as ShiftCalendarData, type ShiftCalendarQuery } from '@gen-ui/shared';
 import { FilterBar } from '@/components/filters/filter-bar';
 import { MultiSelectFilter } from '@/components/filters/multi-select-filter';
 import { PageContainer, PageHeader } from '@/components/layout/page';
 import { Button } from '@/components/ui/button';
-import { ViewCard } from '@/components/view-card';
-import { AssignmentDialog } from '@/features/shifts/assignment-dialog';
-import { OnDutyList } from '@/features/shifts/on-duty-list';
-import { ScheduleDialog } from '@/features/shifts/schedule-dialog';
+import { shiftCalendarQueryOptions, shiftTemplatesQueryOptions } from '@/features/shifts/api';
+import { OnDutyStrip } from '@/features/shifts/on-duty-strip';
+import { ScheduleShiftDialog } from '@/features/shifts/schedule-shift-dialog';
+import { SHIFT_GROUPINGS, ShiftCalendar } from '@/features/shifts/shift-calendar';
 import { TemplatesDialog } from '@/features/shifts/templates-dialog';
-import { addDays, describeWeek, fromDateKey, startOfWeek, toDateKey } from '@/features/shifts/week';
-import { WeekCalendar } from '@/features/shifts/week-calendar';
 import { UserFilter } from '@/features/users/user-filter';
 import { useAuth } from '@/lib/auth/auth-store';
 import { SHIFT_ROLE_OPTIONS } from '@/lib/labels';
 import { defaultsOf, searchSchema } from '@/lib/search';
 
-/** `week` is the Monday of the week shown (default: this week); the rest filters like the API. */
-const shiftsSearch = z.object({
-  week: z.iso.date().optional(),
-  userId: shiftAssignmentFilters.userId,
-  role: shiftAssignmentFilters.role,
+/** The calendar's query (the same as `GET /api/shifts/calendar`), plus how the week view groups its rows. */
+const ShiftsSearchSchema = ShiftCalendarQuerySchema.extend({
+  group: z.enum(SHIFT_GROUPINGS).default('shift').describe('Week view rows: one per shift, or one per person.'),
 });
-type ShiftsSearch = z.output<typeof shiftsSearch>;
+type ShiftsSearch = z.output<typeof ShiftsSearchSchema>;
+type ShiftsSearchInput = z.input<typeof ShiftsSearchSchema>;
+
+const calendarQuery = (search: ShiftsSearch): ShiftCalendarQuery => ({
+  view: search.view,
+  date: search.date,
+  userId: search.userId,
+  templateId: search.templateId,
+  role: search.role,
+});
 
 export const Route = createFileRoute('/_authenticated/shifts')({
   staticData: { title: 'Shifts' },
-  validateSearch: searchSchema(shiftsSearch),
-  search: { middlewares: [stripSearchParams(defaultsOf(shiftsSearch))] },
+  validateSearch: searchSchema(ShiftsSearchSchema),
+  search: { middlewares: [stripSearchParams(defaultsOf(ShiftsSearchSchema))] },
+  // `group` only changes how the same data is drawn.
+  loaderDeps: ({ search }) => calendarQuery(search),
+  loader: ({ context, deps }) => context.queryClient.ensureQueryData(shiftCalendarQueryOptions(deps)),
   component: ShiftsPage,
 });
+
+/** Scheduling from the header starts on today, or on the first day shown when that is later. */
+function scheduleDate(calendar: ShiftCalendarData | undefined): string | undefined {
+  if (!calendar) return undefined;
+  const today = zonedDate(new Date(), calendar.timeZone);
+  return calendar.from > today ? calendar.from : today;
+}
 
 function ShiftsPage() {
   const search = Route.useSearch();
@@ -41,15 +57,15 @@ function ShiftsPage() {
   const isAdmin = user?.role === 'ADMIN';
   const [scheduling, setScheduling] = useState(false);
   const [managingTemplates, setManagingTemplates] = useState(false);
-  const [editing, setEditing] = useState<ShiftAssignment | null>(null);
 
-  const weekStart = startOfWeek(search.week ? fromDateKey(search.week) : new Date());
-  const thisWeek = toDateKey(startOfWeek(new Date()));
-  const setSearch = (patch: Partial<ShiftsSearch>) => navigate({ search: (previous) => ({ ...previous, ...patch }), replace: true });
-  const goToWeek = (date: Date) => {
-    const key = toDateKey(startOfWeek(date));
-    setSearch({ week: key === thisWeek ? undefined : key });
-  };
+  const query = calendarQuery(search);
+  // The same cache entry the calendar reads: for the plant time zone and the period shown.
+  const calendar = useQuery(shiftCalendarQueryOptions(query));
+  const templates = useQuery(shiftTemplatesQueryOptions());
+  const templateOptions = (templates.data ?? []).map((template) => ({ value: template.id, label: template.name }));
+
+  const setSearch = (patch: Partial<ShiftsSearchInput>) =>
+    navigate({ search: (previous) => ({ ...previous, ...patch }), replace: true });
 
   return (
     <PageContainer className="max-w-7xl">
@@ -72,39 +88,41 @@ function ShiftsPage() {
         }
       />
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-1">
-          <Button variant="outline" size="icon" aria-label="Previous week" onClick={() => goToWeek(addDays(weekStart, -7))}>
-            <ChevronLeft />
-          </Button>
-          <Button variant="outline" size="icon" aria-label="Next week" onClick={() => goToWeek(addDays(weekStart, 7))}>
-            <ChevronRight />
-          </Button>
-          <Button variant="ghost" onClick={() => goToWeek(new Date())} disabled={toDateKey(weekStart) === thisWeek}>
-            This week
-          </Button>
-          <h3 className="ml-2 text-sm font-medium">{describeWeek(weekStart)}</h3>
-        </div>
-        <FilterBar canReset={Boolean(search.userId || search.role)} onReset={() => setSearch({ userId: undefined, role: undefined })}>
-          <UserFilter value={search.userId} onChange={(userId) => setSearch({ userId })} />
-          <MultiSelectFilter label="Role" options={SHIFT_ROLE_OPTIONS} value={search.role} onChange={(role) => setSearch({ role })} />
-        </FilterBar>
-      </div>
+      <OnDutyStrip />
 
-      <div className="grid gap-4 xl:grid-cols-[1fr_18rem]">
-        <WeekCalendar
-          weekStart={weekStart}
-          filters={{ userId: search.userId, role: search.role }}
-          onAssignmentClick={isAdmin ? setEditing : undefined}
-        />
-        <ViewCard title="On duty now" className="h-fit">
-          <OnDutyList />
-        </ViewCard>
-      </div>
+      <ShiftCalendar
+        query={query}
+        onQueryChange={(next) => setSearch(next)}
+        group={search.group}
+        onGroupChange={(group) => setSearch({ group })}
+        filters={
+          <FilterBar
+            canReset={Boolean(search.userId || search.role || search.templateId)}
+            onReset={() => setSearch({ userId: undefined, role: undefined, templateId: undefined })}
+          >
+            <UserFilter value={search.userId} onChange={(userId) => setSearch({ userId })} />
+            <MultiSelectFilter label="Role" options={SHIFT_ROLE_OPTIONS} value={search.role} onChange={(role) => setSearch({ role })} />
+            <MultiSelectFilter
+              label="Shift"
+              options={templateOptions}
+              value={search.templateId}
+              onChange={(templateId) => setSearch({ templateId })}
+            />
+          </FilterBar>
+        }
+      />
 
-      <ScheduleDialog open={scheduling} onOpenChange={setScheduling} date={toDateKey(weekStart < new Date() ? new Date() : weekStart)} />
-      <TemplatesDialog open={managingTemplates} onOpenChange={setManagingTemplates} />
-      <AssignmentDialog assignment={editing} onOpenChange={(open) => !open && setEditing(null)} />
+      {isAdmin && (
+        <>
+          <ScheduleShiftDialog
+            open={scheduling}
+            onOpenChange={setScheduling}
+            defaultDate={scheduleDate(calendar.data)}
+            timeZone={calendar.data?.timeZone}
+          />
+          <TemplatesDialog open={managingTemplates} onOpenChange={setManagingTemplates} />
+        </>
+      )}
     </PageContainer>
   );
 }
