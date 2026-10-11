@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Pencil, Trash2 } from 'lucide-react';
-import type { ShiftAssignment, ShiftCalendarDay, ShiftTemplate } from '@gen-ui/shared';
+import { templateTimes, type ShiftAssignment, type ShiftCalendarDay, type ShiftTemplate } from '@gen-ui/shared';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { SHIFT_ROLE, WEEKDAYS } from '@/lib/labels';
@@ -11,7 +11,6 @@ import {
   hasOwnHours,
   missingCount,
   shiftTimes,
-  templateTimes,
   type CalendarViewProps,
 } from './calendar-utils';
 import { PersonAvatar, RoleBadge } from './person-avatar';
@@ -69,24 +68,33 @@ function MonthDay({
       model.shifts(day.date, template.id).length > 0 ||
       model.shortfalls(day.date, template.id).length > 0,
   );
+  const dayNumber = cn(
+    'min-w-6 rounded-md px-1 text-sm font-medium tabular-nums',
+    outside && 'text-muted-foreground',
+    isToday && 'bg-primary text-primary-foreground',
+  );
   return (
     <div
       className={cn('min-h-28 border-b p-1', !firstInRow && 'border-l', outside && 'bg-muted/30')}
       aria-current={isToday ? 'date' : undefined}
     >
       <div className="mb-0.5 flex items-center justify-between gap-1">
-        <button
-          type="button"
-          onClick={() => onOpenDay(day.date)}
-          className={cn(
-            'min-w-6 rounded-md px-1 text-sm font-medium tabular-nums hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
-            outside && 'text-muted-foreground',
-            isToday && 'bg-primary text-primary-foreground hover:bg-primary/90',
-          )}
-          title={`Open ${formatShortDate(day.date)}`}
-        >
-          {dayOfMonth(day.date)}
-        </button>
+        {onOpenDay ? (
+          <button
+            type="button"
+            onClick={() => onOpenDay(day.date)}
+            className={cn(
+              dayNumber,
+              'hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
+              isToday && 'hover:bg-primary/90',
+            )}
+            title={`Open ${formatShortDate(day.date)}`}
+          >
+            {dayOfMonth(day.date)}
+          </button>
+        ) : (
+          <span className={dayNumber}>{dayOfMonth(day.date)}</span>
+        )}
         <GapCount count={missingCount(model.shortfalls(day.date))} />
       </div>
 

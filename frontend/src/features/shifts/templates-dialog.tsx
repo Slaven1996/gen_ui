@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
-import type { ShiftTemplate } from '@gen-ui/shared';
+import { templateTimes, type ShiftTemplate } from '@gen-ui/shared';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { shiftTemplatesQueryOptions, useDeleteTemplate, useSaveTemplate } from './api';
-import { coverageSummary, templateTimes } from './calendar-utils';
+import { coverageSummary } from './calendar-utils';
 import { TemplateForm } from './template-form';
 
 /** The shifts people are scheduled on. A template that has been scheduled can be deactivated, not deleted. */
@@ -36,7 +36,13 @@ function Templates() {
   const [deleting, setDeleting] = useState<ShiftTemplate | null>(null);
 
   if (editing) {
-    return <TemplateForm template={editing === 'new' ? undefined : editing} onDone={() => setEditing(null)} />;
+    return (
+      <TemplateForm
+        template={editing === 'new' ? undefined : editing}
+        onSaved={() => setEditing(null)}
+        onCancel={() => setEditing(null)}
+      />
+    );
   }
 
   return (

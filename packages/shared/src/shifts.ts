@@ -9,7 +9,7 @@ import {
   sortParam,
   UserRefSchema,
 } from './common/query.js';
-import { addDays, addMonths, startOfWeek } from './common/zoned-time.js';
+import { addDays, addMonths, minutesOfDay, startOfWeek, timeOfDay } from './common/zoned-time.js';
 
 export const SHIFT_ROLES = ['OPERATOR', 'SUPERVISOR', 'ON_CALL'] as const;
 export const ShiftRoleSchema = z.enum(SHIFT_ROLES);
@@ -20,7 +20,8 @@ export const MAX_SHIFT_OCCURRENCES = 62;
 /** Most shifts one "copy a week" request may create. */
 export const MAX_COPIED_SHIFTS = 300;
 
-const timeOfDay = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:mm, e.g. 06:00');
+/** `HH:mm`, a time on the plant's clock. */
+export const ClockTimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:mm, e.g. 06:00');
 const calendarDate = z.iso.date();
 const duration = z.int().min(15).max(24 * 60);
 const weekday = z.int().min(0).max(6);
@@ -76,7 +77,7 @@ export const ShiftTemplateSchema = z
   .object({
     id: z.guid(),
     name: z.string(),
-    startTime: timeOfDay.describe('Start time in the plant time zone, HH:mm.'),
+    startTime: ClockTimeSchema.describe('Start time in the plant time zone, HH:mm.'),
     durationMinutes: z.int().describe('Wall-clock length: a 22:00, 8 h shift ends at 06:00 even when the clocks change.'),
     color: z.string(),
     isActive: z.boolean(),
@@ -91,7 +92,7 @@ export const ShiftTemplatesSchema = itemsSchema(ShiftTemplateSchema).meta({ id: 
 
 const templateFields = {
   name: z.string().trim().min(1, 'Name is required').max(60),
-  startTime: timeOfDay,
+  startTime: ClockTimeSchema,
   durationMinutes: duration,
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Use a hex colour such as #3b82f6'),
   isActive: z.boolean(),
@@ -115,6 +116,12 @@ export const UpdateShiftTemplateSchema = z
   .describe('Affects shifts scheduled from now on; existing ones keep their times.')
   .meta({ id: 'UpdateShiftTemplate' });
 export type UpdateShiftTemplateDto = z.output<typeof UpdateShiftTemplateSchema>;
+
+/** `06:00–14:00` from a template's start and wall-clock length, and whether it ends the next day. */
+export function templateTimes(template: Pick<ShiftTemplate, 'startTime' | 'durationMinutes'>) {
+  const end = minutesOfDay(template.startTime) + template.durationMinutes;
+  return { label: `${template.startTime}–${timeOfDay(end)}`, overnight: end > 24 * 60 };
+}
 
 // ─── Assignments ────────────────────────────────────────────────────────────
 
@@ -166,7 +173,7 @@ export const CreateShiftAssignmentSchema = z
     userId: z.guid(),
     role: ShiftRoleSchema.default('OPERATOR'),
     date: calendarDate.describe('First (or only) day the shift starts on, YYYY-MM-DD, in the plant time zone.'),
-    startTime: timeOfDay.optional().describe('Custom start, HH:mm. Defaults to the template’s.'),
+    startTime: ClockTimeSchema.optional().describe('Custom start, HH:mm. Defaults to the template’s.'),
     durationMinutes: duration.optional().describe('Custom length in minutes. Defaults to the template’s.'),
     notes: nullableText(500).default(null),
     repeat: z
@@ -210,7 +217,7 @@ export const UpdateShiftAssignmentSchema = z
     notes: nullableText(500),
     templateId: z.guid().describe('Another shift; its times apply unless `startTime`/`durationMinutes` are given.'),
     date: calendarDate.describe('Move to this day, keeping the start time.'),
-    startTime: timeOfDay,
+    startTime: ClockTimeSchema,
     durationMinutes: duration,
   })
   .partial()
@@ -262,6 +269,20 @@ export const ShiftCalendarQuerySchema = z.object({
 });
 export type ShiftCalendarQueryInput = z.input<typeof ShiftCalendarQuerySchema>;
 export type ShiftCalendarQuery = z.output<typeof ShiftCalendarQuerySchema>;
+
+/** How the week view lays out its rows: one per shift, or one per person. */
+export const SHIFT_GROUPINGS = ['shift', 'person'] as const;
+export type ShiftGrouping = (typeof SHIFT_GROUPINGS)[number];
+
+/**
+ * The Shifts page's URL: the calendar query plus `group`, which only
+ * changes how the week is drawn (the API never sees it).
+ */
+export const ShiftsPageQuerySchema = ShiftCalendarQuerySchema.extend({
+  group: z.enum(SHIFT_GROUPINGS).default('shift').describe('Week rows: one per shift, or one per person.'),
+});
+export type ShiftsPageQueryInput = z.input<typeof ShiftsPageQuerySchema>;
+export type ShiftsPageQuery = z.output<typeof ShiftsPageQuerySchema>;
 
 export const ShiftCalendarDaySchema = z
   .object({

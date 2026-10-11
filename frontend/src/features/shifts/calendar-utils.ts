@@ -1,10 +1,8 @@
 import {
   localPeriod,
-  minutesOfDay,
   SHIFT_ROLES,
   shiftRunsOn,
   startOfWeek,
-  timeOfDay,
   weekdayOf,
   zonedDate,
   zonedTime,
@@ -48,12 +46,6 @@ export function shiftTimes(shift: Pick<ShiftAssignment, 'date' | 'startsAt' | 'e
     label: `${formatClock(shift.startsAt, timeZone)}–${formatClock(shift.endsAt, timeZone)}`,
     overnight: zonedDate(shift.endsAt, timeZone) > shift.date,
   };
-}
-
-/** `06:00–14:00` from a template's start and wall-clock length. */
-export function templateTimes(template: Pick<ShiftTemplate, 'startTime' | 'durationMinutes'>) {
-  const end = minutesOfDay(template.startTime) + template.durationMinutes;
-  return { label: `${template.startTime}–${timeOfDay(end)}`, overnight: end > 24 * 60 };
 }
 
 /** Whether a shift runs other hours than its template says (custom hours, or the template changed since). */
@@ -161,7 +153,8 @@ export interface CalendarViewProps {
   today: string;
   /** Admins only. */
   actions?: ShiftActions;
-  onOpenDay: (date: string) => void;
+  /** Opens a day from its header; without it (a calendar without controls) headers are plain text. */
+  onOpenDay?: (date: string) => void;
 }
 
 export interface CalendarModel {

@@ -1,12 +1,16 @@
-import { useState, type FormEvent } from 'react';
+import { useId, useState, type FormEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   localPeriod,
   SHIFT_ROLES,
+  templateTimes,
   UpdateShiftAssignmentSchema,
   type ShiftAssignment,
+  type ShiftChangeResult,
+  type ShiftChanges,
   type ShiftRole,
   type ShiftScope,
+  type ShiftTemplate,
 } from '@gen-ui/shared';
 import { Field, fieldErrors } from '@/components/form/field';
 import { Button } from '@/components/ui/button';
@@ -25,7 +29,7 @@ import { userOptionsQueryOptions } from '@/features/users/queries';
 import { getErrorMessage } from '@/lib/api/errors';
 import { SHIFT_ROLE } from '@/lib/labels';
 import { shiftTemplatesQueryOptions, useUpdateAssignment } from './api';
-import { formatShortDate, shiftTimes, templateTimes } from './calendar-utils';
+import { formatShortDate, shiftTimes } from './calendar-utils';
 import { ScopeChoice } from './scope-choice';
 
 /** Change one shift — or the person, role or notes of the rest of its series. */
@@ -57,9 +61,9 @@ interface FormState {
   hours: string;
 }
 
-function EditShiftForm({ shift, timeZone, onSaved }: { shift: ShiftAssignment; timeZone: string; onSaved: () => void }) {
-  const [local] = useState(() => localPeriod(shift.startsAt, shift.endsAt, timeZone));
-  const [initial] = useState<FormState>(() => ({
+const fromShift = (shift: ShiftAssignment, timeZone: string): FormState => {
+  const local = localPeriod(shift.startsAt, shift.endsAt, timeZone);
+  return {
     userId: shift.user.id,
     role: shift.role,
     notes: shift.notes ?? '',
@@ -67,12 +71,69 @@ function EditShiftForm({ shift, timeZone, onSaved }: { shift: ShiftAssignment; t
     date: local.date,
     startTime: local.startTime,
     hours: String(local.durationMinutes / 60),
-  }));
-  const [form, setForm] = useState(initial);
-  const [scope, setScope] = useState<ShiftScope>('one');
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  };
+};
+
+/** `form`, with the changes the assistant filled in put over it; another shift brings its own hours unless given. */
+const withPrefill = (form: FormState, prefill: ShiftChanges = {}, templates: readonly ShiftTemplate[] = []): FormState => {
+  const template =
+    prefill.templateId !== undefined && prefill.templateId !== form.templateId
+      ? templates.find((item) => item.id === prefill.templateId)
+      : undefined;
+  return {
+    userId: prefill.userId ?? form.userId,
+    role: prefill.role ?? form.role,
+    // null: no notes.
+    notes: prefill.notes === undefined ? form.notes : (prefill.notes ?? ''),
+    templateId: prefill.templateId ?? form.templateId,
+    date: prefill.date ?? form.date,
+    startTime: prefill.startTime ?? template?.startTime ?? form.startTime,
+    hours:
+      prefill.durationMinutes !== undefined
+        ? String(prefill.durationMinutes / 60)
+        : template
+          ? String(template.durationMinutes / 60)
+          : form.hours,
+  };
+};
+
+/** Long text in a hint: its start, in quotes. */
+const quoted = (value: string) => (value ? `“${value.length > 60 ? `${value.slice(0, 59)}…` : value}”` : 'empty');
+
+/**
+ * The shift form: the dialog's header, fields and button. The calendar shows
+ * it in `EditShiftDialog`; the assistant shows it inside an answer
+ * (`InlineDialog`), with `prefill` over the shift's values and `initialScope`
+ * picked, each changed value hinting what it was. Either way it sits inside a
+ * `Dialog`, which its title and description need. The assistant waits for the
+ * templates before opening it, so a new shift in `prefill` brings its hours.
+ */
+export function EditShiftForm({
+  shift,
+  timeZone,
+  prefill,
+  initialScope = 'one',
+  disabled = false,
+  onSaved,
+}: {
+  shift: ShiftAssignment;
+  timeZone: string;
+  prefill?: ShiftChanges;
+  initialScope?: ShiftScope;
+  /** Keeps the button off, e.g. while the answer that opened the form is still streaming. */
+  disabled?: boolean;
+  onSaved: (result: ShiftChangeResult) => void;
+}) {
+  const id = useId();
   const templates = useQuery(shiftTemplatesQueryOptions());
   const users = useQuery(userOptionsQueryOptions());
+  const [local] = useState(() => localPeriod(shift.startsAt, shift.endsAt, timeZone));
+  const [initial] = useState(() => fromShift(shift, timeZone));
+  // What the form opened with: the shift, with the assistant's changes over it.
+  const [opened] = useState(() => withPrefill(initial, prefill, templates.data));
+  const [form, setForm] = useState(opened);
+  const [scope, setScope] = useState<ShiftScope>(shift.seriesId ? initialScope : 'one');
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const update = useUpdateAssignment();
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((current) => ({ ...current, [key]: value }));
@@ -86,6 +147,10 @@ function EditShiftForm({ shift, timeZone, onSaved }: { shift: ShiftAssignment; t
       ...(template && { startTime: template.startTime, hours: String(template.durationMinutes / 60) }),
     }));
   };
+
+  // A value the assistant changed says what it was.
+  const was = (key: keyof FormState, show: (value: string) => string = (value) => value || 'empty') =>
+    prefill && opened[key] !== initial[key] ? `Was ${show(initial[key])}` : undefined;
 
   const durationMinutes = Math.round(Number(form.hours) * 60);
   const notes = form.notes.trim() || null;
@@ -130,9 +195,9 @@ function EditShiftForm({ shift, timeZone, onSaved }: { shift: ShiftAssignment; t
       {shift.seriesId && <ScopeChoice value={scope} onChange={setScope} />}
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field id="edit-shift-user" label="Person" error={errors.userId}>
+        <Field id={`${id}-user`} label="Person" error={errors.userId} hint={was('userId', () => shift.user.name)}>
           <Select value={form.userId} onValueChange={(value) => set('userId', value)}>
-            <SelectTrigger id="edit-shift-user" className="w-full">
+            <SelectTrigger id={`${id}-user`} className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -147,9 +212,9 @@ function EditShiftForm({ shift, timeZone, onSaved }: { shift: ShiftAssignment; t
             </SelectContent>
           </Select>
         </Field>
-        <Field id="edit-shift-role" label="Role">
+        <Field id={`${id}-role`} label="Role" hint={was('role', (value) => SHIFT_ROLE[value as ShiftRole])}>
           <Select value={form.role} onValueChange={(value) => set('role', value as ShiftRole)}>
-            <SelectTrigger id="edit-shift-role" className="w-full">
+            <SelectTrigger id={`${id}-role`} className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -167,9 +232,9 @@ function EditShiftForm({ shift, timeZone, onSaved }: { shift: ShiftAssignment; t
         <legend className="px-1 text-sm font-medium">When</legend>
         {!onlyThis && <p className="text-xs text-muted-foreground">The day and hours change one shift at a time.</p>}
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field id="edit-shift-template" label="Shift" error={errors.templateId}>
+          <Field id={`${id}-template`} label="Shift" error={errors.templateId} hint={was('templateId', () => shift.template.name)}>
             <Select value={form.templateId} onValueChange={setTemplate} disabled={!onlyThis}>
-              <SelectTrigger id="edit-shift-template" className="w-full">
+              <SelectTrigger id={`${id}-template`} className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -182,15 +247,20 @@ function EditShiftForm({ shift, timeZone, onSaved }: { shift: ShiftAssignment; t
               </SelectContent>
             </Select>
           </Field>
-          <Field id="edit-shift-date" label="Date" error={errors.date}>
-            <Input id="edit-shift-date" type="date" value={form.date} onChange={(event) => set('date', event.target.value)} />
+          <Field id={`${id}-date`} label="Date" error={errors.date} hint={was('date', formatShortDate)}>
+            <Input id={`${id}-date`} type="date" value={form.date} onChange={(event) => set('date', event.target.value)} />
           </Field>
-          <Field id="edit-shift-start" label="Starts" error={errors.startTime}>
-            <Input id="edit-shift-start" type="time" value={form.startTime} onChange={(event) => set('startTime', event.target.value)} />
+          <Field id={`${id}-start`} label="Starts" error={errors.startTime} hint={was('startTime')}>
+            <Input id={`${id}-start`} type="time" value={form.startTime} onChange={(event) => set('startTime', event.target.value)} />
           </Field>
-          <Field id="edit-shift-hours" label="Hours" error={errors.durationMinutes && '0.25–24'}>
+          <Field
+            id={`${id}-hours`}
+            label="Hours"
+            error={errors.durationMinutes && '0.25–24'}
+            hint={was('hours', (value) => `${value} h`)}
+          >
             <Input
-              id="edit-shift-hours"
+              id={`${id}-hours`}
               type="number"
               min={0.25}
               max={24}
@@ -202,8 +272,8 @@ function EditShiftForm({ shift, timeZone, onSaved }: { shift: ShiftAssignment; t
         </div>
       </fieldset>
 
-      <Field id="edit-shift-notes" label="Notes" error={errors.notes}>
-        <Textarea id="edit-shift-notes" value={form.notes} onChange={(event) => set('notes', event.target.value)} />
+      <Field id={`${id}-notes`} label="Notes" error={errors.notes} hint={was('notes', quoted)}>
+        <Textarea id={`${id}-notes`} value={form.notes} onChange={(event) => set('notes', event.target.value)} />
       </Field>
       {update.isError && (
         <p className="text-sm text-destructive" role="alert">
@@ -211,7 +281,7 @@ function EditShiftForm({ shift, timeZone, onSaved }: { shift: ShiftAssignment; t
         </p>
       )}
       <DialogFooter>
-        <Button type="submit" disabled={!changed || update.isPending}>
+        <Button type="submit" disabled={disabled || !changed || update.isPending}>
           {update.isPending ? 'Saving…' : 'Save'}
         </Button>
       </DialogFooter>

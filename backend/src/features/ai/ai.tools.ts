@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { tool, type InferUITools } from 'ai';
 import {
+  addDays,
   FORM_TOOL_NAMES,
   genUiToolSchemas,
   GraphQuerySchema,
@@ -13,6 +14,14 @@ import {
   ListLogbookQuerySchema,
   ListTagsQuerySchema,
   ListUsersQuerySchema,
+  localPeriod,
+  normalizeCoverage,
+  OnDutyQuerySchema,
+  SHIFT_TIME_FIELDS,
+  ShiftCalendarQuerySchema,
+  startOfWeek,
+  zonedDate,
+  zonedTime,
   type AlarmDefinition,
   type Asset,
   type AssetSnapshot,
@@ -26,6 +35,10 @@ import {
   type LogbookEntry,
   type Role,
   type RuleSnapshot,
+  type ShiftAssignment,
+  type ShiftSnapshot,
+  type ShiftTemplate,
+  type ShiftTemplateSnapshot,
   type Tag,
   type TagSnapshot,
   type UserRef,
@@ -37,6 +50,7 @@ import { DevicesService, type DeviceOption } from '../assets/devices.service.js'
 import { TagsService, type TagOption } from '../assets/tags.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { LogbookService, type EntryOption } from '../logbook/logbook.service.js';
+import { ShiftsService } from '../shifts/shifts.service.js';
 import { TelemetryService } from '../telemetry/telemetry.service.js';
 import type { AuthUser } from '../users/user.mapper.js';
 import { UsersService } from '../users/users.service.js';
@@ -53,17 +67,22 @@ const clip = (text: string | null) =>
 /** The user's own entries listed for the edit form, newest first; older ones are edited on the Logbook page. */
 const OWN_ENTRIES_FOR_MODEL = 30;
 
+/** Shifts handed to the model per calendar: a busy week fits; the calendar in the chat shows the rest. */
+const SHIFTS_FOR_MODEL = 60;
+
 /**
  * The choices the pages' pickers offer: the asset tree (`AssetSelect`, from
  * `GET /assets/tree`) and the active people (`UserFilter`, from
  * `GET /users/options`). The system prompt lists them, so Claude fills
- * `assetId`, `authorId` and `actorId` with ids a dropdown can show.
+ * `assetId`, `authorId`, `actorId` and `userId` with ids a dropdown can show.
  *
  * The other lists are loaded only when a tool on offer takes them, so other
  * prompts stay short: every device, tag and alarm rule (`deviceId`, `tagId`,
  * `tagIds`, `ruleId`: the choices the device and tag pickers offer, the tags
- * a chart plots, and the records an admin can open to edit), and the user's
- * own latest logbook entries (`entryId`: the ones they may edit).
+ * a chart plots, and the records an admin can open to edit), the user's
+ * own latest logbook entries (`entryId`: the ones they may edit), and the
+ * shift templates (`templateId`: the Shifts page's Shift dropdown).
+ * `plantTimeZone` is the zone shift dates are in, for the prompt.
  */
 export interface FilterOptions {
   assets: AssetTreeNode[];
@@ -72,6 +91,8 @@ export interface FilterOptions {
   tags?: TagOption[];
   rules?: AlarmRuleOption[];
   entries?: EntryOption[];
+  shiftTemplates?: ShiftTemplate[];
+  plantTimeZone: string;
 }
 
 /** The forms by role: the system prompt says what to do when the user asks for one. */
@@ -87,9 +108,10 @@ export interface FormAccess {
  * quietly filter everything out, or open the wrong record in a form, so the
  * tool refuses it; Claude reads the error and tries again.
  */
-function idChecks({ assets, people, devices, tags, rules, entries }: FilterOptions) {
+function idChecks({ assets, people, devices, tags, rules, entries, shiftTemplates }: FilterOptions) {
   const assetsById = new Map(assets.map((asset) => [asset.id, asset]));
-  const peopleIds = new Set(people.map((person) => person.id));
+  const peopleById = new Map(people.map((person) => [person.id, person]));
+  const templatesById = new Map(shiftTemplates?.map((template) => [template.id, template]));
   const devicesById = new Map(devices?.map((device) => [device.id, device]));
   const tagsById = new Map(tags?.map((tag) => [tag.id, tag]));
   const rulesById = new Map(rules?.map((rule) => [rule.id, rule]));
@@ -100,6 +122,16 @@ function idChecks({ assets, people, devices, tags, rules, entries }: FilterOptio
     const node = assetsById.get(id);
     if (!node) throw new Error(`Unknown asset id ${id}: use an id from the asset list.`);
     return node;
+  };
+  const person = (id: string): UserRef => {
+    const found = peopleById.get(id);
+    if (!found) throw new Error(`Unknown person id ${id}: use an id from the people list.`);
+    return found;
+  };
+  const template = (id: string): ShiftTemplate => {
+    const found = templatesById.get(id);
+    if (!found) throw new Error(`Unknown shift template id ${id}: use an id from the shift template list.`);
+    return found;
   };
   return {
     asset,
@@ -112,9 +144,21 @@ function idChecks({ assets, people, devices, tags, rules, entries }: FilterOptio
         }
       }
     },
+    person,
     people(ids: string[] | undefined): void {
-      const unknown = ids?.find((id) => !peopleIds.has(id));
-      if (unknown) throw new Error(`Unknown person id ${unknown}: use an id from the people list.`);
+      for (const id of ids ?? []) person(id);
+    },
+    template,
+    templates(ids: string[] | undefined): void {
+      for (const id of ids ?? []) template(id);
+    },
+    /** A template people can be scheduled on: the forms' Shift dropdowns list only active ones. */
+    activeTemplate(id: string): ShiftTemplate {
+      const found = template(id);
+      if (!found.isActive) {
+        throw new Error(`The shift ${found.name} is switched off, so nobody can be scheduled on it: choose an active one.`);
+      }
+      return found;
     },
     rule(id: string): AlarmRuleOption {
       const rule = rulesById.get(id);
@@ -224,6 +268,36 @@ export function toEntrySnapshot(entry: LogbookEntry): EntrySnapshot {
 }
 
 /**
+ * A shift's values as the edit form opens on them, on the plant's clock
+ * (`timeZone`); `recordOutcome` diffs the saved shift against this.
+ */
+export function toShiftSnapshot(shift: ShiftAssignment, timeZone: string): ShiftSnapshot {
+  const local = localPeriod(shift.startsAt, shift.endsAt, timeZone);
+  return {
+    person: shift.user.name,
+    shift: shift.template.name,
+    role: shift.role,
+    date: local.date,
+    start: local.startTime,
+    hours: local.durationMinutes / 60,
+    notes: shift.notes,
+  };
+}
+
+/** A template's values as the edit form opens on them; `recordOutcome` diffs the saved template against this. */
+export function toShiftTemplateSnapshot(template: ShiftTemplate): ShiftTemplateSnapshot {
+  return {
+    name: template.name,
+    startTime: template.startTime,
+    durationMinutes: template.durationMinutes,
+    color: template.color,
+    isActive: template.isActive,
+    // In a stable order, so equal staffing compares equal.
+    coverage: normalizeCoverage(template.coverage),
+  };
+}
+
+/**
  * Who may use each tool: the `@Roles` of the endpoint the tool mirrors. HTTP
  * guards don't run for tool calls, so this map is the tools' authorization.
  * `satisfies` makes every tool declare its roles. A tool limited to admins
@@ -236,6 +310,8 @@ const TOOL_ROLES = {
   listAuditLogs: ['ADMIN'],
   listAlarms: ['ADMIN', 'USER'],
   listLogbookEntries: ['ADMIN', 'USER'],
+  showShiftCalendar: ['ADMIN', 'USER'],
+  showOnDuty: ['ADMIN', 'USER'],
   listDevices: ['ADMIN', 'USER'],
   listTags: ['ADMIN', 'USER'],
   listAssets: ['ADMIN', 'USER'],
@@ -251,6 +327,11 @@ const TOOL_ROLES = {
   editAsset: ['ADMIN'],
   createLogbookEntry: ['ADMIN', 'USER'],
   editLogbookEntry: ['ADMIN', 'USER'],
+  scheduleShift: ['ADMIN'],
+  editShift: ['ADMIN'],
+  copyShiftWeek: ['ADMIN'],
+  createShiftTemplate: ['ADMIN'],
+  editShiftTemplate: ['ADMIN'],
 } as const satisfies Record<GenUIToolName, readonly Role[]>;
 
 /** Whether this user's role may use the tool (also checked when a form's outcome is recorded). */
@@ -282,6 +363,7 @@ export class AiTools {
     private readonly tags: TagsService,
     private readonly assets: AssetsService,
     private readonly telemetry: TelemetryService,
+    private readonly shifts: ShiftsService,
   ) {}
 
   /**
@@ -291,15 +373,18 @@ export class AiTools {
    */
   async filterOptions(user: AuthUser, active: GenUIToolName[]): Promise<FilterOptions> {
     const takenBy = (...names: GenUIToolName[]) => names.some((name) => active.includes(name));
-    const [assets, people, devices, tags, rules, entries] = await Promise.all([
+    const [assets, people, devices, tags, rules, entries, shiftTemplates] = await Promise.all([
       this.assets.tree(),
       this.users.options(),
       takenBy('editDevice', 'createTag') ? this.devices.options() : undefined,
       takenBy('createAlarmRule', 'editTag', 'plotTags') ? this.tags.options() : undefined,
       takenBy('editAlarmRule') ? this.alarmRules.options() : undefined,
       takenBy('editLogbookEntry') ? this.logbook.options(user.id, OWN_ENTRIES_FOR_MODEL) : undefined,
+      takenBy('showShiftCalendar', 'scheduleShift', 'editShift', 'copyShiftWeek', 'editShiftTemplate')
+        ? this.shifts.listTemplates()
+        : undefined,
     ]);
-    return { assets, people, devices, tags, rules, entries };
+    return { assets, people, devices, tags, rules, entries, shiftTemplates, plantTimeZone: this.shifts.timeZone };
   }
 
   /**
@@ -311,6 +396,8 @@ export class AiTools {
    */
   create({ user, timeZone, options }: { user: AuthUser; timeZone: string; options: FilterOptions }) {
     const known = idChecks(options);
+    // Shift dates and times are the plant's, whatever the user's zone.
+    const plantZone = options.plantTimeZone;
     // TOOL_ROLES already keeps admin-only tools from everyone else; this is the second lock.
     const adminOnly = (what: string) => {
       if (user.role !== 'ADMIN') throw new ForbiddenException(`${what} is for admins only.`);
@@ -424,6 +511,65 @@ export class AiTools {
               body: clip(entry.body),
               asset: entry.asset?.name ?? null,
               author: entry.author?.name ?? null,
+            })),
+          };
+        },
+      }),
+
+      showShiftCalendar: tool({
+        ...genUiToolSchemas.showShiftCalendar,
+        // `title` only labels the calendar and `group` only lays out its week; the rest is the `/shifts/calendar` query.
+        execute: async ({ title: _title, group: _group, ...filters }) => {
+          known.people(filters.userId);
+          known.templates(filters.templateId);
+          const calendar = await this.shifts.calendar(ShiftCalendarQuerySchema.parse(filters));
+          const zone = calendar.timeZone;
+          // Each shift under the day it starts, as the calendar files it: not the night that began the evening before.
+          const shifts = calendar.items.filter((item) => item.date >= calendar.from && item.date <= calendar.to);
+          const templateNames = new Map(calendar.templates.map((template) => [template.id, template.name]));
+          return {
+            timeZone: zone,
+            view: calendar.view,
+            from: calendar.from,
+            to: calendar.to,
+            total: shifts.length,
+            shifts: shifts.slice(0, SHIFTS_FOR_MODEL).map((shift) => ({
+              date: shift.date,
+              shift: shift.template.name,
+              start: zonedTime(shift.startsAt, zone),
+              end: zonedTime(shift.endsAt, zone),
+              person: shift.user.name,
+              role: shift.role,
+              notes: clip(shift.notes),
+            })),
+            gaps: calendar.coverage
+              .filter((entry) => entry.filled < entry.required)
+              .map((entry) => ({
+                date: entry.date,
+                shift: templateNames.get(entry.templateId) ?? entry.templateId,
+                role: entry.role,
+                missing: entry.required - entry.filled,
+              })),
+          };
+        },
+      }),
+
+      showOnDuty: tool({
+        ...genUiToolSchemas.showOnDuty,
+        // `when` picks one half of the on-duty strip; `role` is its query.
+        execute: async ({ when, role }) => {
+          const onDuty = await this.shifts.onDuty(OnDutyQuerySchema.parse({ role }));
+          const zone = onDuty.timeZone;
+          const at = (instant: string) => `${zonedDate(instant, zone)} ${zonedTime(instant, zone)}`;
+          return {
+            when,
+            timeZone: zone,
+            people: (when === 'now' ? onDuty.items : onDuty.next).map((shift) => ({
+              name: shift.user.name,
+              role: shift.role,
+              shift: shift.template.name,
+              from: at(shift.startsAt),
+              until: at(shift.endsAt),
             })),
           };
         },
@@ -638,6 +784,100 @@ export class AiTools {
           if (entry.author?.id !== user.id) throw new ForbiddenException('Only its author can edit an entry.');
           // The form loads the entry again itself; this copy is for Claude, and for the outcome's diff.
           return { status: 'opened' as const, entry: toEntrySnapshot(entry) };
+        },
+      }),
+
+      scheduleShift: tool({
+        ...genUiToolSchemas.scheduleShift,
+        execute: async ({ userId, templateId }): Promise<FormOutput<'scheduleShift'>> => {
+          adminOnly('Scheduling shifts');
+          return {
+            status: 'opened' as const,
+            person: userId === undefined ? null : known.person(userId).name,
+            shift: templateId === undefined ? null : known.activeTemplate(templateId).name,
+            timeZone: plantZone,
+          };
+        },
+      }),
+
+      editShift: tool({
+        ...genUiToolSchemas.editShift,
+        execute: async ({ userId, date, templateId, scope = 'one', changes }): Promise<FormOutput<'editShift'>> => {
+          adminOnly('Editing shifts');
+          const person = known.person(userId);
+          if (templateId !== undefined) known.template(templateId);
+          if (changes?.userId !== undefined) known.person(changes.userId);
+          if (changes?.templateId !== undefined) known.activeTemplate(changes.templateId);
+
+          // The shift is named by whose it is and the day it starts: one match, or Claude hears what there is.
+          const found = await this.shifts.findStarting({ userId, date, templateId });
+          if (found.length !== 1) {
+            const thatDay = templateId === undefined ? found : await this.shifts.findStarting({ userId, date });
+            const hours = (shift: ShiftAssignment) =>
+              `${zonedTime(shift.startsAt, plantZone)}–${zonedTime(shift.endsAt, plantZone)}`;
+            const listed = thatDay
+              .map((shift) => `${shift.template.name} ${hours(shift)} (template id ${shift.template.id})`)
+              .join('; ');
+            throw new Error(
+              found.length === 0
+                ? `${person.name} has no ${templateId === undefined ? '' : 'such '}shift starting on ${date}${listed ? `. That day they have: ${listed}` : ''}.`
+                : `${person.name} has ${found.length} shifts starting on ${date}: ${listed}. Call again with the templateId of the one meant.`,
+            );
+          }
+          const shift = found[0];
+
+          // A shift outside a series is its own whole series; the service only moves one shift in time at once.
+          const effectiveScope = shift.seriesId ? scope : 'one';
+          if (effectiveScope !== 'one' && SHIFT_TIME_FIELDS.some((field) => changes?.[field] !== undefined)) {
+            throw new Error(
+              'A new day, shift or hours applies to one shift at a time: use scope one, or change only the person, role or notes.',
+            );
+          }
+          // The form loads the shift again itself; this copy is for Claude, and for the outcome's diff.
+          return {
+            status: 'opened' as const,
+            shiftId: shift.id,
+            timeZone: plantZone,
+            repeats: shift.seriesId !== null,
+            scope: effectiveScope,
+            shift: toShiftSnapshot(shift, plantZone),
+          };
+        },
+      }),
+
+      copyShiftWeek: tool({
+        ...genUiToolSchemas.copyShiftWeek,
+        execute: async ({ week, userId, templateId }): Promise<FormOutput<'copyShiftWeek'>> => {
+          adminOnly('Copying shifts');
+          // Without a day, this week on the plant's calendar, as the page's Copy week button would copy.
+          const monday = startOfWeek(week ?? zonedDate(new Date(), plantZone));
+          return {
+            status: 'opened' as const,
+            week: { from: monday, to: addDays(monday, 6) },
+            people: userId?.map((id) => known.person(id).name) ?? null,
+            shifts: templateId?.map((id) => known.template(id).name) ?? null,
+          };
+        },
+      }),
+
+      createShiftTemplate: tool({
+        ...genUiToolSchemas.createShiftTemplate,
+        execute: async (): Promise<FormOutput<'createShiftTemplate'>> => {
+          adminOnly('Adding shift templates');
+          return { status: 'opened' as const };
+        },
+      }),
+
+      editShiftTemplate: tool({
+        ...genUiToolSchemas.editShiftTemplate,
+        execute: async ({ templateId }): Promise<FormOutput<'editShiftTemplate'>> => {
+          adminOnly('Editing shift templates');
+          known.template(templateId);
+          // The form loads the template again itself; this copy is for Claude, and for the outcome's diff.
+          return {
+            status: 'opened' as const,
+            template: toShiftTemplateSnapshot(await this.shifts.getTemplate(templateId)),
+          };
         },
       }),
     };

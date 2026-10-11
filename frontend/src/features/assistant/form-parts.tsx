@@ -6,6 +6,8 @@ import { CircleCheck, CircleX } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   FORM_TITLES,
+  templateTimes,
+  zonedDate,
   type AlarmSeverity,
   type AssetType,
   type DeviceProtocol,
@@ -17,6 +19,8 @@ import {
   type GenUITools,
   type LogbookCategory,
   type LogSeverity,
+  type ShiftChangeResult,
+  type ShiftRole,
   type TagDataType,
 } from '@gen-ui/shared';
 import { InlineDialog } from '@/components/inline-dialog';
@@ -29,6 +33,11 @@ import { AssetForm } from '@/features/assets/asset-form-dialog';
 import { DeviceForm } from '@/features/devices/device-form-dialog';
 import { logbookEntryQueryOptions } from '@/features/logbook/api';
 import { EntryForm } from '@/features/logbook/entry-form-dialog';
+import { shiftAssignmentQueryOptions, shiftTemplatesQueryOptions } from '@/features/shifts/api';
+import { CopyWeekForm } from '@/features/shifts/copy-week-dialog';
+import { EditShiftForm } from '@/features/shifts/edit-shift-dialog';
+import { ScheduleShiftForm } from '@/features/shifts/schedule-shift-dialog';
+import { TemplateForm } from '@/features/shifts/template-form';
 import { TagForm } from '@/features/tags/tag-form-dialog';
 import { CreateUserForm } from '@/features/users/user-form-dialog';
 import { getErrorMessage } from '@/lib/api/errors';
@@ -42,6 +51,7 @@ import {
   LOG_SEVERITY,
   LOGBOOK_CATEGORY,
   SEVERITY,
+  SHIFT_ROLE,
   TAG_DATA_TYPE,
 } from '@/lib/labels';
 import { cn } from '@/lib/utils';
@@ -67,8 +77,11 @@ interface FormProps<N extends FormToolName> {
   output: Output<N>;
   /** Keeps the form's button off while the answer that opened it is still streaming. */
   disabled: boolean;
-  /** The save went through: the id of the record it saved. */
-  onSaved: (entityId: string) => void;
+  /**
+   * The save went through: the id of the record it saved, and for a form
+   * that saves several (a repeating shift, a copied week), every one.
+   */
+  onSaved: (entityId: string, entityIds?: string[]) => void;
 }
 
 /** How one form tool's calls show in the chat. */
@@ -305,6 +318,114 @@ const ENTRY_CHANGES: ChangeLabels = {
   occurredAt: { label: 'time', show: (value) => (typeof value === 'string' ? formatDateTime(value) : shownValue(value)) },
 };
 
+// ─── Shifts ─────────────────────────────────────────────────────────────────
+
+/** What a shift save reports: the first shift, and every one (a repeat or a copy saves several). */
+const reportShifts = (onSaved: FormProps<FormToolName>['onSaved']) => ({ items }: ShiftChangeResult) =>
+  onSaved(items[0].id, items.map((item) => item.id));
+
+/** Dates and times are the plant's, as on the Shifts page: `output.timeZone`. */
+function ScheduleShiftBody({ input, output, disabled, onSaved }: FormProps<'scheduleShift'>) {
+  return (
+    <ScheduleShiftForm
+      prefill={input}
+      date={zonedDate(new Date(), output.timeZone)}
+      timeZone={output.timeZone}
+      disabled={disabled}
+      onSaved={reportShifts(onSaved)}
+    />
+  );
+}
+
+/**
+ * The shift as it is now, with Claude's changes over it. It waits for the
+ * templates too, so a change to another shift brings that shift's hours.
+ */
+function EditShiftBody({ input, output, disabled, onSaved }: FormProps<'editShift'>) {
+  const shift = useQuery(shiftAssignmentQueryOptions(output.shiftId));
+  const templates = useQuery(shiftTemplatesQueryOptions());
+  return (
+    <WhenLoaded query={shift}>
+      {(current) => (
+        <WhenLoaded query={templates}>
+          {() => (
+            <EditShiftForm
+              shift={current}
+              timeZone={output.timeZone}
+              prefill={input.changes}
+              initialScope={output.scope}
+              disabled={disabled}
+              // A change to the rest of a series may leave this shift (already started) as it was.
+              onSaved={({ items }) => onSaved(output.shiftId, items.map((item) => item.id))}
+            />
+          )}
+        </WhenLoaded>
+      )}
+    </WhenLoaded>
+  );
+}
+
+function CopyShiftWeekBody({ input, output, disabled, onSaved }: FormProps<'copyShiftWeek'>) {
+  return (
+    <CopyWeekForm
+      week={output.week}
+      filters={{ userId: input.userId, templateId: input.templateId }}
+      weeks={input.weeks}
+      disabled={disabled}
+      onSaved={reportShifts(onSaved)}
+    />
+  );
+}
+
+function CreateShiftTemplateBody({ input, disabled, onSaved }: FormProps<'createShiftTemplate'>) {
+  return <TemplateForm prefill={input} heading="dialog" disabled={disabled} onSaved={(template) => onSaved(template.id)} />;
+}
+
+/** The template as it is now, from the list the Shifts page keeps, with Claude's changes over it. */
+function EditShiftTemplateBody({ input, disabled, onSaved }: FormProps<'editShiftTemplate'>) {
+  const template = useQuery({
+    ...shiftTemplatesQueryOptions(),
+    select: (templates) => templates.find((item) => item.id === input.templateId) ?? null,
+  });
+  return (
+    <WhenLoaded query={template}>
+      {(current) =>
+        current ? (
+          <TemplateForm
+            template={current}
+            prefill={input.changes}
+            heading="dialog"
+            disabled={disabled}
+            onSaved={(saved) => onSaved(saved.id)}
+          />
+        ) : (
+          <p className="pr-6 text-sm text-destructive" role="alert">
+            This shift template no longer exists.
+          </p>
+        )
+      }
+    </WhenLoaded>
+  );
+}
+
+const hoursShown = (value: unknown) => (typeof value === 'number' ? `${value} h` : shownValue(value));
+
+const SHIFT_CHANGES: ChangeLabels = {
+  role: { show: byLabel((value) => SHIFT_ROLE[value as ShiftRole]) },
+  hours: { show: hoursShown },
+  notes: { show: null },
+};
+
+const TEMPLATE_CHANGES: ChangeLabels = {
+  startTime: { label: 'start' },
+  durationMinutes: { label: 'length', show: (value) => (typeof value === 'number' ? hoursShown(value / 60) : shownValue(value)) },
+  color: { label: 'colour' },
+  isActive: { label: 'active' },
+  coverage: { label: 'staffing', show: null },
+};
+
+const shiftCount = (count: number) => `${count} ${count === 1 ? 'shift' : 'shifts'}`;
+
 // ─── Registry ───────────────────────────────────────────────────────────────
 
 /**
@@ -395,6 +516,51 @@ const FORM_RENDERERS: { [N in FormToolName]: FormRenderer<N> } = {
     saved: ({ changed }, { entry }) => savedEdit(changed, entry.title, ENTRY_CHANGES, 'title'),
     link: ({ changed }, { entry }) => ({ to: '/logbook', search: { search: afterEdit(changed, 'title', entry.title) } }),
   },
+  scheduleShift: {
+    pending: 'Opening the schedule form…',
+    label: FORM_TITLES.scheduleShift,
+    Form: ScheduleShiftBody,
+    saved: ({ scheduled }) =>
+      scheduled.shifts === 1
+        ? `Scheduled ${scheduled.person} on ${scheduled.shift}, ${scheduled.from}`
+        : `Scheduled ${scheduled.person} on ${scheduled.shift}: ${shiftCount(scheduled.shifts)}, ${scheduled.from} to ${scheduled.to}`,
+    link: ({ scheduled }) => ({ to: '/shifts', search: { date: scheduled.from } }),
+  },
+  editShift: {
+    pending: 'Opening the shift…',
+    label: FORM_TITLES.editShift,
+    Form: EditShiftBody,
+    saved: ({ changed, shifts }, { shift }) => {
+      const which = `${shift.person}’s ${shift.shift} shift on ${shift.date}`;
+      if (shifts === 0) return `Saved nothing: the shifts it applied to had already started`;
+      const many = shifts > 1 ? ` (${shiftCount(shifts)})` : '';
+      return changed
+        ? `Saved ${which}${many}: ${describeChanges(changed, SHIFT_CHANGES)}`
+        : `Saved ${which} without changes`;
+    },
+    link: ({ changed }, { shift }) => ({ to: '/shifts', search: { date: afterEdit(changed, 'date', shift.date) } }),
+  },
+  copyShiftWeek: {
+    pending: 'Opening the Copy a week form…',
+    label: FORM_TITLES.copyShiftWeek,
+    Form: CopyShiftWeekBody,
+    saved: ({ copied }) => `Copied ${shiftCount(copied.shifts)}, ${copied.from} to ${copied.to}`,
+    link: ({ copied }) => ({ to: '/shifts', search: { date: copied.from } }),
+  },
+  createShiftTemplate: {
+    pending: 'Opening the New shift template form…',
+    label: FORM_TITLES.createShiftTemplate,
+    Form: CreateShiftTemplateBody,
+    saved: ({ template }) => `Added the shift “${template.name}”, ${templateTimes(template).label}`,
+    link: () => ({ to: '/shifts', search: {} }),
+  },
+  editShiftTemplate: {
+    pending: 'Opening the shift template…',
+    label: FORM_TITLES.editShiftTemplate,
+    Form: EditShiftTemplateBody,
+    saved: ({ changed }, { template }) => savedEdit(changed, template.name, TEMPLATE_CHANGES),
+    link: () => ({ to: '/shifts', search: {} }),
+  },
 };
 
 function formRendererFor(part: FormToolUIPart): FormRenderer<FormToolName> {
@@ -466,9 +632,9 @@ export function FormPartView({ part, streaming }: { part: FormToolUIPart; stream
             input={part.input}
             output={part.output}
             disabled={streaming}
-            onSaved={(entityId) => {
+            onSaved={(entityId, entityIds) => {
               setDone('saved');
-              record.mutate({ status: 'saved', entityId });
+              record.mutate({ status: 'saved', entityId, entityIds });
             }}
           />
         </InlineDialog>

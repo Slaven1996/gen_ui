@@ -38,17 +38,18 @@ import { buildInstructions } from './system-prompt.js';
  *  3 [app] Save it, so the question survives a failed model call.
  *  4 [app] Call the chosen model with the system prompt (system-prompt.ts),
  *          the history, and the tools this user's role may use (ai.tools.ts).
- *          The prompt lists the assets and people the pages' pickers offer,
- *          so Claude can fill asset and people filters with their ids; for
- *          admins with components on, also every alarm rule and tag, which
- *          the form tools take by id.
+ *          The prompt lists the assets, people and shift templates the
+ *          pages' pickers offer, so Claude can fill those filters with
+ *          their ids, and the plant's clock that shift dates are on. Lists a
+ *          tool on offer takes by id are added: devices, tags, alarm rules
+ *          and the user's own latest logbook entries.
  *  5 [AI]  Claude decides what to do: answer, politely refuse an off-topic
  *          request, or call tools, choosing which tools, their filters, and
  *          how many to run at once.
  *  6 [app] The AI SDK runs every tool call: AiTools → the domain's service
  *          (UsersService, AlarmsService, AlarmDefinitionsService,
  *          LogbookService, DevicesService, TagsService, AssetsService,
- *          AuditService) → database.
+ *          TelemetryService, ShiftsService, AuditService) → database.
  *  7 [AI]  Claude reads the tool results and writes the answer. Steps 5–7
  *          repeat until it answers without calling a tool (at most
  *          AI_MAX_STEPS rounds).
@@ -56,9 +57,10 @@ import { buildInstructions } from './system-prompt.js';
  *          browser as it is produced, over Server-Sent Events.
  *  9 [app] When the stream ends (also after Stop), save the conversation.
  *
- *  Form tools (create a user, create or edit an alarm rule) only open the
- *  app's own form in the answer. The admin saves it later through the page's
- *  REST endpoint, and the browser reports the outcome to
+ *  Form tools (add a user; create or edit an alarm rule, a device, a tag, an
+ *  asset, a logbook entry or a shift template; schedule, edit or copy shifts)
+ *  only open the app's own form in the answer. The user saves it later
+ *  through the page's REST endpoint, and the browser reports the outcome to
  *  PUT /ai/conversations/:id/forms/:toolCallId (ai-forms.service.ts).
  *
  *  In the browser a fixed registry turns each tool part into a React

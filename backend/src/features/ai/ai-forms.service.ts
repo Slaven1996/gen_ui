@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { getStaticToolName } from 'ai';
 import {
   isFormToolPart,
+  normalizeCoverage,
   type FormOutcome,
   type FormOutcomeRequest,
   type FormToolName,
@@ -16,6 +17,7 @@ import { DevicesService } from '../assets/devices.service.js';
 import { TagsService } from '../assets/tags.service.js';
 import { diff } from '../audit/audit.service.js';
 import { LogbookService } from '../logbook/logbook.service.js';
+import { ShiftsService } from '../shifts/shifts.service.js';
 import type { AuthUser } from '../users/user.mapper.js';
 import { UsersService } from '../users/users.service.js';
 import {
@@ -24,6 +26,8 @@ import {
   toDeviceSnapshot,
   toEntrySnapshot,
   toRuleSnapshot,
+  toShiftSnapshot,
+  toShiftTemplateSnapshot,
   toTagSnapshot,
 } from './ai.tools.js';
 import { ConversationsService } from './conversations.service.js';
@@ -31,9 +35,18 @@ import { ConversationsService } from './conversations.service.js';
 type Output<N extends FormToolName> = GenUITools[N]['output'];
 type Saved<N extends FormToolName> = Extract<NonNullable<Output<N>['outcome']>, { status: 'saved' }>;
 
-/** For each form tool: the outcome of a save, read from the record it saved. */
+/**
+ * For each form tool: the outcome of a save, read from the record it saved.
+ * A form that saves several records (a repeating shift, a copied week) also
+ * gets `entityIds`, every one of them.
+ */
 type SavedOutcomes = {
-  [N in FormToolName]: (call: { input: GenUITools[N]['input']; output: Output<N>; entityId: string }) => Promise<Saved<N>>;
+  [N in FormToolName]: (call: {
+    input: GenUITools[N]['input'];
+    output: Output<N>;
+    entityId: string;
+    entityIds?: string[];
+  }) => Promise<Saved<N>>;
 };
 
 /**
@@ -54,6 +67,7 @@ export class AiFormsService {
     private readonly tags: TagsService,
     private readonly assets: AssetsService,
     private readonly logbook: LogbookService,
+    private readonly shifts: ShiftsService,
   ) {}
 
   /**
@@ -128,6 +142,59 @@ export class AiFormsService {
       const entry = await this.logbook.get(entityId);
       return { status: 'saved', changed: diff(output.entry, toEntrySnapshot(entry)) };
     },
+    scheduleShift: async ({ entityId, entityIds }) => {
+      const shifts = await this.shifts.getAssignments(entityIds ?? [entityId]);
+      const first = shifts[0];
+      const last = shifts.at(-1);
+      if (!first || !last) throw new NotFoundException('The scheduled shifts no longer exist.');
+      return {
+        status: 'saved',
+        scheduled: {
+          person: first.user.name,
+          shift: first.template.name,
+          role: first.role,
+          shifts: shifts.length,
+          from: first.date,
+          to: last.date,
+        },
+      };
+    },
+    editShift: async ({ output, entityId, entityIds }) => {
+      if (entityId !== output.shiftId) throw new BadRequestException('That is not the shift this form edits.');
+      const ids = entityIds ?? [entityId];
+      if (ids.includes(output.shiftId)) {
+        const shift = await this.shifts.getAssignment(output.shiftId);
+        return { status: 'saved', changed: diff(output.shift, toShiftSnapshot(shift, output.timeZone)), shifts: ids.length };
+      }
+      // The shift itself had already started, so a change to the rest of its series left it as it
+      // was. Only the person, role and notes change across a series: read them off a changed one.
+      const [other] = await this.shifts.getAssignments(ids);
+      if (!other) return { status: 'saved', changed: null, shifts: 0 };
+      const { person, role, notes } = output.shift;
+      return {
+        status: 'saved',
+        changed: diff({ person, role, notes }, { person: other.user.name, role: other.role, notes: other.notes }),
+        shifts: ids.length,
+      };
+    },
+    copyShiftWeek: async ({ entityId, entityIds }) => {
+      const shifts = await this.shifts.getAssignments(entityIds ?? [entityId]);
+      const first = shifts[0];
+      const last = shifts.at(-1);
+      if (!first || !last) throw new NotFoundException('The copied shifts no longer exist.');
+      return { status: 'saved', copied: { shifts: shifts.length, from: first.date, to: last.date } };
+    },
+    createShiftTemplate: async ({ entityId }) => {
+      const { name, startTime, durationMinutes } = await this.shifts.getTemplate(entityId);
+      return { status: 'saved', template: { name, startTime, durationMinutes } };
+    },
+    editShiftTemplate: async ({ input, output, entityId }) => {
+      if (entityId !== input.templateId) throw new BadRequestException('That is not the template this form edits.');
+      const template = await this.shifts.getTemplate(entityId);
+      // The copy the form opened on comes back from JSONB, which reorders keys: normalise it again.
+      const before = { ...output.template, coverage: normalizeCoverage(output.template.coverage) };
+      return { status: 'saved', changed: diff(before, toShiftTemplateSnapshot(template)) };
+    },
   };
 
   /**
@@ -151,11 +218,17 @@ export class AiFormsService {
         input: unknown;
         output: unknown;
         entityId: string;
+        entityIds?: string[];
       }) => Promise<FormOutcome>;
       const outcome: FormOutcome =
         request.status === 'closed'
           ? { status: 'closed' }
-          : await savedOutcome({ input: part.input, output: part.output, entityId: request.entityId });
+          : await savedOutcome({
+              input: part.input,
+              output: part.output,
+              entityId: request.entityId,
+              entityIds: request.entityIds,
+            });
       const output = { ...part.output, outcome } as FormToolOutput;
 
       const next = messages.map((message) => ({

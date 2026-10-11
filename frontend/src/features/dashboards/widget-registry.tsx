@@ -25,7 +25,7 @@ import { DeviceStatusSummary } from '@/features/analytics/device-status-summary'
 import { KPIS, KpiTile } from '@/features/analytics/kpi';
 import { TopAlarmsList } from '@/features/analytics/top-alarms-list';
 import { LogbookFeed } from '@/features/logbook/logbook-table';
-import { OnDutyList } from '@/features/shifts/on-duty-list';
+import { OnDutyStrip } from '@/features/shifts/on-duty-strip';
 import { TagValueCard } from '@/features/telemetry/tag-value-card';
 import { TelemetryChart } from '@/features/telemetry/telemetry-chart';
 
@@ -146,7 +146,7 @@ export const WIDGETS: Registry = {
     icon: Users,
     defaultTitle: 'On duty now',
     defaultConfig: {},
-    render: (config) => <OnDutyList query={{ role: config.role }} />,
+    render: (config) => <OnDutyStrip only="now" role={config.role} stacked framed={false} />,
     link: ({ role }) => ({ to: '/shifts', search: role ? { role } : {} }),
   },
 };

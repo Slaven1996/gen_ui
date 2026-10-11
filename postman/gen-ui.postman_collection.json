@@ -2422,6 +2422,40 @@
           ]
         },
         {
+          "name": "Get an assignment",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/shifts/assignments/{{createdAssignmentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "shifts",
+                "assignments",
+                "{{createdAssignmentId}}"
+              ]
+            },
+            "description": "One scheduled shift (the first one \"Schedule someone (repeating)\" created): its person, template, role, start and end, and `seriesId`. Everyone signed in. The assistant's edit form loads the shift it opens on from here. 404 for an unknown id."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const shift = pm.response.json();",
+                  "console.log(shift.user.name + ', ' + shift.template.name + ' on ' + shift.date);"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Update an assignment",
           "request": {
             "method": "PATCH",
@@ -3229,7 +3263,7 @@
                 "toolu_01ABCDEFGHIJKLMNOPQRSTUV"
               ]
             },
-            "description": "For the roles of the form's tool: admins, except the logbook forms, which everyone has. When the assistant opens a form in an answer (`createUser`, `createAlarmRule`, `editAlarmRule`, `createDevice`, `editDevice`, `createTag`, `editTag`, `createAsset`, `editAsset`, `createLogbookEntry`, `editLogbookEntry`), the tool call ends there; the user saves through the page's own endpoint (`POST /users`, or `POST` or `PATCH` on `/alarm-definitions`, `/devices`, `/tags`, `/assets` or `/logbook`). The web app then calls this with `saved` and the saved record's id, or with `{ \"status\": \"closed\" }` when the form was closed unsaved. The server reads the record and adds `outcome` to that tool call's output in the saved conversation, so a reload shows the result and Claude knows on its next turn. Returns the output with its outcome.\n\nReplace the last path segment with a form call's `toolCallId` from \"Saved conversation\" (a part of type `tool-<form tool name>`, e.g. `tool-createUser` or `tool-editDevice`). For an edit form, `entityId` must be the record the form edits. Once per form: a second call is a 409. Free: no model call.",
+            "description": "For the roles of the form's tool: admins, except the logbook forms, which everyone has. When the assistant opens a form in an answer (`createUser`, `createAlarmRule`, `editAlarmRule`, `createDevice`, `editDevice`, `createTag`, `editTag`, `createAsset`, `editAsset`, `createLogbookEntry`, `editLogbookEntry`, `scheduleShift`, `editShift`, `copyShiftWeek`, `createShiftTemplate`, `editShiftTemplate`), the tool call ends there; the user saves through the page's own endpoint (`POST /users`; `POST` or `PATCH` on `/alarm-definitions`, `/devices`, `/tags`, `/assets`, `/logbook` or `/shifts/templates`; `POST /shifts/assignments`, `POST /shifts/assignments/copy-week` or `PATCH /shifts/assignments/:id`). The web app then calls this with `saved` and the saved record's id, or with `{ \"status\": \"closed\" }` when the form was closed unsaved. A form that saves several shifts (a weekly repeat, a copied week, a change to the rest of a series) also sends `entityIds`, every one of them, with `entityId` the first (for `editShift`, the shift the form opened on). The server reads the records and adds `outcome` to that tool call's output in the saved conversation, so a reload shows the result and Claude knows on its next turn. Returns the output with its outcome.\n\nReplace the last path segment with a form call's `toolCallId` from \"Saved conversation\" (a part of type `tool-<form tool name>`, e.g. `tool-createUser` or `tool-editDevice`). For an edit form, `entityId` must be the record the form edits. Once per form: a second call is a 409. Free: no model call.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"status\": \"saved\",\n  \"entityId\": \"40000000-0000-4000-8000-000000000001\"\n}",

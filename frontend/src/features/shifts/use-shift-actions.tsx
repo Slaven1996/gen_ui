@@ -1,16 +1,12 @@
 import { useState, type ReactNode } from 'react';
-import type { ShiftAssignment, ShiftRole } from '@gen-ui/shared';
+import type { ShiftAssignment, ShiftSchedulePrefill } from '@gen-ui/shared';
 import { useAuth } from '@/lib/auth/auth-store';
 import { EditShiftDialog } from './edit-shift-dialog';
 import { RemoveShiftDialog } from './remove-shift-dialog';
 import { ScheduleShiftDialog } from './schedule-shift-dialog';
 
-/** What the schedule form opens with, e.g. from an unfilled slot. */
-export interface SchedulePrefill {
-  date?: string;
-  templateId?: string;
-  role?: ShiftRole;
-}
+/** What the schedule form opens with from an unfilled slot: a part of what the assistant can fill in. */
+export type SchedulePrefill = Pick<ShiftSchedulePrefill, 'date' | 'templateId' | 'role'>;
 
 export interface ShiftActions {
   schedule: (prefill?: SchedulePrefill) => void;

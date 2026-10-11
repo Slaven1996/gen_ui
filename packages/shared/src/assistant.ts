@@ -33,6 +33,16 @@ import {
   SeriesIntervalSchema,
   TagStatsSchema,
 } from './telemetry.js';
+import {
+  ClockTimeSchema,
+  MAX_COPIED_SHIFTS,
+  MAX_SHIFT_OCCURRENCES,
+  SHIFT_CALENDAR_VIEWS,
+  SHIFT_GROUPINGS,
+  SHIFT_SCOPES,
+  ShiftRoleSchema,
+  ShiftTemplateSchema,
+} from './shifts.js';
 import { LastSignInFilterSchema, UserStatusSchema } from './users.js';
 
 // ─── Models ─────────────────────────────────────────────────────────────────
@@ -137,7 +147,9 @@ export interface LatestConversation {
  * Inputs use plain types (no transforms or coercion), so the JSON Schema sent
  * to the model describes exactly what it may send. Apart from `title`, every
  * input field is also a URL param of the tool's page, so a call is a page
- * query too, and the chat can link to that page with the same filters.
+ * query too, and the chat can link to that page with the same filters. The
+ * one exception is the on-duty card's `when`, which picks one half of the
+ * Shifts page's on-duty strip.
  */
 
 const titleField = (examples: string) =>
@@ -386,6 +398,114 @@ export const ListLogbookEntriesToolOutputSchema = z.object({
   ),
 });
 
+// ─── Shifts ─────────────────────────────────────────────────────────────────
+
+/*
+ * Shift dates and times are the plant's (`SHIFT_TIME_ZONE`), not the user's:
+ * the session's Plant line gives today there. A shift belongs to the day it
+ * starts on, so a night shift is the evening's.
+ */
+
+/** How every shift date field says whose calendar it is on. */
+const PLANT_DATE = "YYYY-MM-DD, on the plant's calendar (the session's Plant line).";
+
+/** Shift templates, as the page's Shift dropdown sets them: ids from Claude's shift template list. */
+const templateIdsField = (description: string) => z.array(z.guid()).min(1).max(50).optional().describe(description);
+
+const shiftRolesField = (things: string) =>
+  z
+    .array(ShiftRoleSchema)
+    .min(1)
+    .optional()
+    .describe(
+      `The roles ${things}: OPERATOR, SUPERVISOR, or ON_CALL (on call: reachable, not on site). 'supervisors' → ['SUPERVISOR']; 'who is on call' → ['ON_CALL']. Omit for every role.`,
+    );
+
+/** A time on the plant's clock, as the forms show it. */
+const clock = z.string().describe('HH:mm, plant time.');
+
+/** Apart from `title`, every field is also a `/shifts` URL param. */
+export const ShowShiftCalendarToolInputSchema = z.object({
+  title: titleField("'Next week' or 'Noah's shifts in October'"),
+  view: z
+    .enum(SHIFT_CALENDAR_VIEWS)
+    .optional()
+    .describe(
+      "The period: week (Monday–Sunday, the default), month, or day. 'next week' → week; 'in October' → month; 'tonight', 'on Saturday' → day. Omit for a week.",
+    ),
+  date: z.iso
+    .date()
+    .optional()
+    .describe(
+      `Any day of the period, ${PLANT_DATE} 'next week' → any day of next week; 'in October' → 2026-10-01; 'on Saturday' → that Saturday. Omit for the period holding today.`,
+    ),
+  group: z
+    .enum(SHIFT_GROUPINGS)
+    .optional()
+    .describe(
+      "How a week's rows go: shift (the default: a row per shift, who works it each day) or person (a row per person, their shifts each day). 'by person', 'who works which days', 'Noah's week' → person. Omit for shift. Only a week uses it.",
+    ),
+  userId: peopleField(
+    "The ids of the people whose shifts to show, from the people list: 'Noah's shifts' → [the id of Noah Bennett]. Staffing gaps still show. Omit for everyone.",
+  ),
+  templateId: templateIdsField(
+    "The ids of the shifts to show, from the shift template list: 'night shifts' → [the id of Night]; 'weekend on-call' → [its id]. Omit for every shift.",
+  ),
+  role: shiftRolesField('people are scheduled in'),
+});
+
+export const ShowShiftCalendarToolOutputSchema = z.object({
+  timeZone: z.string().describe('The plant time zone every date and time here is in.'),
+  view: z.enum(SHIFT_CALENDAR_VIEWS),
+  from: z.iso.date().describe('First day shown.'),
+  to: z.iso.date().describe('Last day shown, inclusive.'),
+  total: z.int().describe('Every shift starting in the period that matches, not only the ones returned.'),
+  shifts: z
+    .array(
+      z.object({
+        date: z.iso.date().describe('The day it starts on.'),
+        shift: z.string().describe("The shift's name."),
+        start: clock,
+        end: clock.describe('HH:mm, plant time; earlier than start when it ends the next day.'),
+        person: z.string(),
+        role: ShiftRoleSchema,
+        notes: z.string().nullable(),
+      }),
+    )
+    .describe('The shifts, earliest first.'),
+  gaps: z
+    .array(z.object({ date: z.iso.date(), shift: z.string(), role: ShiftRoleSchema, missing: z.int() }))
+    .describe('Staffing targets not met: how many more people of a role a shift needs that day.'),
+});
+
+export const ON_DUTY_WHEN = ['now', 'next'] as const;
+
+/** `role` is the page's URL param; `when` picks which half of the page's on-duty strip to show. */
+export const ShowOnDutyToolInputSchema = z.object({
+  when: z
+    .enum(ON_DUTY_WHEN)
+    .describe(
+      "now: who is on shift at this moment, the people alarm escalation would page. next: who takes over at the next handover (the next shift start within 24 hours), and when. One per call: for 'who is on now and who is next', make two calls.",
+    ),
+  role: shiftRolesField('they are on shift in'),
+});
+
+export const ShowOnDutyToolOutputSchema = z.object({
+  when: z.enum(ON_DUTY_WHEN),
+  timeZone: z.string().describe('The plant time zone the times are in.'),
+  people: z
+    .array(
+      z.object({
+        name: z.string(),
+        role: ShiftRoleSchema,
+        shift: z.string().describe("The shift's name."),
+        from: z.string().describe('When the shift starts, YYYY-MM-DD HH:mm, plant time.'),
+        until: z.string().describe('When it ends, YYYY-MM-DD HH:mm, plant time.'),
+      }),
+    )
+    .describe('Empty when nobody is on shift now, or no shift starts in the next 24 hours.'),
+});
+
 // ─── Devices ────────────────────────────────────────────────────────────────
 
 /** Apart from `title`, every field is also a `/devices` URL param. */
@@ -599,6 +719,11 @@ export const FORM_TOOL_NAMES = [
   'editAsset',
   'createLogbookEntry',
   'editLogbookEntry',
+  'scheduleShift',
+  'editShift',
+  'copyShiftWeek',
+  'createShiftTemplate',
+  'editShiftTemplate',
 ] as const;
 export type FormToolName = (typeof FORM_TOOL_NAMES)[number];
 
@@ -621,6 +746,11 @@ export const FORM_TITLES = {
   editAsset: 'Edit asset',
   createLogbookEntry: 'Write in the logbook',
   editLogbookEntry: 'Edit logbook entry',
+  scheduleShift: 'Schedule a shift',
+  editShift: 'Edit a shift',
+  copyShiftWeek: 'Copy a week',
+  createShiftTemplate: 'New shift template',
+  editShiftTemplate: 'Edit shift template',
 } as const satisfies Record<FormToolName, string>;
 
 const OPENED_DESCRIPTION = 'The form is open in the chat, pre-filled. Nothing is saved until the user saves it.';
@@ -1094,19 +1224,291 @@ export const EditLogbookEntryToolOutputSchema = z.object({
   outcome: z.discriminatedUnion('status', [EditSavedSchema, FormClosedSchema]).optional().describe(OUTCOME_DESCRIPTION),
 });
 
+// ─── Forms: shifts ──────────────────────────────────────────────────────────
+
+const PLANT_ZONE_DESCRIPTION = "The plant time zone the form's dates and times are in.";
+
+const shiftRoleField = ShiftRoleSchema.describe(
+  'The role they work it in: OPERATOR, SUPERVISOR, or ON_CALL (on call: reachable, not on site).',
+);
+
+const shiftLengthField = z
+  .int()
+  .min(15)
+  .max(24 * 60)
+  .describe("Its length in minutes, wall-clock: '12-hour' → 720; 'from 10 to 18' → 480.");
+
+const weekdaysField = z
+  .array(z.int().min(0).max(6))
+  .min(1)
+  .max(7)
+  .describe('Weekdays, 0 = Sunday, 1 = Monday … 6 = Saturday: weekdays → [1, 2, 3, 4, 5]; weekends → [0, 6].');
+
+/** What the Schedule a shift form opens with, each optional: only what the user said. */
+const ShiftSchedulePrefillSchema = z
+  .object({
+    userId: z
+      .guid()
+      .describe("The id of the person to schedule, from the people list: 'put Sofia on mornings' → the id of Sofia Reyes."),
+    templateId: z
+      .guid()
+      .describe(
+        "The id of the shift, from the shift template list (active ones only): 'the morning shift' → the id of Morning.",
+      ),
+    role: shiftRoleField.describe(
+      "The role they work it in: OPERATOR, SUPERVISOR, or ON_CALL (on call: reachable, not on site). Omit if not said: the form takes the role the shift's staffing target asks for.",
+    ),
+    date: z.iso
+      .date()
+      .describe(
+        `The day the shift starts on (with a repeat, the first day), ${PLANT_DATE} 'tonight's night shift' → today; 'from Monday' → that Monday. Omit for today.`,
+      ),
+    startTime: ClockTimeSchema.describe(
+      "Own start time, HH:mm, only when the user gives other hours than the shift's: 'from 10 to 18' → '10:00'.",
+    ),
+    durationMinutes: shiftLengthField.describe(
+      "Own length in minutes, with startTime, only when the user gives other hours than the shift's: 'from 10 to 18' → 480.",
+    ),
+    notes: z.string().max(500).describe("A note on the shift, in the user's own words."),
+    repeat: z
+      .object({
+        until: z.iso.date().describe(`The last day it may fall on, inclusive, ${PLANT_DATE}`),
+        weekdays: weekdaysField,
+      })
+      .describe(
+        `Repeat weekly: 'every weekday until the end of the month' → { until: the month's last day, weekdays: [1, 2, 3, 4, 5] }. At most ${MAX_SHIFT_OCCURRENCES} shifts. Omit for one day.`,
+      ),
+  })
+  .partial();
+export type ShiftSchedulePrefill = z.infer<typeof ShiftSchedulePrefillSchema>;
+
+export const ScheduleShiftToolInputSchema = ShiftSchedulePrefillSchema;
+
+export const ScheduleShiftToolOutputSchema = z.object({
+  status: z.literal('opened').describe(OPENED_DESCRIPTION),
+  person: z.string().nullable().describe('The person chosen in the form; null when the user picks them there.'),
+  shift: z.string().nullable().describe('The shift chosen in the form; null when the user picks it there.'),
+  timeZone: z.string().describe(PLANT_ZONE_DESCRIPTION),
+  outcome: z
+    .discriminatedUnion('status', [
+      z.object({
+        status: z.literal('saved'),
+        scheduled: z
+          .object({
+            person: z.string(),
+            shift: z.string(),
+            role: ShiftRoleSchema,
+            shifts: z.int().describe('How many shifts were created: one, or one per repeat.'),
+            from: z.iso.date().describe('The first day.'),
+            to: z.iso.date().describe('The last day.'),
+          })
+          .describe('Who was scheduled on which shift, and on how many days.'),
+      }),
+      FormClosedSchema,
+    ])
+    .optional()
+    .describe(OUTCOME_DESCRIPTION),
+});
+
+/** A scheduled shift's editable values, each optional: only what the user asked to change. */
+const ShiftChangesSchema = z
+  .object({
+    userId: z
+      .guid()
+      .describe("Hand the shift to another person, the id from the people list: 'give it to Liam' → the id of Liam Carter."),
+    role: shiftRoleField,
+    notes: z.string().max(500).nullable().describe('The new note; null to clear it.'),
+    templateId: z
+      .guid()
+      .describe(
+        "Make it another shift, the id from the shift template list (active ones only); it takes that shift's hours. Only with scope one.",
+      ),
+    date: z.iso.date().describe(`Move it to another day, ${PLANT_DATE} Only with scope one.`),
+    startTime: ClockTimeSchema.describe('A new start time, HH:mm. Only with scope one.'),
+    durationMinutes: shiftLengthField.describe('A new length in minutes. Only with scope one.'),
+  })
+  .partial();
+export type ShiftChanges = z.infer<typeof ShiftChangesSchema>;
+
+export const EditShiftToolInputSchema = z.object({
+  userId: z
+    .guid()
+    .describe("The id of the person whose shift it is, from the people list: 'Noah's Saturday night' → the id of Noah Bennett."),
+  date: z.iso
+    .date()
+    .describe(
+      `The day the shift starts on, ${PLANT_DATE} A night shift is the evening's: 'Noah's Saturday night' → that Saturday.`,
+    ),
+  templateId: z
+    .guid()
+    .optional()
+    .describe(
+      "The id of the shift, from the shift template list, when the user names it: 'Noah's Saturday night' → the id of Night. Needed only if they have two shifts that day.",
+    ),
+  scope: z
+    .enum(SHIFT_SCOPES)
+    .optional()
+    .describe(
+      "For a shift that repeats: one (the default, just this shift), following (this one and the later ones: 'from now on', 'every Saturday after this') or series (all of them). Shifts that already started are left alone. Across several shifts only the person, role and notes can change: a new day, shift or hours needs one.",
+    ),
+  changes: ShiftChangesSchema.optional().describe(
+    "Only the values the user asked to change: 'give Noah's Saturday night to Liam' → { userId: the id of Liam Carter }. The form shows everything else as it is now. Omit to just open the shift.",
+  ),
+});
+
+/** A shift as it was when the form opened: what Claude reads, and what `changed` is measured from. */
+export const ShiftSnapshotSchema = z.object({
+  person: z.string(),
+  shift: z.string().describe("The shift's name."),
+  role: ShiftRoleSchema,
+  date: z.iso.date().describe('The day it starts on.'),
+  start: clock,
+  hours: z.number().describe('Its length in hours.'),
+  notes: z.string().nullable(),
+});
+export type ShiftSnapshot = z.infer<typeof ShiftSnapshotSchema>;
+
+export const EditShiftToolOutputSchema = z.object({
+  status: z.literal('opened').describe(OPENED_DESCRIPTION),
+  shiftId: z.guid().describe('The shift the form opened on.'),
+  timeZone: z.string().describe(PLANT_ZONE_DESCRIPTION),
+  repeats: z.boolean().describe('Whether it is one of a series (a repeat, or a copied week).'),
+  scope: z.enum(SHIFT_SCOPES).describe("Which shifts the form changes; always one for a shift that doesn't repeat."),
+  shift: ShiftSnapshotSchema.describe('The shift as it was when the form opened.'),
+  outcome: z
+    .discriminatedUnion('status', [
+      EditSavedSchema.extend({ shifts: z.int().describe('How many shifts the save changed.') }),
+      FormClosedSchema,
+    ])
+    .optional()
+    .describe(OUTCOME_DESCRIPTION),
+});
+
+export const CopyShiftWeekToolInputSchema = z.object({
+  week: z.iso
+    .date()
+    .optional()
+    .describe(`Any day of the week to copy (Monday–Sunday), ${PLANT_DATE} 'last week' → a day 7 days ago. Omit for this week.`),
+  weeks: z
+    .int()
+    .min(1)
+    .max(8)
+    .optional()
+    .describe("How many of the weeks after it to fill, 1–8: 'to next week' → 1; 'for the next 3 weeks' → 3. Omit if not said: the form starts on 1."),
+  userId: peopleField("Copy only these people's shifts: ids from the people list. Omit for everyone's."),
+  templateId: templateIdsField(
+    "Copy only these shifts: ids from the shift template list. 'copy the nights' → [the id of Night]. Omit for every shift.",
+  ),
+});
+
+export const CopyShiftWeekToolOutputSchema = z.object({
+  status: z.literal('opened').describe(OPENED_DESCRIPTION),
+  week: z.object({ from: z.iso.date(), to: z.iso.date() }).describe('The week being copied, Monday to Sunday.'),
+  people: z.array(z.string()).nullable().describe("Whose shifts are copied; null for everyone's."),
+  shifts: z.array(z.string()).nullable().describe('Which shifts are copied; null for all of them.'),
+  outcome: z
+    .discriminatedUnion('status', [
+      z.object({
+        status: z.literal('saved'),
+        copied: z
+          .object({ shifts: z.int(), from: z.iso.date(), to: z.iso.date() })
+          .describe('How many shifts were created, and the first and last day they fall on.'),
+      }),
+      FormClosedSchema,
+    ])
+    .optional()
+    .describe(OUTCOME_DESCRIPTION),
+});
+
+/** A shift template's values, each optional: only what the user said. */
+const ShiftTemplatePrefillSchema = z
+  .object({
+    name: z.string().max(60).describe("The shift's name, e.g. 'Weekend day'."),
+    startTime: ClockTimeSchema.describe("When it starts, HH:mm, plant time: 'from 7' → '07:00'."),
+    durationMinutes: shiftLengthField,
+    color: z
+      .string()
+      .regex(/^#[0-9a-fA-F]{6}$/)
+      .describe("Its colour on the calendar, #rrggbb, only if the user names one: 'green' → '#16a34a'."),
+    isActive: z
+      .boolean()
+      .describe('false to switch the shift off: past shifts keep it, but nobody can be scheduled on it.'),
+    coverage: z
+      .array(z.object({ role: ShiftRoleSchema, weekdays: weekdaysField, headcount: z.int().min(1).max(20) }))
+      .max(12)
+      .describe(
+        "Its staffing targets, the whole list (it replaces the current one): how many people of a role it needs on the weekdays it starts on. 'one operator daily and a supervisor on weekdays' → [{ role: 'OPERATOR', weekdays: [0, 1, 2, 3, 4, 5, 6], headcount: 1 }, { role: 'SUPERVISOR', weekdays: [1, 2, 3, 4, 5], headcount: 1 }]. One rule per role and weekday. [] for none: it runs daily and is never short-staffed.",
+      ),
+  })
+  .partial();
+export type ShiftTemplatePrefill = z.infer<typeof ShiftTemplatePrefillSchema>;
+
+export const CreateShiftTemplateToolInputSchema = ShiftTemplatePrefillSchema;
+
+export const CreateShiftTemplateToolOutputSchema = z.object({
+  status: z.literal('opened').describe(OPENED_DESCRIPTION),
+  outcome: z
+    .discriminatedUnion('status', [
+      z.object({
+        status: z.literal('saved'),
+        template: ShiftTemplateSchema.pick({ name: true, startTime: true, durationMinutes: true }).describe(
+          'The shift template that was added.',
+        ),
+      }),
+      FormClosedSchema,
+    ])
+    .optional()
+    .describe(OUTCOME_DESCRIPTION),
+});
+
+export const EditShiftTemplateToolInputSchema = z.object({
+  templateId: z
+    .guid()
+    .describe(
+      "The id of the shift template to edit, from the shift template list: 'the night shift' → the id of Night. If the user gave an id, use it.",
+    ),
+  changes: ShiftTemplatePrefillSchema.optional().describe(
+    "Only the values the user asked to change: 'make the afternoon shift start at 15:00' → { startTime: '15:00' }. The form shows everything else as it is now. Omit to just open the template.",
+  ),
+});
+
+/** The template as it was when the form opened: what Claude reads, and what `changed` is measured from. */
+export const ShiftTemplateSnapshotSchema = ShiftTemplateSchema.pick({
+  name: true,
+  startTime: true,
+  durationMinutes: true,
+  color: true,
+  isActive: true,
+  coverage: true,
+});
+export type ShiftTemplateSnapshot = z.infer<typeof ShiftTemplateSnapshotSchema>;
+
+export const EditShiftTemplateToolOutputSchema = z.object({
+  status: z.literal('opened').describe(OPENED_DESCRIPTION),
+  template: ShiftTemplateSnapshotSchema.describe('The template as it was when the form opened.'),
+  outcome: z.discriminatedUnion('status', [EditSavedSchema, FormClosedSchema]).optional().describe(OUTCOME_DESCRIPTION),
+});
+
 // ─── Forms: recording what the user did ─────────────────────────────────────
 
 /**
  * Body of PUT /ai/conversations/:id/forms/:toolCallId, sent by the browser
  * after the user saved a form (through the page's own endpoint) or closed it.
- * Only the saved record's id comes from the browser; the server reads the
- * record itself to write the outcome.
+ * Only the saved records' ids come from the browser; the server reads the
+ * records themselves to write the outcome.
  */
 export const FormOutcomeRequestSchema = z
   .discriminatedUnion('status', [
     z.object({
       status: z.literal('saved'),
       entityId: z.guid().describe('The record the form saved: the one it created, or the one it edited.'),
+      entityIds: z
+        .array(z.guid())
+        .max(MAX_COPIED_SHIFTS)
+        .optional()
+        .describe(
+          'Every record saved, for a form that saves several (a repeating shift, a copied week, a change to the rest of a series). Empty when the change skipped every shift.',
+        ),
     }),
     z.object({ status: z.literal('closed') }),
   ])
@@ -1127,6 +1529,11 @@ export const FormToolOutputSchema = z
     EditAssetToolOutputSchema,
     CreateLogbookEntryToolOutputSchema,
     EditLogbookEntryToolOutputSchema,
+    ScheduleShiftToolOutputSchema,
+    EditShiftToolOutputSchema,
+    CopyShiftWeekToolOutputSchema,
+    CreateShiftTemplateToolOutputSchema,
+    EditShiftTemplateToolOutputSchema,
   ])
   .meta({ id: 'FormToolOutput' });
 
@@ -1161,6 +1568,18 @@ export const genUiToolSchemas = {
       "Search the operator logbook, newest first: notes, maintenance work and shift handovers people wrote, and the events the system recorded (alarms raised, cleared and acknowledged; device status changes). Filter by words, kind, severity, source, author, asset and when it happened. It records what happened on site, not who changed the app's records or settings.",
     inputSchema: ListLogbookEntriesToolInputSchema,
     outputSchema: ListLogbookEntriesToolOutputSchema,
+  },
+  showShiftCalendar: {
+    description:
+      "Show the shift calendar the Shifts page draws: who works which shift on which day, over a week (the default), a month or a day, with the gaps where a shift has fewer people than its staffing target. Use it for the schedule and who works when ('who works next week', 'Noah's shifts in October', 'who is on nights this weekend', 'where are we short-staffed'). Filter by person, shift and role. For who is on duty at this moment, or who takes over next, show the on-duty card instead.",
+    inputSchema: ShowShiftCalendarToolInputSchema,
+    outputSchema: ShowShiftCalendarToolOutputSchema,
+  },
+  showOnDuty: {
+    description:
+      "Show who is on duty now, or who takes over next, as the card at the top of the Shifts page: each person with their role, shift and hours. 'now' is everyone on shift at this moment, the people alarm escalation would page; 'next' is everyone starting at the next handover within 24 hours. One of the two per call: for both, make two calls. For another day or a whole week, show the shift calendar instead.",
+    inputSchema: ShowOnDutyToolInputSchema,
+    outputSchema: ShowOnDutyToolOutputSchema,
   },
   listDevices: {
     description:
@@ -1251,6 +1670,36 @@ export const genUiToolSchemas = {
       "Open the edit form of one of the user's own logbook entries in the chat: its current values, with the changes the user asked for already applied, so they can check them and save. Only its author can edit an entry: nobody can edit someone else's entry or an event the system recorded, so say that instead of calling this. The list holds only the user's latest entries; for an older one, say so and point to the Logbook page, where the entry's row has Edit. All it needs is which entry; the changes are optional. It doesn't change the entry itself.",
     inputSchema: EditLogbookEntryToolInputSchema,
     outputSchema: EditLogbookEntryToolOutputSchema,
+  },
+  scheduleShift: {
+    description:
+      "Open the Schedule a shift form in the chat, pre-filled from the request, so the admin can check it and put someone on a shift: on one day, or weekly on chosen weekdays until a date. Call it whenever the user wants to schedule or roster someone, even with no details ('I want to schedule a shift'): every field is optional, and the form opens with the same defaults as on the Shifts page. Don't ask for the person, shift or day first. Nobody can be on two shifts at once; the form says so when saving. It doesn't schedule anyone itself.",
+    inputSchema: ScheduleShiftToolInputSchema,
+    outputSchema: ScheduleShiftToolOutputSchema,
+  },
+  editShift: {
+    description:
+      "Open the edit form of one scheduled shift in the chat: its current values, with the changes the user asked for already applied, so the admin can check them and save. Use it to hand a shift to someone else, change its role or notes, move it to another day or shift, or change its hours; for a repeating shift, also the rest of its series. It finds the shift by whose it is and the day it starts on (and which shift, if they work two that day); if none or several match, the error lists that person's shifts that day. The changes are optional ('edit Noah's Saturday night' just opens it). It doesn't change the shift itself.",
+    inputSchema: EditShiftToolInputSchema,
+    outputSchema: EditShiftToolOutputSchema,
+  },
+  copyShiftWeek: {
+    description:
+      "Open the Copy a week form in the chat, pre-filled from the request, so the admin can copy one week's shifts (Monday–Sunday) into the 1 to 8 weeks after it, on the same days and hours: everyone's, or only some people's or some shifts'. Call it whenever the user wants to copy, repeat or roll over a week's schedule ('copy this week to the next two weeks'). Shifts of deactivated people or switched-off shifts are left out, and if any copy would overlap a shift already planned, nothing is copied. It doesn't copy anything itself.",
+    inputSchema: CopyShiftWeekToolInputSchema,
+    outputSchema: CopyShiftWeekToolOutputSchema,
+  },
+  createShiftTemplate: {
+    description:
+      "Open the New shift template form in the chat, pre-filled from the request, so the admin can check it and add a kind of shift people can be scheduled on: its name, start, length, colour and staffing targets. Call it whenever the user wants a new shift, even with no details ('add a new shift'): every field is optional, and the form opens with the same defaults as on the Shifts page. Don't ask for anything first. It doesn't add the template itself.",
+    inputSchema: CreateShiftTemplateToolInputSchema,
+    outputSchema: CreateShiftTemplateToolOutputSchema,
+  },
+  editShiftTemplate: {
+    description:
+      "Open the edit form of one shift template in the chat: its current values, with the changes the user asked for already applied, so the admin can check them and save. Use it to rename a shift, change its hours, colour or staffing targets, or switch it off or back on. New hours apply to shifts scheduled from then on; scheduled ones keep theirs. All it needs is which template; the changes are optional ('edit the night shift' just opens it). It doesn't change the template itself.",
+    inputSchema: EditShiftTemplateToolInputSchema,
+    outputSchema: EditShiftTemplateToolOutputSchema,
   },
 } as const;
 

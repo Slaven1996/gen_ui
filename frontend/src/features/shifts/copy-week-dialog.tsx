@@ -1,5 +1,6 @@
-import { useState, type FormEvent } from 'react';
-import { CopyShiftWeekSchema } from '@gen-ui/shared';
+import { useId, useState, type FormEvent } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { CopyShiftWeekSchema, type ShiftChangeResult } from '@gen-ui/shared';
 import { Field } from '@/components/form/field';
 import { Button } from '@/components/ui/button';
 import {
@@ -11,11 +12,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { userOptionsQueryOptions } from '@/features/users/queries';
 import { getErrorMessage } from '@/lib/api/errors';
-import { useCopyWeek } from './api';
+import { shiftTemplatesQueryOptions, useCopyWeek } from './api';
 import { formatDateRange } from './calendar-utils';
 
-const WEEK_COUNTS = [1, 2, 3, 4, 6, 8];
+/** Every count `CopyShiftWeekSchema` allows, so any count the assistant fills in is a choice. */
+const WEEK_COUNTS = [1, 2, 3, 4, 5, 6, 7, 8];
 
 /**
  * "Repeat this week": the shifts starting in the week shown, copied into the
@@ -44,18 +47,38 @@ export function CopyWeekDialog({
   );
 }
 
-function CopyWeekForm({
+/**
+ * The copy form: the dialog's header, the number of weeks and the button.
+ * The calendar shows it in `CopyWeekDialog` for the week on screen; the
+ * assistant shows it inside an answer (`InlineDialog`) for the week the user
+ * named, with `weeks` filled in. Either way it sits inside a `Dialog`.
+ */
+export function CopyWeekForm({
   week,
   filters,
+  weeks: initialWeeks = 1,
+  disabled = false,
   onSaved,
 }: {
   week: { from: string; to: string };
+  /** Only these people's or shifts' shifts are copied. */
   filters: { userId?: string[]; templateId?: string[] };
-  onSaved: () => void;
+  /** How many weeks the form starts on. */
+  weeks?: number;
+  /** Keeps the button off, e.g. while the answer that opened the form is still streaming. */
+  disabled?: boolean;
+  onSaved: (result: ShiftChangeResult) => void;
 }) {
-  const [weeks, setWeeks] = useState('1');
+  const id = useId();
+  const [weeks, setWeeks] = useState(String(initialWeeks));
   const copy = useCopyWeek();
-  const filtered = Boolean(filters.userId || filters.templateId);
+  const users = useQuery(userOptionsQueryOptions());
+  const templates = useQuery(shiftTemplatesQueryOptions());
+
+  // "of Ava Mitchell, Noah Bennett on Night": the filters, by name.
+  const people = filters.userId?.map((userId) => users.data?.find((user) => user.id === userId)?.name ?? 'someone');
+  const shifts = filters.templateId?.map((templateId) => templates.data?.find((item) => item.id === templateId)?.name ?? 'a shift');
+  const only = [people && `of ${people.join(', ')}`, shifts && `on ${shifts.join(', ')}`].filter(Boolean).join(' ');
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -72,9 +95,9 @@ function CopyWeekForm({
           planned, nothing is copied.
         </DialogDescription>
       </DialogHeader>
-      <Field id="copy-weeks" label="Into">
+      <Field id={`${id}-weeks`} label="Into">
         <Select value={weeks} onValueChange={setWeeks}>
-          <SelectTrigger id="copy-weeks" className="w-full">
+          <SelectTrigger id={`${id}-weeks`} className="w-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -86,16 +109,14 @@ function CopyWeekForm({
           </SelectContent>
         </Select>
       </Field>
-      {filtered && (
-        <p className="text-sm text-muted-foreground">Only the shifts of the people and shifts filtered on the page are copied.</p>
-      )}
+      {only && <p className="text-sm text-muted-foreground">Only the shifts {only} are copied.</p>}
       {copy.isError && (
         <p className="text-sm text-destructive" role="alert">
           {getErrorMessage(copy.error)}
         </p>
       )}
       <DialogFooter>
-        <Button type="submit" disabled={copy.isPending}>
+        <Button type="submit" disabled={disabled || copy.isPending}>
           {copy.isPending ? 'Copying…' : 'Copy'}
         </Button>
       </DialogFooter>

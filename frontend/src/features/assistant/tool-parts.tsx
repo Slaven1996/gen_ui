@@ -1,4 +1,4 @@
-import { useState, type ComponentType } from 'react';
+import { useState, type ComponentType, type ReactNode } from 'react';
 import { useNavigate, type LinkProps } from '@tanstack/react-router';
 import { getStaticToolName, type ToolUIPart } from 'ai';
 import {
@@ -24,6 +24,8 @@ import { AssetsTable } from '@/features/assets/assets-table';
 import { DevicesTable } from '@/features/devices/devices-table';
 import { AuditTable } from '@/features/logbook/audit-table';
 import { LogbookTable } from '@/features/logbook/logbook-table';
+import { OnDutyStrip } from '@/features/shifts/on-duty-strip';
+import { ShiftCalendar } from '@/features/shifts/shift-calendar';
 import { TagsTable } from '@/features/tags/tags-table';
 import { TelemetryExplorer } from '@/features/telemetry/telemetry-explorer';
 import { UsersTable } from '@/features/users/users-table';
@@ -36,8 +38,8 @@ import { ToolError, ToolSkeleton } from './tool-states';
  * role: 'ADMIN' }`). Turning it into a component is fixed code [app]: the
  * registry below maps each tool to a domain view, and that view loads its own
  * data through the REST API, exactly as its page does. The model never
- * produces markup or rows for the screen. Form tools (create a user, create
- * or edit an alarm rule) render through their own registry in form-parts.tsx.
+ * produces markup or rows for the screen. Form tools (add, create, edit,
+ * schedule, copy) render through their own registry in form-parts.tsx.
  */
 
 export type GenUIToolPart = ToolUIPart<GenUITools>;
@@ -61,8 +63,11 @@ interface ToolRenderer<N extends ListToolName> {
    * The view inside the frame, once the call is complete — usually the
    * domain's own table. A view with its own filters reports them through
    * `onLinkChange`, so "Open in new tab" opens what the user now sees.
+   * Without a frame, it gets that link as `action` to place itself.
    */
-  Body: ComponentType<{ input: Input<N>; onLinkChange?: (link: ToolLink) => void }>;
+  Body: ComponentType<{ input: Input<N>; onLinkChange?: (link: ToolLink) => void; action?: ReactNode }>;
+  /** false: the view is a card of its own (as on its page), without the chat's frame and title. */
+  framed?: false;
   /** The result in a few words, for text-only answers. */
   found: (output: Output<N>) => string;
 }
@@ -135,6 +140,28 @@ const logbookQuery = ({ title: _title, ...filters }: Input<'listLogbookEntries'>
 function LogbookBody({ input }: { input: Input<'listLogbookEntries'> }) {
   return <LogbookTable query={ListLogbookQuerySchema.parse({ ...logbookQuery(input), pageSize: 5 })} dense />;
 }
+
+// ─── Shifts ─────────────────────────────────────────────────────────────────
+
+/** A calendar call as a `/shifts` query: every field but the title. */
+const shiftsQuery = ({ title: _title, ...filters }: Input<'showShiftCalendar'>) => filters;
+
+/**
+ * The Shifts page's own calendar, for the period and filters Claude chose,
+ * without its toolbar: "Open in new tab" is the way to look further. Admins
+ * keep the shift and gap actions, as on the page.
+ */
+function ShiftCalendarBody({ input }: { input: Input<'showShiftCalendar'> }) {
+  const { group, ...query } = shiftsQuery(input);
+  return <ShiftCalendar query={query} group={group} controls={false} />;
+}
+
+/** The Shifts page's own on-duty strip, showing only the half asked for, with the link in its corner. */
+function OnDutyBody({ input, action }: { input: Input<'showOnDuty'>; action?: ReactNode }) {
+  return <OnDutyStrip only={input.when} role={input.role} action={action} />;
+}
+
+const plural = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
 // ─── Devices ────────────────────────────────────────────────────────────────
 
@@ -238,6 +265,24 @@ const RENDERERS: { [N in ListToolName]: ToolRenderer<N> } = {
     Body: LogbookBody,
     found: (output) => `${output.total} found`,
   },
+  showShiftCalendar: {
+    pending: 'Opening the shift calendar…',
+    title: (input) => input.title,
+    link: (input) => ({ to: '/shifts', search: shiftsQuery(input) }),
+    Body: ShiftCalendarBody,
+    found: (output) => {
+      const missing = output.gaps.reduce((sum, gap) => sum + gap.missing, 0);
+      return plural(output.total, 'shift') + (missing > 0 ? ` · ${plural(missing, 'person', 'people')} short` : '');
+    },
+  },
+  showOnDuty: {
+    pending: 'Checking who is on duty…',
+    title: (input) => (input.when === 'now' ? 'On duty now' : 'Next on duty'),
+    link: (input) => ({ to: '/shifts', search: input.role ? { role: input.role } : {} }),
+    Body: OnDutyBody,
+    framed: false,
+    found: (output) => (output.people.length > 0 ? output.people.map((person) => person.name).join(', ') : 'nobody'),
+  },
   listDevices: {
     pending: 'Looking up devices…',
     title: (input) => input.title,
@@ -293,12 +338,18 @@ export function ToolPartView({ part, streaming = false }: { part: GenUIToolPart;
   }
 }
 
-/** A list tool's view in its frame. The link starts as the call's query and follows the view's filters. */
+/**
+ * A list tool's view in its frame. The link starts as the call's query and
+ * follows the view's filters. A view that is a card of its own places the
+ * link itself.
+ */
 function ListToolCard({ renderer, input }: { renderer: ToolRenderer<ListToolName>; input: Input<ListToolName> }) {
   const [link, setLink] = useState(() => renderer.link(input));
   const { Body } = renderer;
+  const action = <ViewFullPageLink {...link} newTab />;
+  if (renderer.framed === false) return <Body input={input} action={action} />;
   return (
-    <ViewCard title={renderer.title(input)} action={<ViewFullPageLink {...link} newTab />}>
+    <ViewCard title={renderer.title(input)} action={action}>
       <Body input={input} onLinkChange={setLink} />
     </ViewCard>
   );

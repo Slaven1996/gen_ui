@@ -1,7 +1,7 @@
 import { CircleAlert, MessageSquareText, UserPlus } from 'lucide-react';
-import type { ShiftAssignment, ShiftCoverage, ShiftTemplate } from '@gen-ui/shared';
+import { templateTimes, type ShiftAssignment, type ShiftCoverage, type ShiftTemplate } from '@gen-ui/shared';
 import { cn } from '@/lib/utils';
-import { coverageSummary, hasOwnHours, shiftTimes, shortfallLabel, templateTimes, tint } from './calendar-utils';
+import { coverageSummary, hasOwnHours, shiftTimes, shortfallLabel, tint } from './calendar-utils';
 import { PersonAvatar, RoleBadge } from './person-avatar';
 import { ShiftPopover } from './shift-popover';
 import type { ShiftActions } from './use-shift-actions';

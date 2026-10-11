@@ -88,14 +88,14 @@ export class AiController {
   @ApiOperation({
     summary: 'Record what happened to a form',
     description:
-      'When the assistant opens a form in an answer (add a user; create or edit an alarm rule, a device, a tag, an asset or a logbook entry), the tool call ends there and the user saves through the same endpoint the page uses, as from the modal. The web app then calls this with `saved` and the id of the saved record, or with `closed` when the form was closed unsaved. The server reads the record and adds the outcome to the output of that tool call in the saved conversation, so a reload shows the result instead of the form and Claude knows on its next turn. Once per form. No model call.',
+      'When the assistant opens a form in an answer (add a user; create or edit an alarm rule, a device, a tag, an asset, a logbook entry or a shift template; schedule, edit or copy shifts), the tool call ends there and the user saves through the same endpoint the page uses, as from the modal. The web app then calls this with `saved` and the id of the saved record (plus `entityIds`, every record, for a form that saves several: a repeating shift, a copied week, a change to the rest of a series), or with `closed` when the form was closed unsaved. The server reads the records and adds the outcome to the output of that tool call in the saved conversation, so a reload shows the result instead of the form and Claude knows on its next turn. Once per form. No model call.',
   })
   @ApiParam({ name: 'id', format: 'uuid', description: 'The conversation.' })
   @ApiParam({ name: 'toolCallId', description: "The form tool call's id, from its part in the conversation." })
   @ApiOkResponse({ standardSchema: FormToolOutputSchema, description: "The tool call's output, now with `outcome`." })
   @ApiErrorResponse(400, '`id` is not a UUID, the body is malformed, or `entityId` is not the record this form edits.')
   @ApiErrorResponse(403, 'Your role may not use this form.')
-  @ApiErrorResponse(404, 'No such conversation of yours, no form with that id in it, or no record with `entityId`.')
+  @ApiErrorResponse(404, 'No such conversation of yours, no form with that id in it, or no record with `entityId` (or `entityIds`).')
   @ApiErrorResponse(409, 'The form is already saved or closed.')
   recordFormOutcome(
     @Param('id', ParseUUIDPipe) id: string,

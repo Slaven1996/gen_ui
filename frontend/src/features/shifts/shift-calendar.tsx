@@ -3,11 +3,13 @@ import { useQuery } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, CopyPlus } from 'lucide-react';
 import {
   SHIFT_CALENDAR_VIEWS,
+  SHIFT_GROUPINGS,
   ShiftCalendarQuerySchema,
   stepCalendar,
   utcOffset,
   zonedDate,
   type ShiftCalendarQueryInput,
+  type ShiftGrouping,
 } from '@gen-ui/shared';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -24,9 +26,6 @@ import { MonthView } from './month-view';
 import { useShiftActions } from './use-shift-actions';
 import { WeekByPerson } from './week-by-person';
 import { WeekByShift } from './week-by-shift';
-
-export const SHIFT_GROUPINGS = ['shift', 'person'] as const;
-export type ShiftGrouping = (typeof SHIFT_GROUPINGS)[number];
 
 const GROUPING_LABEL: Record<ShiftGrouping, string> = { shift: 'By shift', person: 'By person' };
 
@@ -45,6 +44,9 @@ function useNow(intervalMs = 60_000): Date {
  * plant time zone. Like the domain tables, it takes the page's query and
  * fetches its own data; with `onQueryChange` it keeps navigation in the URL,
  * without it (an embed) it keeps it locally. Admins get the actions.
+ * `controls={false}` (a chat answer) shows just the period the query names:
+ * no navigation, view switches, Copy week or filters, and day headers that
+ * don't open a day. Admins still get the shift and gap actions there.
  */
 export function ShiftCalendar({
   query,
@@ -52,6 +54,7 @@ export function ShiftCalendar({
   group: groupProp,
   onGroupChange,
   filters,
+  controls = true,
 }: {
   query: ShiftCalendarQueryInput;
   onQueryChange?: (query: ShiftCalendarQueryInput) => void;
@@ -59,6 +62,8 @@ export function ShiftCalendar({
   onGroupChange?: (group: ShiftGrouping) => void;
   /** The page's filter bar, shown in the toolbar. */
   filters?: ReactNode;
+  /** false: the period title only, without the toolbar's buttons and switches. */
+  controls?: boolean;
 }) {
   const [view, setView] = useViewQuery(query, onQueryChange);
   const [localGroup, setLocalGroup] = useState<ShiftGrouping>('shift');
@@ -85,44 +90,48 @@ export function ShiftCalendar({
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <div className="flex items-center gap-1">
-          <Button variant="outline" size="icon-sm" aria-label="Previous" onClick={() => go(-1)} disabled={!data}>
-            <ChevronLeft />
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setView({ date: undefined })} disabled={!view.date}>
-            Today
-          </Button>
-          <Button variant="outline" size="icon-sm" aria-label="Next" onClick={() => go(1)} disabled={!data}>
-            <ChevronRight />
-          </Button>
-        </div>
+        {controls && (
+          <div className="flex items-center gap-1">
+            <Button variant="outline" size="icon-sm" aria-label="Previous" onClick={() => go(-1)} disabled={!data}>
+              <ChevronLeft />
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setView({ date: undefined })} disabled={!view.date}>
+              Today
+            </Button>
+            <Button variant="outline" size="icon-sm" aria-label="Next" onClick={() => go(1)} disabled={!data}>
+              <ChevronRight />
+            </Button>
+          </div>
+        )}
         <div className="min-w-0">
           <h3 className="text-base font-semibold">{data ? periodTitle(data) : ' '}</h3>
           {data && <ZoneHint timeZone={data.timeZone} />}
         </div>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          {filters}
-          <Segmented
-            label="Period"
-            options={SHIFT_CALENDAR_VIEWS.map((value) => ({ value, label: CALENDAR_VIEW[value] }))}
-            value={requestedView}
-            onChange={(next) => setView({ view: next })}
-          />
-          {requestedView === 'week' && (
+        {controls && (
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            {filters}
             <Segmented
-              label="Rows"
-              options={SHIFT_GROUPINGS.map((value) => ({ value, label: GROUPING_LABEL[value] }))}
-              value={group}
-              onChange={setGroup}
+              label="Period"
+              options={SHIFT_CALENDAR_VIEWS.map((value) => ({ value, label: CALENDAR_VIEW[value] }))}
+              value={requestedView}
+              onChange={(next) => setView({ view: next })}
             />
-          )}
-          {actions && requestedView === 'week' && data?.view === 'week' && (
-            <Button variant="outline" size="sm" onClick={() => setCopying(true)}>
-              <CopyPlus />
-              Copy week
-            </Button>
-          )}
-        </div>
+            {requestedView === 'week' && (
+              <Segmented
+                label="Rows"
+                options={SHIFT_GROUPINGS.map((value) => ({ value, label: GROUPING_LABEL[value] }))}
+                value={group}
+                onChange={setGroup}
+              />
+            )}
+            {actions && requestedView === 'week' && data?.view === 'week' && (
+              <Button variant="outline" size="sm" onClick={() => setCopying(true)}>
+                <CopyPlus />
+                Copy week
+              </Button>
+            )}
+          </div>
+        )}
       </div>
 
       {calendar.isPending ? (
@@ -131,11 +140,19 @@ export function ShiftCalendar({
         <p className="rounded-lg border py-10 text-center text-sm text-destructive">{getErrorMessage(calendar.error)}</p>
       ) : (
         <div className={cn('transition-opacity', calendar.isPlaceholderData && 'opacity-60')} aria-busy={calendar.isPlaceholderData}>
-          <CalendarBody calendar={data} model={model} today={today} actions={actions} onOpenDay={openDay} group={group} now={now} />
+          <CalendarBody
+            calendar={data}
+            model={model}
+            today={today}
+            actions={actions}
+            onOpenDay={controls ? openDay : undefined}
+            group={group}
+            now={now}
+          />
         </div>
       )}
 
-      {actions && data?.view === 'week' && (
+      {controls && actions && data?.view === 'week' && (
         <CopyWeekDialog
           open={copying}
           onOpenChange={setCopying}

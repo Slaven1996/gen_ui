@@ -65,7 +65,7 @@ const DAY_MS = 86_400_000;
  */
 @Injectable()
 export class ShiftsService {
-  private readonly timeZone: string;
+  readonly timeZone: string;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -86,6 +86,12 @@ export class ShiftsService {
       orderBy: [{ isActive: 'desc' }, { startTime: 'asc' }, { name: 'asc' }],
     });
     return rows.map(toTemplate);
+  }
+
+  async getTemplate(id: string): Promise<ShiftTemplate> {
+    const row = await this.prisma.shiftTemplate.findUnique({ where: { id }, select: templateSelect });
+    if (!row) throw new NotFoundException('Shift template not found');
+    return toTemplate(row);
   }
 
   async createTemplate(dto: CreateShiftTemplateDto, actor: AuthUser): Promise<ShiftTemplate> {
@@ -250,6 +256,44 @@ export class ShiftsService {
     return toPaginated(rows.map(this.toAssignment), total, query);
   }
 
+  async getAssignment(id: string): Promise<ShiftAssignment> {
+    const row = await this.prisma.shiftAssignment.findUnique({ where: { id }, select: assignmentSelect });
+    if (!row) throw new NotFoundException('Shift assignment not found');
+    return this.toAssignment(row);
+  }
+
+  /** Shifts by id, in start order; ids that no longer exist are left out. */
+  async getAssignments(ids: readonly string[]): Promise<ShiftAssignment[]> {
+    const rows = await this.prisma.shiftAssignment.findMany({
+      where: { id: { in: [...ids] } },
+      select: assignmentSelect,
+      orderBy: { startsAt: 'asc' },
+    });
+    return rows.map(this.toAssignment);
+  }
+
+  /**
+   * Someone's shifts that start on `date` (a plant day), optionally only of
+   * one template: how the assistant finds "Noah's Saturday night".
+   */
+  async findStarting({
+    userId,
+    date,
+    templateId,
+  }: {
+    userId: string;
+    date: string;
+    templateId?: string;
+  }): Promise<ShiftAssignment[]> {
+    const { start, end } = zonedDay(date, this.timeZone);
+    const rows = await this.prisma.shiftAssignment.findMany({
+      where: { userId, startsAt: { gte: start, lt: end }, ...(templateId && { templateId }) },
+      select: assignmentSelect,
+      orderBy: { startsAt: 'asc' },
+    });
+    return rows.map(this.toAssignment);
+  }
+
   /**
    * Schedules one person on a shift for one date, or — with `repeat` — on the
    * chosen weekdays up to a date, as one series. All or nothing: if any
@@ -305,7 +349,7 @@ export class ShiftsService {
       );
     });
 
-    return { items: await this.findByIds(rows.map((row) => row.id)), skipped: 0 };
+    return { items: await this.getAssignments(rows.map((row) => row.id)), skipped: 0 };
   }
 
   /**
@@ -410,7 +454,7 @@ export class ShiftsService {
       );
     });
 
-    return { items: await this.findByIds(ids), skipped };
+    return { items: await this.getAssignments(ids), skipped };
   }
 
   /** Removes one shift, or the rest or all of its series that haven't started yet. */
@@ -514,7 +558,7 @@ export class ShiftsService {
       );
     });
 
-    return { items: await this.findByIds(rows.map((row) => row.id)), skipped: sources.length - usable.length };
+    return { items: await this.getAssignments(rows.map((row) => row.id)), skipped: sources.length - usable.length };
   }
 
   // ─── On duty ──────────────────────────────────────────────────────────────
@@ -576,15 +620,6 @@ export class ShiftsService {
     const now = new Date();
     const rows = series.filter((row) => row.startsAt > now);
     return { rows, skipped: series.length - rows.length };
-  }
-
-  private async findByIds(ids: string[]): Promise<ShiftAssignment[]> {
-    const rows = await this.prisma.shiftAssignment.findMany({
-      where: { id: { in: ids } },
-      select: assignmentSelect,
-      orderBy: { startsAt: 'asc' },
-    });
-    return rows.map(this.toAssignment);
   }
 
   /** "2026-10-12 to 2026-10-16" for audit summaries; rows are in start order. */

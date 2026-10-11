@@ -16,6 +16,7 @@ import {
   OnDutyQuerySchema,
   OnDutySchema,
   PaginatedShiftAssignmentsSchema,
+  ShiftAssignmentSchema,
   ShiftCalendarQuerySchema,
   ShiftCalendarSchema,
   ShiftChangeResultSchema,
@@ -142,6 +143,18 @@ export class ShiftsController {
     @Query({ schema: ListShiftAssignmentsQuerySchema }) query: ListShiftAssignmentsQuery,
   ): Promise<Paginated<ShiftAssignment>> {
     return this.shifts.listAssignments(query);
+  }
+
+  @Get('assignments/:id')
+  @ApiOperation({
+    summary: 'Get a shift assignment',
+    description: 'One scheduled shift: its person, template, role, start and end, and series. The edit form loads it from here.',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ standardSchema: ShiftAssignmentSchema })
+  @ApiErrorResponse(404, 'No assignment with that id.')
+  getAssignment(@Param('id', ParseUUIDPipe) id: string): Promise<ShiftAssignment> {
+    return this.shifts.getAssignment(id);
   }
 
   @Post('assignments')

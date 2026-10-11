@@ -8,6 +8,7 @@ import {
   type CreateShiftTemplateInput,
   type OnDuty,
   type OnDutyQueryInput,
+  type ShiftAssignment,
   type ShiftCalendar,
   type ShiftCalendarQueryInput,
   type ShiftChangeResult,
@@ -46,6 +47,13 @@ export const shiftCalendarQueryOptions = (query: ShiftCalendarQueryInput = {}) =
     placeholderData: keepPreviousData,
   });
 };
+
+/** One shift, as the assistant's edit form opens on it. */
+export const shiftAssignmentQueryOptions = (id: string) =>
+  queryOptions({
+    queryKey: [...shiftKeys.all, 'assignment', id] as const,
+    queryFn: async () => (await http.get<ShiftAssignment>(`/shifts/assignments/${id}`)).data,
+  });
 
 export const onDutyQueryOptions = (query: OnDutyQueryInput = {}) => {
   // Parsed, so `role: 'OPERATOR'` and `role: ['OPERATOR']` share one entry.

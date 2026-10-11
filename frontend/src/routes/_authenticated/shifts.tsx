@@ -2,8 +2,14 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, stripSearchParams } from '@tanstack/react-router';
 import { CalendarPlus, Settings2 } from 'lucide-react';
-import { z } from 'zod';
-import { ShiftCalendarQuerySchema, zonedDate, type ShiftCalendar as ShiftCalendarData, type ShiftCalendarQuery } from '@gen-ui/shared';
+import {
+  ShiftsPageQuerySchema,
+  zonedDate,
+  type ShiftCalendar as ShiftCalendarData,
+  type ShiftCalendarQuery,
+  type ShiftsPageQuery,
+  type ShiftsPageQueryInput,
+} from '@gen-ui/shared';
 import { FilterBar } from '@/components/filters/filter-bar';
 import { MultiSelectFilter } from '@/components/filters/multi-select-filter';
 import { PageContainer, PageHeader } from '@/components/layout/page';
@@ -11,21 +17,15 @@ import { Button } from '@/components/ui/button';
 import { shiftCalendarQueryOptions, shiftTemplatesQueryOptions } from '@/features/shifts/api';
 import { OnDutyStrip } from '@/features/shifts/on-duty-strip';
 import { ScheduleShiftDialog } from '@/features/shifts/schedule-shift-dialog';
-import { SHIFT_GROUPINGS, ShiftCalendar } from '@/features/shifts/shift-calendar';
+import { ShiftCalendar } from '@/features/shifts/shift-calendar';
 import { TemplatesDialog } from '@/features/shifts/templates-dialog';
 import { UserFilter } from '@/features/users/user-filter';
 import { useAuth } from '@/lib/auth/auth-store';
 import { SHIFT_ROLE_OPTIONS } from '@/lib/labels';
 import { defaultsOf, searchSchema } from '@/lib/search';
 
-/** The calendar's query (the same as `GET /api/shifts/calendar`), plus how the week view groups its rows. */
-const ShiftsSearchSchema = ShiftCalendarQuerySchema.extend({
-  group: z.enum(SHIFT_GROUPINGS).default('shift').describe('Week view rows: one per shift, or one per person.'),
-});
-type ShiftsSearch = z.output<typeof ShiftsSearchSchema>;
-type ShiftsSearchInput = z.input<typeof ShiftsSearchSchema>;
-
-const calendarQuery = (search: ShiftsSearch): ShiftCalendarQuery => ({
+/** The page's URL (shared with the assistant's calendar): the calendar's query, plus how the week groups its rows. */
+const calendarQuery = (search: ShiftsPageQuery): ShiftCalendarQuery => ({
   view: search.view,
   date: search.date,
   userId: search.userId,
@@ -35,8 +35,8 @@ const calendarQuery = (search: ShiftsSearch): ShiftCalendarQuery => ({
 
 export const Route = createFileRoute('/_authenticated/shifts')({
   staticData: { title: 'Shifts' },
-  validateSearch: searchSchema(ShiftsSearchSchema),
-  search: { middlewares: [stripSearchParams(defaultsOf(ShiftsSearchSchema))] },
+  validateSearch: searchSchema(ShiftsPageQuerySchema),
+  search: { middlewares: [stripSearchParams(defaultsOf(ShiftsPageQuerySchema))] },
   // `group` only changes how the same data is drawn.
   loaderDeps: ({ search }) => calendarQuery(search),
   loader: ({ context, deps }) => context.queryClient.ensureQueryData(shiftCalendarQueryOptions(deps)),
@@ -64,7 +64,7 @@ function ShiftsPage() {
   const templates = useQuery(shiftTemplatesQueryOptions());
   const templateOptions = (templates.data ?? []).map((template) => ({ value: template.id, label: template.name }));
 
-  const setSearch = (patch: Partial<ShiftsSearchInput>) =>
+  const setSearch = (patch: Partial<ShiftsPageQueryInput>) =>
     navigate({ search: (previous) => ({ ...previous, ...patch }), replace: true });
 
   return (
