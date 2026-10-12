@@ -2,11 +2,12 @@ import { useRouterState } from '@tanstack/react-router';
 import { Separator } from '@/components/ui/separator';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { NotificationBell } from '@/features/notifications/components/notification-bell';
+import { ThemeToggle } from './theme-toggle';
 import { UserMenu } from './user-menu';
 
 /**
- * The top bar: page title on the left; notifications and the account menu on
- * the right. `sticky top-0` keeps it in view however far a long page (a big
+ * The top bar: page title on the left; the theme switch, notifications and the
+ * account menu on the right. `sticky top-0` keeps it in view however far a long page (a big
  * table) scrolls: the window scrolls, and no ancestor clips or scrolls on its
  * own. The solid background and z-index keep scrolled content from showing
  * through or on top.
@@ -23,6 +24,7 @@ export function SiteHeader() {
       <h1 className="min-w-0 truncate text-sm font-medium">{title}</h1>
 
       <div className="ml-auto flex items-center gap-1">
+        <ThemeToggle />
         <NotificationBell />
         <UserMenu />
       </div>
