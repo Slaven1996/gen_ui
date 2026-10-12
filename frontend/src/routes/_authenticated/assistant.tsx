@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { ChatThread } from '@/features/assistant/chat-thread';
+import { ChatThread } from '@/features/assistant/components/chat-thread';
 
 export const Route = createFileRoute('/_authenticated/assistant')({
   staticData: { title: 'Assistant' },

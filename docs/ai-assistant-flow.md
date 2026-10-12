@@ -165,12 +165,12 @@ flowchart TD
 | Which tool, with which filters, how many in parallel | **Claude** | steered by the tool descriptions in `assistant.ts` |
 | Validating the tool input and running the query | code | AI SDK + `ListUsersQuerySchema` → `UsersService` |
 | The wording of the answer | **Claude** | from the tool results |
-| Which component draws a tool call, and its data | code | `tool-parts.tsx` registry; the table fetches via the REST API |
-| Row actions in that component | code: the user's role | the `use…Actions` hooks in `users-table.tsx`, `definitions-table.tsx`, `devices-table.tsx`, `tags-table.tsx`, `assets-table.tsx`, `logbook-table.tsx`, `shifts/use-shift-actions.tsx`; the alarm sheet in `tool-parts.tsx` |
-| Saving and restoring the conversation | code | `conversations.service.ts`, `chat-store.ts` |
+| Which component draws a tool call, and its data | code | `lib/tool-renderers.ts` registry, one body per tool in `components/tool-bodies/`; the table fetches via the REST API |
+| Row actions in that component | code: the user's role | each feature's `hooks/use…Actions` hook (users, alarms, devices, tags, assets, logbook, shifts); the alarm sheet in `components/tool-bodies/alarms-body.tsx` |
+| Saving and restoring the conversation | code | `conversations.service.ts`, `store/chat-store.ts` |
 | Which form to open, pre-filled with what, on which record | **Claude** | steered by the form tools' descriptions; ids from the prompt's pick lists |
 | Saving the form | **the user**, through the page's REST endpoint | the page's own hook: `useCreateUser`, `useSaveAlarmDefinition`, `useSaveDevice`, `useSaveTag`, `useSaveAsset`, `useSaveLogbookEntry`, `useCreateAssignments`, `useUpdateAssignment`, `useCopyWeek`, `useSaveTemplate` |
-| Recording what the user did with a form | code | `ai-forms.service.ts`, `form-parts.tsx` |
+| Recording what the user did with a form | code | `ai-forms.service.ts`, `hooks/use-record-form-outcome.ts` |
 
 ## 2. Conversation lifecycle: open, restore, clear, sign out
 
@@ -253,7 +253,7 @@ sequenceDiagram
 
 **Forms of another role.** A user (not an admin) has only the logbook forms. Their prompt lists the forms their role can't open, with the role that can (`AiTools.formsFor`, from `TOOL_ROLES`). Asked to "create a new user", Claude says only admins can, instead of sending them to a page that hides the button from them.
 
-**States of a form part** (`frontend/src/features/assistant/form-parts.tsx`):
+**States of a form part** (`frontend/src/features/assistant/components/form-part-view.tsx`):
 
 | Part | Renders |
 |---|---|
@@ -273,28 +273,28 @@ The result: a reload shows the outcome line instead of the form (no duplicate "A
 
 1. **Contract:** add the tool's schema to `genUiToolSchemas` in `packages/shared/src/assistant.ts`, with a `description` and a `.describe()` on every field. That text is how Claude learns the tool.
 2. **Tool:** add it in `backend/src/features/ai/ai.tools.ts`, calling that domain's service, plus one `TOOL_ROLES` line. Export the service from the domain's module and import that module in `ai.module.ts`.
-3. **Renderer:** add an entry in `frontend/src/features/assistant/tool-parts.tsx` that wraps the domain's existing table (or view, like the shift calendar) and links to its page. Keep role-based row actions inside the view itself, so the chat gets the same ones as the page. What must differ in the chat is a prop on the page's own component (`dense`, `controls={false}`, `only`), never a copy of it. A view that is a card of its own on its page sets `framed: false` and places the link it is handed. A filter the page sets with the asset or people dropdown takes the same id in the tool; Claude picks it from the lists in its prompt.
+3. **Renderer:** add a body component in `frontend/src/features/assistant/components/tool-bodies/` that wraps the domain's existing table (or view, like the shift calendar), and an entry in `lib/tool-renderers.ts` that names it and links to its page. Keep role-based row actions inside the view itself, so the chat gets the same ones as the page. What must differ in the chat is a prop on the page's own component (`dense`, `controls={false}`, `only`), never a copy of it. A view that is a card of its own on its page sets `framed: false` and places the link it is handed. A filter the page sets with the asset or people dropdown takes the same id in the tool; Claude picks it from the lists in its prompt.
 
 The system prompt changes only for a new pick list. TypeScript fails the build if the backend tools and the shared contract drift apart, or if a tool has no renderer.
 
 **Adding a form tool** (create or edit something):
 1. **Contract:** input and output schemas in `assistant.ts` (the input is the form's pre-fill; an edit takes the record's id from a prompt list), the output with `status: 'opened'` and an optional `outcome`, the name in `FORM_TOOL_NAMES`, and the dialog's title in `FORM_TITLES` (the chat labels the form with it, and a text-only answer names it).
 2. **Tool:** `execute` checks the role and the ids and returns `opened`; it never writes. Add a `TOOL_ROLES` line, and an entry in `AiFormsService`'s `saved` map that reads the saved record. If Claude must pick a record by name, give it a pick list: an `options()` method on the service, loaded in `filterOptions` when a tool that takes it is offered, a block in `pickLists()`, and an `idChecks` entry. Don't match names in code.
-3. **Form:** split the page's dialog into the dialog and a form component that sits inside it (`CreateUserForm`, `DefinitionForm`), so the modal is unchanged, then add a `FORM_RENDERERS` entry in `form-parts.tsx` that renders that form.
+3. **Form:** split the page's dialog into the dialog and a form component that sits inside it (`CreateUserForm`, `DefinitionForm`), so the modal is unchanged, then add a body in `components/form-bodies/` that renders that form and its `FORM_RENDERERS` entry in `lib/form-renderers.ts`.
 
 ## Where the code lives
 
 | Step | File |
 |---|---|
-| Model, effort, components toggle | `frontend/src/features/assistant/assistant-preferences.ts` |
-| Load, send, clear, auth | `frontend/src/features/assistant/chat-store.ts` |
-| Thread, model/effort pickers, toolbar, composer | `frontend/src/features/assistant/chat-thread.tsx` |
-| Render parts, Markdown | `frontend/src/features/assistant/chat-message.tsx` |
-| Tool → component registry | `frontend/src/features/assistant/tool-parts.tsx` |
-| Form tools: the form in the answer, its states, recording the outcome | `frontend/src/features/assistant/form-parts.tsx`, `frontend/src/components/inline-dialog.tsx` |
-| The forms (page modal and chat) | `frontend/src/features/users/user-form-dialog.tsx`, `frontend/src/features/alarms/definition-form-dialog.tsx`, `frontend/src/features/devices/device-form-dialog.tsx`, `frontend/src/features/tags/tag-form-dialog.tsx`, `frontend/src/features/assets/asset-form-dialog.tsx`, `frontend/src/features/logbook/entry-form-dialog.tsx`, `frontend/src/features/shifts/` (`schedule-shift-dialog.tsx`, `edit-shift-dialog.tsx`, `copy-week-dialog.tsx`, `template-form.tsx`) |
-| "Open in new tab" link | `frontend/src/components/view-card.tsx` |
-| The tables and views (page and chat) | `frontend/src/features/`: `alarms/alarms-table.tsx`, `alarms/definitions-table.tsx`, `logbook/logbook-table.tsx`, `devices/devices-table.tsx`, `tags/tags-table.tsx`, `assets/assets-table.tsx`, `users/users-table.tsx`, `logbook/audit-table.tsx`, `telemetry/telemetry-explorer.tsx`, `shifts/shift-calendar.tsx`, `shifts/on-duty-strip.tsx` |
+| Model, effort, components toggle | `frontend/src/features/assistant/store/assistant-preferences.ts` |
+| Load, send, clear, auth | `frontend/src/features/assistant/store/chat-store.ts` |
+| Thread, model/effort pickers, toolbar, composer | `frontend/src/features/assistant/components/chat-thread.tsx`, `chat-thread-view.tsx`, `model-settings.tsx` |
+| Render parts, Markdown | `frontend/src/features/assistant/components/chat-message.tsx`, `message-markdown.tsx`, `message-reasoning.tsx` |
+| Tool → component registry | `frontend/src/features/assistant/lib/tool-renderers.ts`, the bodies in `components/tool-bodies/`, drawn by `components/tool-part-view.tsx`; shared types in `types.ts` |
+| Form tools: the form in the answer, its states, recording the outcome | `frontend/src/features/assistant/lib/form-renderers.ts`, the bodies in `components/form-bodies/`, `components/form-part-view.tsx`, `hooks/use-record-form-outcome.ts`, `frontend/src/components/inline-dialog.tsx` |
+| The forms (page modal and chat) | `frontend/src/features/<feature>/components/`: `users/…/create-user-form.tsx`, `alarms/…/definition-form.tsx`, `devices/…/device-form.tsx`, `tags/…/tag-form.tsx`, `assets/…/asset-form.tsx`, `logbook/…/entry-form.tsx`, `shifts/components/dialogs/` (`schedule-shift-form.tsx`, `edit-shift-form.tsx`, `copy-week-form.tsx`, `template-form.tsx`); each next to the `x-dialog.tsx` the page uses |
+| "Open in new tab" link | `frontend/src/components/view-full-page-link.tsx` |
+| The tables and views (page and chat) | `frontend/src/features/<feature>/components/`: `alarms/…/alarms-table.tsx`, `alarms/…/definitions-table.tsx`, `logbook/…/logbook-table.tsx`, `devices/…/devices-table.tsx`, `tags/…/tags-table.tsx`, `assets/…/assets-table.tsx`, `users/…/users-table.tsx`, `audit/…/audit-table.tsx`, `telemetry/…/telemetry-explorer.tsx`, `shifts/components/calendar/shift-calendar.tsx`, `shifts/components/on-duty/on-duty-strip.tsx` |
 | Asset, people, device, tag, alarm rule, own logbook entry and shift template lists, id check | `backend/src/features/ai/ai.tools.ts` (`filterOptions`, `idChecks`); listed by `system-prompt.ts` |
 | Recording a form's outcome | `backend/src/features/ai/ai-forms.service.ts`; `keepOutcomes` in `conversations.service.ts` |
 | Contract: models, request, tools, messages | `packages/shared/src/assistant.ts` |

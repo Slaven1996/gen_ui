@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { logout } from '@/features/auth/api';
+import { logout } from '@/features/auth/api/session';
 import { useAuth } from '@/lib/auth/auth-store';
 
 const initialsOf = (name: string) =>

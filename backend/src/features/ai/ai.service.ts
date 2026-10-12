@@ -64,7 +64,7 @@ import { buildInstructions } from './system-prompt.js';
  *  PUT /ai/conversations/:id/forms/:toolCallId (ai-forms.service.ts).
  *
  *  In the browser a fixed registry turns each tool part into a React
- *  component (frontend/src/features/assistant/tool-parts.tsx). Claude chooses
+ *  component (frontend/src/features/assistant/lib/tool-renderers.ts). Claude chooses
  *  the tool and its filters; it never writes UI code or data of its own.
  */
 

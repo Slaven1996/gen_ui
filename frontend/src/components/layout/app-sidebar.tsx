@@ -30,7 +30,7 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from '@/components/ui/sidebar';
-import { summaryQueryOptions } from '@/features/analytics/api';
+import { summaryQueryOptions } from '@/features/analytics/api/queries';
 import { useAuth } from '@/lib/auth/auth-store';
 import type { FileRouteTypes } from '@/routeTree.gen';
 

@@ -3,14 +3,17 @@ import { z } from 'zod';
 import { alarmTrendParams, KPI_METRICS, TREND_INTERVALS, type KpiMetric } from '@gen-ui/shared';
 import { FilterBar } from '@/components/filters/filter-bar';
 import { SelectFilter } from '@/components/filters/select-filter';
-import { TimeRangeFilter, describeTimeRange } from '@/components/filters/time-range-filter';
-import { PageContainer, PageHeader } from '@/components/layout/page';
-import { ViewCard, ViewFullPageLink } from '@/components/view-card';
-import { AlarmTrendChart } from '@/features/analytics/alarm-trend-chart';
-import { DeviceStatusSummary } from '@/features/analytics/device-status-summary';
-import { KpiTile } from '@/features/analytics/kpi';
-import { TopAlarmsList } from '@/features/analytics/top-alarms-list';
-import { AssetSelect } from '@/features/assets/asset-select';
+import { TimeRangeFilter } from '@/components/filters/time-range-filter';
+import { describeTimeRange } from '@/lib/time-range';
+import { PageContainer } from '@/components/layout/page-container';
+import { PageHeader } from '@/components/layout/page-header';
+import { ViewCard } from '@/components/view-card';
+import { ViewFullPageLink } from '@/components/view-full-page-link';
+import { AlarmTrendChart } from '@/features/analytics/components/alarm-trend-chart';
+import { DeviceStatusSummary } from '@/features/analytics/components/device-status-summary';
+import { KpiTile } from '@/features/analytics/components/kpi-tile';
+import { TopAlarmsList } from '@/features/analytics/components/top-alarms-list';
+import { AssetSelect } from '@/features/assets/components/asset-select';
 import { defaultsOf, searchSchema } from '@/lib/search';
 
 const analyticsSearch = z.object({

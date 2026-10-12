@@ -1,5 +1,5 @@
 import { createRouter } from '@tanstack/react-router';
-import { FullPageSpinner } from './components/layout/page';
+import { FullPageSpinner } from './components/layout/full-page-spinner';
 import { RouteError } from './components/layout/route-error';
 import { queryClient } from './lib/api/query-client';
 import { authStore } from './lib/auth/auth-store';

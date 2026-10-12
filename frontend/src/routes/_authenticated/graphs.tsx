@@ -2,11 +2,12 @@ import { createFileRoute, stripSearchParams } from '@tanstack/react-router';
 import { Link2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { GraphQuerySchema } from '@gen-ui/shared';
-import { PageContainer, PageHeader } from '@/components/layout/page';
+import { PageContainer } from '@/components/layout/page-container';
+import { PageHeader } from '@/components/layout/page-header';
 import { Button } from '@/components/ui/button';
-import { seriesQueryOptions } from '@/features/telemetry/api';
-import { TagStatsTable } from '@/features/telemetry/tag-stats-table';
-import { TelemetryExplorer } from '@/features/telemetry/telemetry-explorer';
+import { seriesQueryOptions } from '@/features/telemetry/api/queries';
+import { TagStatsTable } from '@/features/telemetry/components/tag-stats-table';
+import { TelemetryExplorer } from '@/features/telemetry/components/telemetry-explorer';
 import { defaultsOf, searchSchema } from '@/lib/search';
 
 /** The chart's query is the URL (`GraphQuerySchema`): a bookmark is a saved chart. */

@@ -65,3 +65,9 @@ export const durationBetween = (from: string, to: string | null) =>
 /** `MAINTENANCE` → `Maintenance`, `ON_CALL` → `On call`. */
 export const humanize = (value: string) =>
   value.charAt(0) + value.slice(1).toLowerCase().replaceAll('_', ' ');
+
+/** Long text in a hint: its start, in quotes. */
+export const quoted = (value: string) => (value ? `“${value.length > 60 ? `${value.slice(0, 59)}…` : value}”` : 'empty');
+
+/** A count with its noun: "1 shift", "3 shifts", "2 people". */
+export const plural = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;

@@ -1,0 +1,19 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["eslint", "typescript", "unicorn", "oxc", "react", "import"],
+  "rules": {
+    "react/no-multi-comp": "error",
+    "react/only-export-components": ["error", { "allowExportNames": ["Route"] }],
+    "import/no-cycle": "error",
+    "react/set-state-in-effect": "off",
+    "react/purity": "off",
+    "react/immutability": "off",
+    "react/incompatible-library": "off"
+  },
+  "overrides": [
+    {
+      "files": ["src/components/ui/**", "src/hooks/use-mobile.ts", "src/routeTree.gen.ts", "src/routes/**"],
+      "rules": { "react/no-multi-comp": "off", "react/only-export-components": "off" }
+    }
+  ]
+}

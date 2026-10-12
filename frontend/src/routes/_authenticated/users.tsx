@@ -6,11 +6,12 @@ import { FilterBar } from '@/components/filters/filter-bar';
 import type { FilterOption } from '@/components/filters/multi-select-filter';
 import { SearchFilter } from '@/components/filters/search-filter';
 import { SelectFilter } from '@/components/filters/select-filter';
-import { PageContainer, PageHeader } from '@/components/layout/page';
-import { LastSignInFilter } from '@/features/users/last-sign-in-filter';
-import { usersListQueryOptions } from '@/features/users/queries';
-import { CreateUserDialog } from '@/features/users/user-form-dialog';
-import { UsersTable } from '@/features/users/users-table';
+import { PageContainer } from '@/components/layout/page-container';
+import { PageHeader } from '@/components/layout/page-header';
+import { LastSignInFilter } from '@/features/users/components/last-sign-in-filter';
+import { usersListQueryOptions } from '@/features/users/api/queries';
+import { CreateUserDialog } from '@/features/users/components/create-user-dialog';
+import { UsersTable } from '@/features/users/components/users-table';
 import { useAuth } from '@/lib/auth/auth-store';
 import { defaultsOf, searchSchema } from '@/lib/search';
 

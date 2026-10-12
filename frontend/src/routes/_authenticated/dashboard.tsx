@@ -5,7 +5,7 @@ import { Check, LayoutDashboard, MoreHorizontal, Pencil, Plus, Share2 } from 'lu
 import { z } from 'zod';
 import type { Dashboard, DashboardWidget } from '@gen-ui/shared';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import { PageContainer } from '@/components/layout/page';
+import { PageContainer } from '@/components/layout/page-container';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,10 +18,11 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import { dashboardQueryOptions, dashboardsQueryOptions, useDeleteDashboard } from '@/features/dashboards/api';
-import { DashboardFormDialog } from '@/features/dashboards/dashboard-form-dialog';
-import { DashboardGrid } from '@/features/dashboards/dashboard-grid';
-import { WidgetDialog } from '@/features/dashboards/widget-dialog';
+import { useDeleteDashboard } from '@/features/dashboards/api/mutations';
+import { dashboardQueryOptions, dashboardsQueryOptions } from '@/features/dashboards/api/queries';
+import { DashboardFormDialog } from '@/features/dashboards/components/dashboard-form-dialog';
+import { DashboardGrid } from '@/features/dashboards/components/dashboard-grid';
+import { WidgetDialog } from '@/features/dashboards/components/widget-dialog';
 import { useAuth } from '@/lib/auth/auth-store';
 import { searchSchema } from '@/lib/search';
 

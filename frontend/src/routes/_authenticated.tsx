@@ -2,7 +2,7 @@ import { createFileRoute, Outlet, redirect } from '@tanstack/react-router';
 import { AppSidebar } from '@/components/layout/app-sidebar';
 import { SiteHeader } from '@/components/layout/site-header';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
-import { useNotificationsSocket } from '@/features/notifications/notifications-store';
+import { useNotificationsSocket } from '@/features/notifications/store/notifications-store';
 
 /** Pathless layout: everything under it requires a session and gets the app shell. */
 export const Route = createFileRoute('/_authenticated')({

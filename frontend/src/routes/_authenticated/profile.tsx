@@ -1,7 +1,8 @@
 import { useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { ChangePasswordSchema, PASSWORD_MIN_LENGTH, UpdateProfileSchema } from '@gen-ui/shared';
-import { PageContainer, PageHeader } from '@/components/layout/page';
+import { PageContainer } from '@/components/layout/page-container';
+import { PageHeader } from '@/components/layout/page-header';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -16,7 +17,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-import { useChangePassword, useUpdateProfile } from '@/features/profile/api';
+import { useChangePassword, useUpdateProfile } from '@/features/profile/api/mutations';
 import { getErrorMessage } from '@/lib/api/errors';
 import { useAuth } from '@/lib/auth/auth-store';
 

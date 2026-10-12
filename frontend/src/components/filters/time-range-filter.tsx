@@ -6,21 +6,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Separator } from '@/components/ui/separator';
-import { formatShortDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
-
-export interface TimeRangeValue {
-  range?: RelativeRange;
-  from?: string;
-  to?: string;
-}
-
-/** Every key present, so merging it into search params clears the ones not in use. */
-export interface TimeRangeChange {
-  range: RelativeRange | undefined;
-  from: string | undefined;
-  to: string | undefined;
-}
+import { describeTimeRange, type TimeRangeChange, type TimeRangeValue } from '@/lib/time-range';
+import { PresetButton } from './preset-button';
 
 /** `<input type="datetime-local">` speaks local wall-clock time without a zone. */
 const toLocalInput = (iso: string | undefined) => {
@@ -29,11 +17,6 @@ const toLocalInput = (iso: string | undefined) => {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 };
 const fromLocalInput = (value: string) => (value ? new Date(value).toISOString() : undefined);
-
-export function describeTimeRange({ range, from, to }: TimeRangeValue, anyLabel = 'Any time'): string {
-  if (from || to) return `${from ? formatShortDateTime(from) : '…'} – ${to ? formatShortDateTime(to) : 'now'}`;
-  return range ? RELATIVE_RANGE_LABELS[range] : anyLabel;
-}
 
 /**
  * Relative presets (which keep a link "live") or a custom absolute window.
@@ -124,13 +107,5 @@ export function TimeRangeFilter({
         </div>
       </PopoverContent>
     </Popover>
-  );
-}
-
-function PresetButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <Button variant={active ? 'secondary' : 'ghost'} size="sm" className="justify-start font-normal" onClick={onClick}>
-      {children}
-    </Button>
   );
 }

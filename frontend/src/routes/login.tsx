@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { login } from '@/features/auth/api';
+import { login } from '@/features/auth/api/session';
 import { getErrorMessage } from '@/lib/api/errors';
 import { safeRedirect } from '@/lib/auth/safe-redirect';
 

@@ -6,10 +6,11 @@ import { MultiSelectFilter } from '@/components/filters/multi-select-filter';
 import { SearchFilter } from '@/components/filters/search-filter';
 import { SelectFilter } from '@/components/filters/select-filter';
 import { TimeRangeFilter } from '@/components/filters/time-range-filter';
-import { PageContainer, PageHeader } from '@/components/layout/page';
-import { auditLogsListQueryOptions } from '@/features/logbook/api';
-import { AuditTable } from '@/features/logbook/audit-table';
-import { UserFilter } from '@/features/users/user-filter';
+import { PageContainer } from '@/components/layout/page-container';
+import { PageHeader } from '@/components/layout/page-header';
+import { auditLogsListQueryOptions } from '@/features/audit/api/queries';
+import { AuditTable } from '@/features/audit/components/audit-table';
+import { UserFilter } from '@/features/users/components/user-filter';
 import { AUDIT_ENTITY_OPTIONS } from '@/lib/labels';
 import { defaultsOf, searchSchema } from '@/lib/search';
 

@@ -1,7 +1,7 @@
 import { useRouterState } from '@tanstack/react-router';
 import { Separator } from '@/components/ui/separator';
 import { SidebarTrigger } from '@/components/ui/sidebar';
-import { NotificationBell } from '@/features/notifications/notification-bell';
+import { NotificationBell } from '@/features/notifications/components/notification-bell';
 import { UserMenu } from './user-menu';
 
 /**
