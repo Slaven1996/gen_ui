@@ -52,6 +52,9 @@ CREATE TYPE "AuditEntityType" AS ENUM ('ASSET', 'DEVICE', 'TAG', 'ALARM_DEFINITI
 CREATE TYPE "ShiftRole" AS ENUM ('OPERATOR', 'SUPERVISOR', 'ON_CALL');
 CREATE TYPE "WidgetType" AS ENUM ('KPI', 'TAG_VALUE', 'TIME_SERIES', 'ALARM_TABLE', 'ALARM_TREND', 'TOP_ALARMS', 'LOGBOOK_FEED', 'DEVICE_STATUS', 'ON_DUTY');
 
+-- Notifications
+CREATE TYPE "NotificationType" AS ENUM ('ALARM');
+
 -- ─── Users & sessions ───────────────────────────────────────────────────────
 
 CREATE TABLE "users" (
@@ -395,6 +398,41 @@ CREATE TABLE "dashboard_widgets" (
     CONSTRAINT "dashboard_widgets_size_check" CHECK ("width" IN (3, 4, 6, 8, 12) AND "height" BETWEEN 1 AND 3)
 );
 CREATE INDEX "dashboard_widgets_dashboard_id_position_idx" ON "dashboard_widgets"("dashboard_id", "position");
+
+-- ─── Notifications ──────────────────────────────────────────────────────────
+
+-- One person's copy of a notification: every active user gets their own row,
+-- so each reads, dismisses and clears theirs alone. The text is written when
+-- it is sent and the asset and alarm are only links, so deleting either keeps
+-- the notification. demo: made up by the demo generator (alarm_id is NULL).
+-- Rows older than NOTIFICATION_RETENTION_DAYS are deleted by a daily job.
+CREATE TABLE "notifications" (
+    "id"         UUID               NOT NULL,
+    "user_id"    UUID               NOT NULL,
+    "type"       "NotificationType" NOT NULL,
+    "severity"   "AlarmSeverity"    NOT NULL,
+    "title"      TEXT               NOT NULL,
+    "message"    TEXT               NOT NULL,
+    "asset_id"   UUID,
+    "alarm_id"   UUID,
+    "demo"       BOOLEAN            NOT NULL DEFAULT false,
+    "read_at"    TIMESTAMP(3),
+    "created_at" TIMESTAMP(3)       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "notifications_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "notifications_user_id_fkey" FOREIGN KEY ("user_id")
+        REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "notifications_asset_id_fkey" FOREIGN KEY ("asset_id")
+        REFERENCES "assets"("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT "notifications_alarm_id_fkey" FOREIGN KEY ("alarm_id")
+        REFERENCES "alarms"("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+-- The bell: one user's newest first, and their unread count.
+CREATE INDEX "notifications_user_id_created_at_idx" ON "notifications"("user_id", "created_at" DESC);
+-- The retention job.
+CREATE INDEX "notifications_created_at_idx" ON "notifications"("created_at");
+CREATE INDEX "notifications_alarm_id_idx" ON "notifications"("alarm_id");
+CREATE INDEX "notifications_asset_id_idx" ON "notifications"("asset_id");
 
 -- ─── Assistant ──────────────────────────────────────────────────────────────
 

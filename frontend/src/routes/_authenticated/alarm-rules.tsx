@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { createFileRoute, stripSearchParams } from '@tanstack/react-router';
 import { Plus } from 'lucide-react';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { ListAlarmDefinitionsQuerySchema } from '@gen-ui/shared';
 import { FilterBar } from '@/components/filters/filter-bar';
 import { MultiSelectFilter } from '@/components/filters/multi-select-filter';
@@ -18,19 +18,21 @@ import { useAuth } from '@/lib/auth/auth-store';
 import { ALARM_CONDITION_OPTIONS, SEVERITY_OPTIONS } from '@/lib/labels';
 import { defaultsOf, searchSchema } from '@/lib/search';
 
-type RulesSearch = z.output<typeof ListAlarmDefinitionsQuerySchema>;
+/** The API's query, plus `rule`: the one open in the detail sheet (deep-linkable). */
+const rulesSearch = ListAlarmDefinitionsQuerySchema.extend({ rule: z.guid().optional() });
+type RulesSearch = z.output<typeof rulesSearch>;
 
 export const Route = createFileRoute('/_authenticated/alarm-rules')({
   staticData: { title: 'Alarm rules' },
-  validateSearch: searchSchema(ListAlarmDefinitionsQuerySchema),
-  search: { middlewares: [stripSearchParams(defaultsOf(ListAlarmDefinitionsQuerySchema))] },
-  loaderDeps: ({ search }) => search,
+  validateSearch: searchSchema(rulesSearch),
+  search: { middlewares: [stripSearchParams(defaultsOf(rulesSearch))] },
+  loaderDeps: ({ search: { rule: _rule, ...query } }) => query,
   loader: ({ context, deps }) => context.queryClient.ensureQueryData(alarmDefinitionsListQueryOptions(deps)),
   component: AlarmRulesPage,
 });
 
 function AlarmRulesPage() {
-  const search = Route.useSearch();
+  const { rule: openRule, ...search } = Route.useSearch();
   const navigate = Route.useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
@@ -60,6 +62,7 @@ function AlarmRulesPage() {
             search.severity ||
             search.condition ||
             search.assetId ||
+            search.tagId ||
             search.isEnabled !== undefined,
         )}
         onReset={() => navigate({ search: {}, replace: true })}
@@ -85,8 +88,13 @@ function AlarmRulesPage() {
         />
       </FilterBar>
 
-      {/* Row actions for admins (edit, delete, enable) come with the table, the same as in assistant answers. */}
-      <DefinitionsTable query={search} onQueryChange={(next) => navigate({ search: next, replace: true })} />
+      {/* Row actions for admins (edit, delete, enable) and the detail sheet come with the table, the same as in assistant answers. */}
+      <DefinitionsTable
+        query={search}
+        onQueryChange={(next) => navigate({ search: { ...next, rule: openRule }, replace: true })}
+        detail={openRule}
+        onDetailChange={(id) => navigate({ search: (previous) => ({ ...previous, rule: id }), replace: id === undefined })}
+      />
 
       <DefinitionFormDialog open={creating} onOpenChange={setCreating} />
     </PageContainer>

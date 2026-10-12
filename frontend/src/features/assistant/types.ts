@@ -5,7 +5,7 @@ import type { FormToolName, GenUIToolName, GenUITools } from '@gen-ui/shared';
 
 export type GenUIToolPart = ToolUIPart<GenUITools>;
 
-/** The tools that list things, each rendered with its page's table. */
+/** The tools that show things (a list, a chart, a calendar, a details card), each with its page's own component. */
 export type ListToolName = Exclude<GenUIToolName, FormToolName>;
 
 export type ToolInput<N extends GenUIToolName> = GenUITools[N]['input'];

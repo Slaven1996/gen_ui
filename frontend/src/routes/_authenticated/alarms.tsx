@@ -13,7 +13,6 @@ import { PageHeader } from '@/components/layout/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { AcknowledgeDialog } from '@/features/alarms/components/acknowledge-dialog';
-import { AlarmDetailSheet } from '@/features/alarms/components/alarm-detail-sheet';
 import { AlarmsTable } from '@/features/alarms/components/alarms-table';
 import { alarmsListQueryOptions } from '@/features/alarms/api/queries';
 import { canAcknowledge } from '@/features/alarms/lib/alarm-state';
@@ -59,6 +58,8 @@ function AlarmsPage() {
       query.state ||
       query.severity ||
       query.assetId ||
+      query.tagId ||
+      query.definitionId ||
       query.range ||
       query.from ||
       query.to,
@@ -153,14 +154,11 @@ function AlarmsPage() {
       <AlarmsTable
         query={query}
         onQueryChange={(next) => navigate({ search: { ...next, alarm: openAlarm }, replace: true })}
-        onAlarmClick={(alarm) => navigate({ search: (previous) => ({ ...previous, alarm: alarm.id }) })}
+        detail={openAlarm}
+        onDetailChange={(id) => navigate({ search: (previous) => ({ ...previous, alarm: id }), replace: id === undefined })}
         selection={{ selected, onChange: setSelected, canSelect: canAcknowledge }}
       />
 
-      <AlarmDetailSheet
-        alarmId={openAlarm}
-        onClose={() => navigate({ search: (previous) => ({ ...previous, alarm: undefined }), replace: true })}
-      />
       <AcknowledgeDialog
         ids={selected}
         open={acknowledging}

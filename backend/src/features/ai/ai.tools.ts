@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { tool, type InferUITools } from 'ai';
 import {
   addDays,
@@ -17,6 +17,7 @@ import {
   localPeriod,
   normalizeCoverage,
   OnDutyQuerySchema,
+  OPEN_ALARM_STATES,
   SHIFT_TIME_FIELDS,
   ShiftCalendarQuerySchema,
   startOfWeek,
@@ -79,9 +80,11 @@ const SHIFTS_FOR_MODEL = 60;
  * The other lists are loaded only when a tool on offer takes them, so other
  * prompts stay short: every device, tag and alarm rule (`deviceId`, `tagId`,
  * `tagIds`, `ruleId`: the choices the device and tag pickers offer, the tags
- * a chart plots, and the records an admin can open to edit), the user's
- * own latest logbook entries (`entryId`: the ones they may edit), and the
- * shift templates (`templateId`: the Shifts page's Shift dropdown).
+ * a chart plots, the records a details card shows and those an admin can
+ * open to edit), the user's own latest logbook entries (`entryId`: the ones
+ * they may edit), and the shift templates (`templateId`: the Shifts page's
+ * Shift dropdown). The details cards are offered to everyone, so devices,
+ * tags and rules are in practice always listed.
  * `plantTimeZone` is the zone shift dates are in, for the prompt.
  */
 export interface FilterOptions {
@@ -316,6 +319,10 @@ const TOOL_ROLES = {
   listTags: ['ADMIN', 'USER'],
   listAssets: ['ADMIN', 'USER'],
   plotTags: ['ADMIN', 'USER'],
+  showAlarm: ['ADMIN', 'USER'],
+  showAlarmRule: ['ADMIN', 'USER'],
+  showDevice: ['ADMIN', 'USER'],
+  showTag: ['ADMIN', 'USER'],
   createUser: ['ADMIN'],
   createAlarmRule: ['ADMIN'],
   editAlarmRule: ['ADMIN'],
@@ -376,9 +383,9 @@ export class AiTools {
     const [assets, people, devices, tags, rules, entries, shiftTemplates] = await Promise.all([
       this.assets.tree(),
       this.users.options(),
-      takenBy('editDevice', 'createTag') ? this.devices.options() : undefined,
-      takenBy('createAlarmRule', 'editTag', 'plotTags') ? this.tags.options() : undefined,
-      takenBy('editAlarmRule') ? this.alarmRules.options() : undefined,
+      takenBy('showDevice', 'editDevice', 'createTag') ? this.devices.options() : undefined,
+      takenBy('showTag', 'createAlarmRule', 'editTag', 'plotTags') ? this.tags.options() : undefined,
+      takenBy('showAlarmRule', 'editAlarmRule') ? this.alarmRules.options() : undefined,
       takenBy('editLogbookEntry') ? this.logbook.options(user.id, OWN_ENTRIES_FOR_MODEL) : undefined,
       takenBy('showShiftCalendar', 'scheduleShift', 'editShift', 'copyShiftWeek', 'editShiftTemplate')
         ? this.shifts.listTemplates()
@@ -481,6 +488,7 @@ export class AiTools {
           return {
             total: page.total,
             alarms: page.items.map((alarm) => ({
+              id: alarm.id,
               message: alarm.message,
               severity: alarm.severity,
               state: alarm.state,
@@ -668,6 +676,85 @@ export class AiTools {
               const { count, min, max, avg, last, lastAt } = stats[index];
               return { name: tag.name, unit: tag.unit, asset: tag.asset, count, min, max, avg, last, lastAt };
             }),
+          };
+        },
+      }),
+
+      // ─── Details ─────────────────────────────────────────────────────────
+      // One record as the details card its page opens on a row click. The
+      // card loads the record itself, like the page; Claude reads the same
+      // record, with names instead of ids, to answer about it.
+
+      showAlarm: tool({
+        ...genUiToolSchemas.showAlarm,
+        execute: async ({ alarmId }) => {
+          // Alarms have no pick list: the id comes from an alarm list earlier in the chat.
+          const alarm = await this.alarms.get(alarmId).catch((error: unknown) => {
+            if (error instanceof NotFoundException) {
+              throw new Error(`Unknown alarm id ${alarmId}: find the alarms first and use an id from that result.`);
+            }
+            throw error;
+          });
+          return {
+            alarm: {
+              message: alarm.message,
+              rule: alarm.definition.name,
+              tag: alarm.tag.name,
+              unit: alarm.tag.unit,
+              asset: alarm.asset.name,
+              severity: alarm.severity,
+              state: alarm.state,
+              triggerValue: alarm.triggerValue,
+              clearValue: alarm.clearValue,
+              raisedAt: alarm.raisedAt,
+              clearedAt: alarm.clearedAt,
+              acknowledgedAt: alarm.acknowledgedAt,
+              acknowledgedBy: alarm.acknowledgedBy?.name ?? null,
+              acknowledgeNote: clip(alarm.acknowledgeNote),
+            },
+          };
+        },
+      }),
+
+      showAlarmRule: tool({
+        ...genUiToolSchemas.showAlarmRule,
+        execute: async ({ ruleId }) => {
+          known.rule(ruleId);
+          const rule = await this.alarmRules.get(ruleId);
+          return {
+            rule: { ...toRuleSnapshot(rule), description: clip(rule.description), openAlarmCount: rule.openAlarmCount },
+          };
+        },
+      }),
+
+      showDevice: tool({
+        ...genUiToolSchemas.showDevice,
+        execute: async ({ deviceId }) => {
+          known.device(deviceId);
+          const device = await this.devices.get(deviceId);
+          return { device: { ...toDeviceSnapshot(device), lastSeenAt: device.lastSeenAt, tagCount: device.tagCount } };
+        },
+      }),
+
+      showTag: tool({
+        ...genUiToolSchemas.showTag,
+        execute: async ({ tagId }) => {
+          known.tag(tagId);
+          // The counts the card links to: the rules watching the tag, and its open alarms.
+          const [tag, rules, openAlarms] = await Promise.all([
+            this.tags.get(tagId),
+            this.alarmRules.list(ListAlarmDefinitionsQuerySchema.parse({ tagId, pageSize: 1 })),
+            this.alarms.list(ListAlarmsQuerySchema.parse({ tagId, state: [...OPEN_ALARM_STATES], pageSize: 1 })),
+          ]);
+          return {
+            tag: {
+              ...toTagSnapshot(tag),
+              description: clip(tag.description),
+              lastValue: tag.lastValue,
+              lastValueAt: tag.lastValueAt,
+              alarmRules: rules.total,
+              openAlarms: openAlarms.total,
+            },
           };
         },
       }),

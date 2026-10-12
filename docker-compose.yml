@@ -64,8 +64,10 @@ services:
       SIMULATOR_ENABLED: ${SIMULATOR_ENABLED:-true}
       SIMULATOR_INTERVAL_SECONDS: ${SIMULATOR_INTERVAL_SECONDS:-60}
 
-      # Temporary demo: a made-up alarm notification every 60 s, 40% of the time.
+      # Demo: a made-up alarm notification every 60 s, 40% of the time, on top of the real ones.
       MOCK_ALARM_NOTIFICATIONS: ${MOCK_ALARM_NOTIFICATIONS:-true}
+      # Notifications older than this are deleted by a daily job.
+      NOTIFICATION_RETENTION_DAYS: ${NOTIFICATION_RETENTION_DAYS:-30}
 
       # The plant's time zone: shift times and the shift calendar's days are in it.
       SHIFT_TIME_ZONE: ${SHIFT_TIME_ZONE:-Europe/Budapest}

@@ -1,15 +1,19 @@
 import { getStaticToolName } from 'ai';
 import type { GenUITools } from '@gen-ui/shared';
 import { plural } from '@/lib/format';
+import { AlarmDetailBody } from '../components/tool-bodies/alarm-detail-body';
+import { AlarmRuleDetailBody } from '../components/tool-bodies/alarm-rule-detail-body';
 import { AlarmRulesBody } from '../components/tool-bodies/alarm-rules-body';
 import { AlarmsBody } from '../components/tool-bodies/alarms-body';
 import { AssetsBody } from '../components/tool-bodies/assets-body';
 import { AuditBody } from '../components/tool-bodies/audit-body';
+import { DeviceDetailBody } from '../components/tool-bodies/device-detail-body';
 import { DevicesBody } from '../components/tool-bodies/devices-body';
 import { GraphBody } from '../components/tool-bodies/graph-body';
 import { LogbookBody } from '../components/tool-bodies/logbook-body';
 import { OnDutyBody } from '../components/tool-bodies/on-duty-body';
 import { ShiftCalendarBody } from '../components/tool-bodies/shift-calendar-body';
+import { TagDetailBody } from '../components/tool-bodies/tag-detail-body';
 import { TagsBody } from '../components/tool-bodies/tags-body';
 import { UsersBody } from '../components/tool-bodies/users-body';
 import type { GenUIToolPart, ListToolName, ToolRenderer } from '../types';
@@ -111,6 +115,39 @@ export const RENDERERS: { [N in ListToolName]: ToolRenderer<N> } = {
     link: (input) => ({ to: '/graphs', search: withoutTitle(input) }),
     Body: GraphBody,
     found: (output) => (output.tags.length === 1 ? '1 tag' : `${output.tags.length} tags`),
+  },
+  // A details card is the page's detail sheet as a card of its own; its link opens the page with that sheet open.
+  showAlarm: {
+    pending: 'Opening the alarm…',
+    title: () => 'Alarm details',
+    link: (input) => ({ to: '/alarms', search: { alarm: input.alarmId } }),
+    Body: AlarmDetailBody,
+    framed: false,
+    found: (output) => output.alarm.rule,
+  },
+  showAlarmRule: {
+    pending: 'Opening the alarm rule…',
+    title: () => 'Alarm rule details',
+    link: (input) => ({ to: '/alarm-rules', search: { rule: input.ruleId } }),
+    Body: AlarmRuleDetailBody,
+    framed: false,
+    found: (output) => output.rule.name,
+  },
+  showDevice: {
+    pending: 'Opening the device…',
+    title: () => 'Device details',
+    link: (input) => ({ to: '/devices', search: { device: input.deviceId } }),
+    Body: DeviceDetailBody,
+    framed: false,
+    found: (output) => output.device.name,
+  },
+  showTag: {
+    pending: 'Opening the tag…',
+    title: () => 'Tag details',
+    link: (input) => ({ to: '/tags', search: { tag: input.tagId } }),
+    Body: TagDetailBody,
+    framed: false,
+    found: (output) => output.tag.name,
   },
 };
 

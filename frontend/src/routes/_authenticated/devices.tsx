@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { createFileRoute, stripSearchParams } from '@tanstack/react-router';
 import { Plus } from 'lucide-react';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { ListDevicesQuerySchema } from '@gen-ui/shared';
 import { FilterBar } from '@/components/filters/filter-bar';
 import { MultiSelectFilter } from '@/components/filters/multi-select-filter';
@@ -17,19 +17,21 @@ import { useAuth } from '@/lib/auth/auth-store';
 import { DEVICE_PROTOCOL_OPTIONS, DEVICE_STATUS_OPTIONS } from '@/lib/labels';
 import { defaultsOf, searchSchema } from '@/lib/search';
 
-type DevicesSearch = z.output<typeof ListDevicesQuerySchema>;
+/** The API's query, plus `device`: the one open in the detail sheet (deep-linkable). */
+const devicesSearch = ListDevicesQuerySchema.extend({ device: z.guid().optional() });
+type DevicesSearch = z.output<typeof devicesSearch>;
 
 export const Route = createFileRoute('/_authenticated/devices')({
   staticData: { title: 'Devices' },
-  validateSearch: searchSchema(ListDevicesQuerySchema),
-  search: { middlewares: [stripSearchParams(defaultsOf(ListDevicesQuerySchema))] },
-  loaderDeps: ({ search }) => search,
+  validateSearch: searchSchema(devicesSearch),
+  search: { middlewares: [stripSearchParams(defaultsOf(devicesSearch))] },
+  loaderDeps: ({ search: { device: _device, ...query } }) => query,
   loader: ({ context, deps }) => context.queryClient.ensureQueryData(devicesListQueryOptions(deps)),
   component: DevicesPage,
 });
 
 function DevicesPage() {
-  const search = Route.useSearch();
+  const { device: openDevice, ...search } = Route.useSearch();
   const navigate = Route.useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
@@ -62,8 +64,13 @@ function DevicesPage() {
         <AssetSelect value={search.assetId} onChange={(assetId) => setSearch({ assetId })} />
       </FilterBar>
 
-      {/* Row actions for admins (edit, delete) come with the table, the same as in assistant answers. */}
-      <DevicesTable query={search} onQueryChange={(next) => navigate({ search: next, replace: true })} />
+      {/* Row actions for admins (edit, delete) and the detail sheet come with the table, the same as in assistant answers. */}
+      <DevicesTable
+        query={search}
+        onQueryChange={(next) => navigate({ search: { ...next, device: openDevice }, replace: true })}
+        detail={openDevice}
+        onDetailChange={(id) => navigate({ search: (previous) => ({ ...previous, device: id }), replace: id === undefined })}
+      />
 
       <DeviceFormDialog open={creating} onOpenChange={setCreating} assetId={search.assetId} />
     </PageContainer>

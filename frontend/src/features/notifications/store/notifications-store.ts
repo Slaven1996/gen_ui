@@ -4,37 +4,45 @@ import {
   NOTIFICATIONS_NAMESPACE,
   SOCKET_IO_PATH,
   type AppNotification,
+  type NotificationList,
   type NotificationServerEvents,
 } from '@gen-ui/shared';
 import { API_BASE_URL } from '@/lib/api/config';
+import { queryClient } from '@/lib/api/query-client';
 import { refreshSession } from '@/lib/auth/refresh';
 import { tokenStore } from '@/lib/auth/token-store';
+import { notificationKeys } from '../api/queries';
 
 /*
  * Real-time notifications: one WebSocket per signed-in tab, opened by the app
- * shell. The server pushes each notification the moment it happens; nothing
- * here polls. The list lives in memory, per tab, and is forgotten on sign-out.
+ * shell. The inbox itself is stored on the server and cached by TanStack Query
+ * (`notificationsQueryOptions`); the socket only keeps that cache current. Each
+ * pushed notification is added to it the moment it arrives, and every
+ * (re)connect refetches it, for whatever came while the socket was down.
+ * Nothing here polls.
  */
 
-/** The bell keeps this many, newest first. */
-const KEEP = 50;
 /** A refused socket (e.g. the account was deactivated) tries again this much later. */
 const RETRY_REFUSED_MS = 15_000;
 
-export interface NotificationsState {
-  /** Newest first. */
-  items: AppNotification[];
-  /** How many of the first `items` arrived since the list was last looked at. */
-  unread: number;
-  connected: boolean;
-}
-
-let state: NotificationsState = { items: [], unread: 0, connected: false };
+let connected = false;
 const listeners = new Set<() => void>();
 
-function update(patch: Partial<NotificationsState>): void {
-  state = { ...state, ...patch };
+function setConnected(next: boolean): void {
+  if (connected === next) return;
+  connected = next;
   listeners.forEach((listener) => listener());
+}
+
+/** The inbox with `notification` on top; unchanged when it is already there or the inbox isn't loaded. */
+function withArrival(inbox: NotificationList | undefined, notification: AppNotification): NotificationList | undefined {
+  if (!inbox || inbox.items.some((item) => item.id === notification.id)) return inbox;
+  return {
+    ...inbox,
+    items: [notification, ...inbox.items].slice(0, inbox.pageSize),
+    total: inbox.total + 1,
+    unread: inbox.unread + 1,
+  };
 }
 
 let socket: Socket<NotificationServerEvents> | undefined;
@@ -59,16 +67,19 @@ function connect(): void {
     },
   });
 
-  next.on('connect', () => update({ connected: true }));
-  next.on('disconnect', () => update({ connected: false }));
+  next.on('connect', () => {
+    setConnected(true);
+    void queryClient.invalidateQueries({ queryKey: notificationKeys.all });
+  });
+  next.on('disconnect', () => setConnected(false));
   next.on('connect_error', () => {
-    update({ connected: false });
+    setConnected(false);
     // `active`: a network problem, and Socket.IO retries by itself. Otherwise
     // the server refused the token, and Socket.IO leaves retrying to us.
     if (!next.active) retryTimer = window.setTimeout(() => next.connect(), RETRY_REFUSED_MS);
   });
   next.on('notification', (notification) => {
-    update({ items: [notification, ...state.items].slice(0, KEEP), unread: Math.min(state.unread + 1, KEEP) });
+    queryClient.setQueryData<NotificationList>(notificationKeys.inbox, (inbox) => withArrival(inbox, notification));
   });
   socket = next;
 }
@@ -78,7 +89,7 @@ function disconnect(): void {
   socket?.removeAllListeners();
   socket?.disconnect();
   socket = undefined;
-  update({ connected: false });
+  setConnected(false);
 }
 
 /** Keeps the socket open while the signed-in app shell is mounted. */
@@ -89,26 +100,18 @@ export function useNotificationsSocket(): void {
   }, []);
 }
 
-/** Signed out: close the socket and forget this user's notifications. */
+/** Signed out: close the socket. The inbox goes with the rest of the query cache. */
 export function resetNotifications(): void {
   disconnect();
-  update({ items: [], unread: 0 });
 }
 
-export function markNotificationsRead(): void {
-  if (state.unread > 0) update({ unread: 0 });
-}
-
-export function clearNotifications(): void {
-  update({ items: [], unread: 0 });
-}
-
-export function useNotifications(): NotificationsState {
+/** Is the socket up? The bell says "Live" or "Connecting…". */
+export function useNotificationsConnected(): boolean {
   return useSyncExternalStore(
     (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    () => state,
+    () => connected,
   );
 }

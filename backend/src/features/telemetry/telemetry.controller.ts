@@ -53,7 +53,7 @@ export class TelemetryController {
   @ApiOperation({
     summary: 'Ingest readings',
     description:
-      'Up to 1000 readings per call, from a gateway or an import. Stores them (duplicates of an existing tag + timestamp are skipped), updates each tag’s latest value, marks reporting devices online and evaluates alarm rules against readings newer than the tag’s previous value.',
+      'Up to 1000 readings per call, from a gateway or an import. Stores them (duplicates of an existing tag + timestamp are skipped), updates each tag’s latest value, marks reporting devices online and evaluates alarm rules against readings newer than the tag’s previous value. Every alarm raised lands in each active user’s notifications and is pushed to their open tabs.',
   })
   @ApiCreatedResponse({ standardSchema: IngestResultSchema })
   @ApiErrorResponse(400, 'A reading is invalid, or a tag does not exist.')

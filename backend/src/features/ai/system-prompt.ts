@@ -13,8 +13,9 @@ import type { FilterOptions, FormAccess } from './ai.tools.js';
  * only when the user's role allows it. A new domain touches this file only
  * for a new pick list. Besides the page map, it carries the pick lists the
  * tools share: the assets and the people the app's dropdowns offer, with
- * their ids, the shift templates, and for the form tools on offer every
- * device, tag and alarm rule, and the user's own latest logbook entries.
+ * their ids, the shift templates, every device, tag and alarm rule (for the
+ * details cards, charts and forms that take them), and the user's own latest
+ * logbook entries.
  * Claude matches the user's words to these lists itself (typos, partial
  * names, Serbian); no code does. The session names two clocks: the user's,
  * and the plant's, which shift dates and times are on.
@@ -67,7 +68,7 @@ If a request has nothing to do with this app (general knowledge, coding, writing
 Be brief and direct.`;
 
 const COMPONENTS_ON = `## Answer format: components
-Your tool results are shown to the user as  UI components: tables with paging, charts with their filters, the shift calendar or an on-duty card, and a button that opens the full page in a new tab. After them add at most one short sentence (e.g. how many matched). Never repeat what a component shows.`;
+Your tool results are shown to the user as  UI components: tables with paging, charts with their filters, the shift calendar, an on-duty card or one record's details card, and a button that opens the full page in a new tab. After them add at most one short sentence (e.g. how many matched). Never repeat what a component shows.`;
 
 const COMPONENTS_OFF = `## Answer format: text only
 Components are switched off: tool results are not shown to the user. Answer in Markdown from them: a short table for lists, a sentence for counts. If there are more matches than rows returned, say how many you're showing out of the total.`;
@@ -120,8 +121,8 @@ function listed<T>(tag: string, items: T[], line: (item: T) => string): string {
 /**
  * The dropdowns' choices, one per line. Assets keep the tree's depth-first
  * order, indented by depth, so Claude sees what lies below what:
- * "  Hillcrest Reservoir · RES-01 · site · <id>". For the form tools on
- * offer, also every device ("PS-01 RTU · RTU-PS01-001 · Riverside Pumping
+ * "  Hillcrest Reservoir · RES-01 · site · <id>". When a tool on offer
+ * takes them, also every device ("PS-01 RTU · RTU-PS01-001 · Riverside Pumping
  * Station · <id>"), every tag ("Inlet pressure · PS01.INLET_PRESSURE · bar ·
  * Riverside Pumping Station · <id>"), every rule ("Wet well high level · tag
  * Wet well level (PS01.WET_WELL_LEVEL) · Riverside Pumping Station · <id>")

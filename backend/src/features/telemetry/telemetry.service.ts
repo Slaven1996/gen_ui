@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import {
   AUTO_INTERVAL_MAX_POINTS,
   SERIES_INTERVAL_MS,
@@ -13,9 +13,10 @@ import {
   type TelemetryStatsQuery,
 } from '@gen-ui/shared';
 import { Prisma } from '../../generated/prisma/client.js';
-import { AlarmEvaluator, type Reading } from '../alarms/alarm-evaluator.service.js';
+import { AlarmEvaluator, type RaisedAlarm, type Reading } from '../alarms/alarm-evaluator.service.js';
 import { assetRefSelect } from '../assets/asset.mapper.js';
 import { DevicesService } from '../assets/devices.service.js';
+import { NotificationsService, type NewNotification } from '../notifications/notifications.service.js';
 import { requiredWindow } from '../../common/list-query.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { UnitOfWork } from '../../prisma/unit-of-work.service.js';
@@ -46,13 +47,27 @@ export function autoInterval(spanMs: number): SeriesInterval {
   );
 }
 
+/** A raised alarm as the bell shows it: the rule's name, then what crossed which limit. */
+const toAlarmNotification = (alarm: RaisedAlarm): NewNotification => ({
+  type: 'ALARM',
+  severity: alarm.severity,
+  title: alarm.rule,
+  message: alarm.message,
+  asset: alarm.asset,
+  alarmId: alarm.id,
+  demo: false,
+});
+
 @Injectable()
 export class TelemetryService {
+  private readonly logger = new Logger(TelemetryService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly uow: UnitOfWork,
     private readonly evaluator: AlarmEvaluator,
     private readonly devices: DevicesService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -184,7 +199,9 @@ export class TelemetryService {
 
   /**
    * Stores readings, moves each tag's latest value forward, marks reporting
-   * devices online and evaluates alarm rules — all in one transaction.
+   * devices online, evaluates alarm rules and puts every raised alarm in each
+   * active user's notifications — all in one transaction. The notifications
+   * are pushed to open tabs only after it commits.
    *
    * Only readings newer than a tag's latest value are evaluated: late or
    * back-filled data is stored for the charts but never re-raises an alarm.
@@ -206,7 +223,7 @@ export class TelemetryService {
       quality: m.quality,
     }));
 
-    return this.uow.run(async (tx) => {
+    const { result, addressed } = await this.uow.run(async (tx) => {
       const { count } = await tx.measurement.createMany({ data: readings, skipDuplicates: true });
 
       const latest = new Map<string, (typeof readings)[number]>();
@@ -241,8 +258,18 @@ export class TelemetryService {
         return reading.quality !== 'BAD' && (!previous || reading.ts > previous);
       });
       const { raised, cleared } = await this.evaluator.evaluate(fresh, tx);
+      const addressed = await this.notifications.createForActiveUsers(raised.map(toAlarmNotification), tx);
 
-      return { accepted: count, alarmsRaised: raised, alarmsCleared: cleared };
+      return { result: { accepted: count, alarmsRaised: raised.length, alarmsCleared: cleared }, addressed };
     });
+
+    // Committed by now, notifications included: a socket hiccup must not fail
+    // the call, and the inbox shows them on the next fetch anyway.
+    try {
+      this.notifications.push(addressed);
+    } catch (error) {
+      this.logger.warn(`Pushing alarm notifications failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    return result;
   }
 }

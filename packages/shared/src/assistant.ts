@@ -149,7 +149,9 @@ export interface LatestConversation {
  * input field is also a URL param of the tool's page, so a call is a page
  * query too, and the chat can link to that page with the same filters. The
  * one exception is the on-duty card's `when`, which picks one half of the
- * Shifts page's on-duty strip.
+ * Shifts page's on-duty strip. A details card takes one record's id, which
+ * its page carries without the `Id` (`deviceId` → `/devices?device=…`) to
+ * open the same panel.
  */
 
 const titleField = (examples: string) =>
@@ -343,6 +345,8 @@ export const ListAlarmsToolOutputSchema = z.object({
   total: z.int().describe(TOTAL_DESCRIPTION),
   alarms: z.array(
     AlarmSchema.pick({ severity: true, state: true, raisedAt: true, clearedAt: true }).extend({
+      // Optional only so saved chats from before it was added still validate.
+      id: z.guid().optional().describe("The alarm's id: what showing this one alarm on its own takes."),
       message: z.string().describe('The rule, the tag, its limit and the reading that tripped it.'),
       asset: z.string().describe('Where it was raised.'),
       acknowledgedBy: z.string().nullable().describe('Who acknowledged it; null while nobody has.'),
@@ -1537,6 +1541,94 @@ export const FormToolOutputSchema = z
   ])
   .meta({ id: 'FormToolOutput' });
 
+// ─── Details ────────────────────────────────────────────────────────────────
+
+/*
+ * One record as the details card its page opens on a row click: every field,
+ * links to what belongs to it, and the buttons the user's role allows. The
+ * call only shows it; changing the record is its edit form's job. Each
+ * output is what Claude reads to answer, with names instead of ids.
+ */
+
+export const ShowAlarmToolInputSchema = z.object({
+  alarmId: z
+    .guid()
+    .describe(
+      "The id of one alarm, from an alarm list earlier in this conversation (each listed alarm has its id). When the user describes an alarm instead ('the last wet well alarm', 'that critical one at Riverside'), find the alarms first, then show the one meant. Never make an id up.",
+    ),
+});
+
+export const ShowAlarmToolOutputSchema = z.object({
+  alarm: AlarmSchema.pick({
+    severity: true,
+    state: true,
+    triggerValue: true,
+    clearValue: true,
+    raisedAt: true,
+    clearedAt: true,
+    acknowledgedAt: true,
+  }).extend({
+    message: z.string().describe('The rule, the tag, its limit and the reading that tripped it.'),
+    rule: z.string().describe('The alarm rule that raised it.'),
+    tag: z.string().describe('The tag whose reading crossed the threshold.'),
+    unit: z.string().nullable().describe('Unit of the trigger and clear values.'),
+    asset: z.string().describe('Where it was raised.'),
+    acknowledgedBy: z.string().nullable().describe('Who acknowledged it; null while nobody has.'),
+    acknowledgeNote: z.string().nullable().describe('What they wrote when acknowledging it.'),
+  }),
+});
+
+export const ShowAlarmRuleToolInputSchema = z.object({
+  ruleId: z
+    .guid()
+    .describe(
+      "The id of the rule, from the alarm rule list. Match the user's words to a rule's name, its tag or its asset, allowing for typos, partial names and words in Serbian: 'wet wel hihg levl' → the id of Wet well high level. If the user gave an id, use it.",
+    ),
+});
+
+export const ShowAlarmRuleToolOutputSchema = z.object({
+  rule: RuleSnapshotSchema.extend({
+    tag: z.string().describe('The tag (signal) the rule watches.'),
+    openAlarmCount: z.int().describe('How many of its alarms are still open.'),
+  }),
+});
+
+export const ShowDeviceToolInputSchema = z.object({
+  deviceId: z
+    .guid()
+    .describe(
+      "The id of the device, from the device list. Match the user's words to a device's name, serial number or asset, allowing for typos, partial names and words in Serbian: 'the riverside rtu' → the id of PS-01 RTU. If the user gave an id, use it.",
+    ),
+});
+
+export const ShowDeviceToolOutputSchema = z.object({
+  device: DeviceSnapshotSchema.extend({
+    lastSeenAt: z.iso.datetime().nullable().describe('When it last sent a reading; null if it never has.'),
+    tagCount: z.int().describe('How many tags it reports.'),
+  }),
+});
+
+export const ShowTagToolInputSchema = z.object({
+  tagId: z
+    .guid()
+    .describe(
+      "The id of the tag, from the tag list. Match the user's words to a tag's name, code or asset, allowing for typos, partial names and words in Serbian: 'inlet presure at riverside' → the id of that Inlet pressure. If the user gave an id, use it.",
+    ),
+});
+
+export const ShowTagToolOutputSchema = z.object({
+  tag: TagSnapshotSchema.extend({
+    device: z.string().describe('The device that reports it.'),
+    lastValue: z
+      .number()
+      .nullable()
+      .describe('The latest reading; for DIGITAL tags 1 is on and 0 is off. null before the first one.'),
+    lastValueAt: z.iso.datetime().nullable().describe('When that reading was taken.'),
+    alarmRules: z.int().describe('How many alarm rules watch it.'),
+    openAlarms: z.int().describe('How many of its alarms are still open.'),
+  }),
+});
+
 // ─── The tool set ───────────────────────────────────────────────────────────
 
 export const genUiToolSchemas = {
@@ -1605,6 +1697,30 @@ export const genUiToolSchemas = {
     inputSchema: ListAssetsToolInputSchema,
     outputSchema: ListAssetsToolOutputSchema,
   },
+  showAlarm: {
+    description:
+      "Show one alarm's details card, the panel the Alarms page opens on a row click: its rule, tag and asset, when it was raised and cleared and at which readings, who acknowledged it, and its timeline, with buttons to acknowledge it, chart its tag and add a note. Use it when the user asks about one particular alarm ('tell me more about that wet well alarm', 'details of the last critical alarm'). It takes an alarm's id from an alarm list in this conversation; without one, find the alarms first. For several alarms, find them instead.",
+    inputSchema: ShowAlarmToolInputSchema,
+    outputSchema: ShowAlarmToolOutputSchema,
+  },
+  showAlarmRule: {
+    description:
+      "Show one alarm rule's details card, the panel the Alarm rules page opens on a row click: its tag and asset, condition, threshold, deadband, severity, description, whether it is enabled, and how many of its alarms are open, with links to them. Use it when the user asks about one rule ('details of the wet well high level rule', 'what does the low chlorine rule check'). For several rules, find them instead; to change one, open its edit form.",
+    inputSchema: ShowAlarmRuleToolInputSchema,
+    outputSchema: ShowAlarmRuleToolOutputSchema,
+  },
+  showDevice: {
+    description:
+      "Show one device's details card, the panel the Devices page opens on a row click: its status, asset, serial number, model and manufacturer, protocol, firmware, IP address, install date, last reading and how many tags it reports, with a link to them. Use it when the user asks about one device ('details of the PS-01 RTU', 'tell me about the reservoir PLC'). For several devices, find them instead; to change one, open its edit form.",
+    inputSchema: ShowDeviceToolInputSchema,
+    outputSchema: ShowDeviceToolOutputSchema,
+  },
+  showTag: {
+    description:
+      "Show one tag's details card, the panel the Tags page opens on a row click: its latest reading, description, type, unit, range, log interval, device and asset, and how many alarm rules watch it and how many of its alarms are open, with links to them. Use it when the user asks about one tag ('details of the inlet pressure at Riverside', 'tell me about PS01.WET_WELL_LEVEL'). For just current values, find the tags instead; for its history, draw a chart; to change it, open its edit form.",
+    inputSchema: ShowTagToolInputSchema,
+    outputSchema: ShowTagToolOutputSchema,
+  },
   createUser: {
     description:
       "Open the Add user form in the chat, pre-filled from the request, so the admin can check it, set a temporary password and add the account. Call it whenever the user wants to add a user, even with no details ('add a new user'): every field is optional, and the form opens with its usual blanks. Don't ask for the details first. It doesn't add the account itself: only the user's click on the form does. Never pass a password; the admin types it into the form.",
@@ -1619,7 +1735,7 @@ export const genUiToolSchemas = {
   },
   editAlarmRule: {
     description:
-      "Open the Edit alarm rule form in the chat for one existing rule: its current values, with the changes the user asked for already applied, so the admin can check them and save. All it needs is which rule; the changes are optional ('edit the wet well high level rule' just opens it). It doesn't change the rule itself. A rule's tag can't be changed.",
+      "Open the Edit alarm rule form in the chat for one existing rule: its current values, with the changes the user asked for already applied, so the admin can check them and save. All it needs is which rule; the changes are optional ('edit the wet well high level rule' just opens it). It doesn't change the rule itself. A rule's tag can't be changed. To only look at a rule, show its details instead.",
     inputSchema: EditAlarmRuleToolInputSchema,
     outputSchema: EditAlarmRuleToolOutputSchema,
   },
@@ -1631,7 +1747,7 @@ export const genUiToolSchemas = {
   },
   editDevice: {
     description:
-      "Open the edit form of one existing device in the chat: its current values, with the changes the user asked for already applied, so the admin can check them and save. Use it to rename a device, move it to another asset, change its status (e.g. into maintenance), firmware or IP address. All it needs is which device; the changes are optional ('edit the PS-01 RTU' just opens it). A status change is also written to the logbook. It doesn't change the device itself.",
+      "Open the edit form of one existing device in the chat: its current values, with the changes the user asked for already applied, so the admin can check them and save. Use it to rename a device, move it to another asset, change its status (e.g. into maintenance), firmware or IP address. All it needs is which device; the changes are optional ('edit the PS-01 RTU' just opens it). A status change is also written to the logbook. It doesn't change the device itself. To only look at a device, show its details instead.",
     inputSchema: EditDeviceToolInputSchema,
     outputSchema: EditDeviceToolOutputSchema,
   },
@@ -1643,7 +1759,7 @@ export const genUiToolSchemas = {
   },
   editTag: {
     description:
-      "Open the edit form of one existing tag in the chat: its current values, with the changes the user asked for already applied, so the admin can check them and save. Use it to rename a tag, change its unit, range or log interval, or switch it off. All it needs is which tag; the changes are optional ('edit the inlet pressure tag' just opens it). A tag can't move to another device. It doesn't change the tag itself.",
+      "Open the edit form of one existing tag in the chat: its current values, with the changes the user asked for already applied, so the admin can check them and save. Use it to rename a tag, change its unit, range or log interval, or switch it off. All it needs is which tag; the changes are optional ('edit the inlet pressure tag' just opens it). A tag can't move to another device. It doesn't change the tag itself. To only look at a tag, show its details instead.",
     inputSchema: EditTagToolInputSchema,
     outputSchema: EditTagToolOutputSchema,
   },

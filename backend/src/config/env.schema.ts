@@ -68,8 +68,10 @@ export const EnvSchema = z
     /** Measurements older than this are deleted by a daily job. */
     TELEMETRY_RETENTION_DAYS: int(180, 1, 3650),
 
-    /** Temporary demo: a made-up alarm notification every 60 s, 40% of the time, over the notifications socket. */
+    /** Demo: a made-up alarm notification for every active user every 60 s, 40% of the time, while someone is online. */
     MOCK_ALARM_NOTIFICATIONS: booleanFlag(true),
+    /** Notifications older than this, read or not, are deleted by a daily job. */
+    NOTIFICATION_RETENTION_DAYS: int(30, 1, 3650),
 
     /** The plant's IANA zone: shift templates' times and the shift calendar's days are in it. */
     SHIFT_TIME_ZONE: z.preprocess(

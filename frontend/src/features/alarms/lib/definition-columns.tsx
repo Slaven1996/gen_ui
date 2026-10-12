@@ -52,7 +52,11 @@ export function definitionColumns(actions?: DefinitionActions): ColumnDef<AlarmD
       cell: ({ row }) =>
         row.original.openAlarmCount > 0 ? (
           <Badge variant="outline" asChild>
-            <Link to="/alarms" search={{ definitionId: [row.original.id], state: ['ACTIVE', 'ACKNOWLEDGED', 'CLEARED'] }}>
+            <Link
+              to="/alarms"
+              search={{ definitionId: [row.original.id], state: ['ACTIVE', 'ACKNOWLEDGED', 'CLEARED'] }}
+              onClick={(event) => event.stopPropagation()}
+            >
               {row.original.openAlarmCount} open
             </Link>
           </Badge>
@@ -68,6 +72,8 @@ export function definitionColumns(actions?: DefinitionActions): ColumnDef<AlarmD
           <Switch
             checked={row.original.isEnabled}
             onCheckedChange={(checked) => actions.onToggle(row.original, checked)}
+            // Toggling stays in the row; a click anywhere else opens the rule.
+            onClick={(event) => event.stopPropagation()}
             aria-label={`${row.original.isEnabled ? 'Disable' : 'Enable'} ${row.original.name}`}
           />
         ) : (

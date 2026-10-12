@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import type { AlarmCondition } from '@gen-ui/shared';
+import type { AlarmCondition, AlarmSeverity, AssetRef } from '@gen-ui/shared';
+import { assetRefSelect } from '../assets/asset.mapper.js';
 import { LogbookService } from '../logbook/logbook.service.js';
 import type { Db } from '../../prisma/transaction.js';
 import { CONDITION_TEXT, formatReading, LOG_SEVERITY_FOR } from './alarm.mapper.js';
@@ -10,8 +11,19 @@ export interface Reading {
   ts: Date;
 }
 
+/** An alarm `evaluate` raised, with what a notification about it needs. */
+export interface RaisedAlarm {
+  id: string;
+  severity: AlarmSeverity;
+  /** The rule's name, e.g. "Wet well high level". */
+  rule: string;
+  /** The alarm's message without the rule's name in front: "Wet well level above 4.5 m (4.62 m)". */
+  message: string;
+  asset: AssetRef;
+}
+
 export interface EvaluationResult {
-  raised: number;
+  raised: RaisedAlarm[];
   cleared: number;
 }
 
@@ -51,7 +63,8 @@ function isClear(condition: AlarmCondition, value: number, threshold: number, de
  * Turns readings into alarm state changes. For every enabled rule on the
  * readings' tags: a firing value with no open condition raises an alarm, and
  * a value back inside the deadband clears the one that is open. Each change is
- * also written to the logbook.
+ * also written to the logbook, and the raised alarms are returned so the caller
+ * can notify people about them.
  *
  * Runs inside the caller's transaction. The rules are row-locked first, so two
  * concurrent ingests for the same tag cannot both raise an alarm.
@@ -61,7 +74,7 @@ export class AlarmEvaluator {
   constructor(private readonly logbook: LogbookService) {}
 
   async evaluate(readings: Reading[], db: Db): Promise<EvaluationResult> {
-    const result: EvaluationResult = { raised: 0, cleared: 0 };
+    const result: EvaluationResult = { raised: [], cleared: 0 };
     const tagIds = [...new Set(readings.map((reading) => reading.tagId))];
     if (tagIds.length === 0) return result;
 
@@ -82,7 +95,7 @@ export class AlarmEvaluator {
         threshold: true,
         deadband: true,
         severity: true,
-        tag: { select: { name: true, unit: true, device: { select: { assetId: true } } } },
+        tag: { select: { name: true, unit: true, device: { select: { asset: { select: assetRefSelect } } } } },
         // The alarm whose condition is still present, if any (at most one per rule).
         alarms: {
           where: { clearedAt: null },
@@ -103,14 +116,16 @@ export class AlarmEvaluator {
       for (const definition of byTag.get(reading.tagId) ?? []) {
         const open = definition.alarms[0];
         const { condition, threshold, deadband, tag } = definition;
+        const { asset } = tag.device;
 
         if (!open && isFiring(condition, reading.value, threshold)) {
-          const message = `${definition.name}: ${tag.name} ${CONDITION_TEXT[condition]} ${formatReading(threshold, tag.unit)} (${formatReading(reading.value, tag.unit)})`;
+          const crossed = `${tag.name} ${CONDITION_TEXT[condition]} ${formatReading(threshold, tag.unit)} (${formatReading(reading.value, tag.unit)})`;
+          const message = `${definition.name}: ${crossed}`;
           const alarm = await db.alarm.create({
             data: {
               definitionId: definition.id,
               tagId: definition.tagId,
-              assetId: tag.device.assetId,
+              assetId: asset.id,
               severity: definition.severity,
               state: 'ACTIVE',
               message,
@@ -125,14 +140,14 @@ export class AlarmEvaluator {
               severity: LOG_SEVERITY_FOR[definition.severity],
               title: `Alarm raised: ${definition.name}`,
               body: message,
-              assetId: tag.device.assetId,
+              assetId: asset.id,
               alarmId: alarm.id,
               occurredAt: reading.ts,
             },
             db,
           );
           definition.alarms = [alarm];
-          result.raised++;
+          result.raised.push({ id: alarm.id, severity: definition.severity, rule: definition.name, message: crossed, asset });
         } else if (open && isClear(condition, reading.value, threshold, deadband)) {
           await db.alarm.update({
             where: { id: open.id },
@@ -148,7 +163,7 @@ export class AlarmEvaluator {
               severity: 'INFO',
               title: `Alarm cleared: ${definition.name}`,
               body: `${tag.name} back to ${formatReading(reading.value, tag.unit)}.`,
-              assetId: tag.device.assetId,
+              assetId: asset.id,
               alarmId: open.id,
               occurredAt: reading.ts,
             },

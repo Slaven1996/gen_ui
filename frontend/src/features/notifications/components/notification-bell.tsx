@@ -1,23 +1,37 @@
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Bell } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { clearNotifications, markNotificationsRead, useNotifications } from '../store/notifications-store';
+import { useClearNotifications, useDeleteNotification, useMarkNotificationsRead } from '../api/mutations';
+import { notificationsQueryOptions } from '../api/queries';
+import { useNotificationsConnected } from '../store/notifications-store';
 import { NotificationItem } from './notification-item';
 
 /**
  * The bell in the header: a count of unread notifications, and the latest
- * ones in a popover. They arrive over the notifications socket as they
- * happen; closing the popover marks them read.
+ * ones in a popover. The inbox is stored on the server; new ones arrive over
+ * the notifications socket as they happen. Closing the popover marks the ones
+ * it showed read.
  */
 export function NotificationBell() {
-  const { items, unread, connected } = useNotifications();
+  const { data } = useQuery(notificationsQueryOptions());
+  const connected = useNotificationsConnected();
+  const markRead = useMarkNotificationsRead();
+  const dismiss = useDeleteNotification();
+  const clear = useClearNotifications();
   const [open, setOpen] = useState(false);
+
+  const items = data?.items ?? [];
+  const unread = data?.unread ?? 0;
 
   const onOpenChange = (next: boolean) => {
     setOpen(next);
-    if (!next) markNotificationsRead();
+    if (next || unread === 0) return;
+    const shown = items.filter((item) => item.readAt === null).map((item) => item.id);
+    // More unread than the list holds: the older ones can never be shown, so mark them all.
+    markRead.mutate(unread > shown.length ? undefined : shown);
   };
   const close = () => onOpenChange(false);
 
@@ -44,7 +58,7 @@ export function NotificationBell() {
             <p className="text-sm font-medium">Notifications</p>
             <p className="text-xs text-muted-foreground">{connected ? 'Live' : 'Connecting…'}</p>
           </div>
-          <Button variant="ghost" size="sm" disabled={items.length === 0} onClick={clearNotifications}>
+          <Button variant="ghost" size="sm" disabled={items.length === 0} onClick={() => clear.mutate()}>
             Clear
           </Button>
         </div>
@@ -55,12 +69,12 @@ export function NotificationBell() {
           </p>
         ) : (
           <ul className="max-h-96 divide-y overflow-y-auto">
-            {items.map((notification, index) => (
+            {items.map((notification) => (
               <NotificationItem
                 key={notification.id}
                 notification={notification}
-                unread={index < unread}
                 onNavigate={close}
+                onDismiss={() => dismiss.mutate(notification.id)}
               />
             ))}
           </ul>

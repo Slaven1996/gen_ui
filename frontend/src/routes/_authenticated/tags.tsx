@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { createFileRoute, stripSearchParams } from '@tanstack/react-router';
 import { Plus } from 'lucide-react';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { ListTagsQuerySchema } from '@gen-ui/shared';
 import { FilterBar } from '@/components/filters/filter-bar';
 import { MultiSelectFilter } from '@/components/filters/multi-select-filter';
@@ -17,19 +17,21 @@ import { useAuth } from '@/lib/auth/auth-store';
 import { TAG_DATA_TYPE_OPTIONS } from '@/lib/labels';
 import { defaultsOf, searchSchema } from '@/lib/search';
 
-type TagsSearch = z.output<typeof ListTagsQuerySchema>;
+/** The API's query, plus `tag`: the one open in the detail sheet (deep-linkable). */
+const tagsSearch = ListTagsQuerySchema.extend({ tag: z.guid().optional() });
+type TagsSearch = z.output<typeof tagsSearch>;
 
 export const Route = createFileRoute('/_authenticated/tags')({
   staticData: { title: 'Tags' },
-  validateSearch: searchSchema(ListTagsQuerySchema),
-  search: { middlewares: [stripSearchParams(defaultsOf(ListTagsQuerySchema))] },
-  loaderDeps: ({ search }) => search,
+  validateSearch: searchSchema(tagsSearch),
+  search: { middlewares: [stripSearchParams(defaultsOf(tagsSearch))] },
+  loaderDeps: ({ search: { tag: _tag, ...query } }) => query,
   loader: ({ context, deps }) => context.queryClient.ensureQueryData(tagsListQueryOptions(deps)),
   component: TagsPage,
 });
 
 function TagsPage() {
-  const search = Route.useSearch();
+  const { tag: openTag, ...search } = Route.useSearch();
   const navigate = Route.useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
@@ -61,8 +63,13 @@ function TagsPage() {
         <AssetSelect value={search.assetId} onChange={(assetId) => setSearch({ assetId })} />
       </FilterBar>
 
-      {/* Row actions (chart; for admins also add rule, edit, delete) come with the table, the same as in assistant answers. */}
-      <TagsTable query={search} onQueryChange={(next) => navigate({ search: next, replace: true })} />
+      {/* Row actions (chart; for admins also add rule, edit, delete) and the detail sheet come with the table, the same as in assistant answers. */}
+      <TagsTable
+        query={search}
+        onQueryChange={(next) => navigate({ search: { ...next, tag: openTag }, replace: true })}
+        detail={openTag}
+        onDetailChange={(id) => navigate({ search: (previous) => ({ ...previous, tag: id }), replace: id === undefined })}
+      />
 
       <TagFormDialog open={creating} onOpenChange={setCreating} deviceId={search.deviceId} />
     </PageContainer>

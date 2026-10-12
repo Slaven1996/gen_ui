@@ -3168,6 +3168,175 @@
       ]
     },
     {
+      "name": "Notifications",
+      "description": "Your own inbox: every alarm a reading raised while your account was active, newest first (plus made-up demo alarms, `demo: true`, while `MOCK_ALARM_NOTIFICATIONS` is on). New ones also arrive over the notifications socket (namespace `/notifications`, path `/api/socket.io`), which these requests don't open. Everything here touches only the signed-in user's notifications; **Clear** empties that inbox for good.",
+      "item": [
+        {
+          "name": "List notifications",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/notifications?pageSize=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications"
+              ],
+              "query": [
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": true
+                },
+                {
+                  "key": "unread",
+                  "value": "true",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Newest first, at most 50 a page. `unread` is the count of all your unread ones, whatever the filter and page (the bell's badge). The first one is kept in `notificationId` for the requests below."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('has an unread count', () => pm.expect(body).to.have.property('unread'));",
+                  "console.log(body.items.length + ' of ' + body.total + ' notifications, ' + body.unread + ' unread');",
+                  "if (body.items.length) pm.collectionVariables.set('notificationId', body.items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Mark notifications read",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/notifications/read",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "read"
+              ]
+            },
+            "description": "`{}` marks every unread one read; `{ \"ids\": [...] }` (1 to 100) only those. Ids that are not yours are left alone. Send a body: an empty one is a 400.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Dismiss a notification",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/notifications/{{notificationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "{{notificationId}}"
+              ]
+            },
+            "description": "Deletes one of yours for good. 204 also for an unknown id, or someone else's: there is nothing of yours to delete."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// An empty inbox leaves no id; an unknown one is harmless (204), an empty one would hit Clear.",
+                  "if (!pm.collectionVariables.get('notificationId')) pm.collectionVariables.set('notificationId', '00000000-0000-4000-8000-000000000000');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Clear your notifications",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/notifications",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications"
+              ]
+            },
+            "description": "Deletes every notification in your inbox, read or not. Other users' inboxes are untouched."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "Assistant",
       "description": "**Asking spends provider tokens on every call.** Needs `ANTHROPIC_API_KEY`; without it the chat answers 503. Conversations are saved per user: the requests below share one conversation id.",
       "item": [
@@ -3520,6 +3689,11 @@
     },
     {
       "key": "createdWidgetId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "notificationId",
       "value": "",
       "type": "string"
     }
