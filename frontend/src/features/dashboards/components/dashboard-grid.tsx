@@ -18,8 +18,10 @@ import { WidgetBody } from './widget-body';
 
 /**
  * A plain 12-column CSS grid: widgets flow in `position` order, spanning their
- * width in columns and height in rows, with dense packing filling the gaps.
- * Editing is reordering and resizing — no free-form canvas.
+ * width in columns and height in rows. No dense packing, so the grid always
+ * reads in that order and "Move earlier/later" moves what you see; a row that
+ * doesn't add up to 12 leaves a gap. Editing is reordering and resizing — no
+ * free-form canvas.
  */
 export function DashboardGrid({
   dashboard,
@@ -56,7 +58,7 @@ export function DashboardGrid({
     saveOrder(widgets.map((item) => (item.id === widget.id ? ({ ...item, ...size } as DashboardWidget) : item)));
 
   return (
-    <div className="grid grid-flow-row-dense grid-cols-1 gap-4 md:grid-cols-12" style={{ gridAutoRows: `${ROW_HEIGHT}px` }}>
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-12" style={{ gridAutoRows: `${ROW_HEIGHT}px` }}>
       {widgets.map((widget, index) => (
         <div
           key={widget.id}

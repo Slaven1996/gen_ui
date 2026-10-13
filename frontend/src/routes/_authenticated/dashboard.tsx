@@ -29,10 +29,20 @@ import { searchSchema } from '@/lib/search';
 /** `board`: which dashboard is open. Without it, the first of your own. */
 const dashboardSearch = z.object({ board: z.guid().optional() });
 
+/** `board` if it is one you can see, else the first in the list (your own come first). */
+const openDashboardId = (list: Dashboard[], board: string | undefined) =>
+  board && list.some((item) => item.id === board) ? board : list[0]?.id;
+
 export const Route = createFileRoute('/_authenticated/dashboard')({
   staticData: { title: 'Dashboard' },
   validateSearch: searchSchema(dashboardSearch),
-  loader: ({ context }) => context.queryClient.ensureQueryData(dashboardsQueryOptions()),
+  loaderDeps: ({ search }) => ({ board: search.board }),
+  // The open dashboard needs the list to resolve, so its widgets load right after it, before the page renders.
+  loader: async ({ context, deps }) => {
+    const list = await context.queryClient.ensureQueryData(dashboardsQueryOptions());
+    const id = openDashboardId(list, deps.board);
+    if (id) await context.queryClient.ensureQueryData(dashboardQueryOptions(id));
+  },
   component: DashboardPage,
 });
 
@@ -42,7 +52,7 @@ function DashboardPage() {
   const { user } = useAuth();
   const dashboards = useQuery(dashboardsQueryOptions());
   const list = dashboards.data ?? [];
-  const selectedId = board && list.some((item) => item.id === board) ? board : list[0]?.id;
+  const selectedId = openDashboardId(list, board);
   const selected = useQuery({ ...dashboardQueryOptions(selectedId ?? ''), enabled: Boolean(selectedId) });
 
   const [editing, setEditing] = useState(false);

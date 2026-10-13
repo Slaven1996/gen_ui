@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Put } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -14,7 +14,6 @@ import {
   DashboardDetailSchema,
   DashboardsSchema,
   DashboardWidgetSchema,
-  ListDashboardsQuerySchema,
   UpdateDashboardSchema,
   UpdateLayoutSchema,
   UpdateWidgetSchema,
@@ -23,7 +22,6 @@ import {
   type Dashboard,
   type DashboardDetail,
   type DashboardWidget,
-  type ListDashboardsQuery,
   type UpdateDashboardDto,
   type UpdateLayoutDto,
   type UpdateWidgetDto,
@@ -49,11 +47,8 @@ export class DashboardsController {
     description: 'Your own dashboards (first) and those others have shared. `canEdit` says whether you may change each one.',
   })
   @ApiOkResponse({ standardSchema: DashboardsSchema })
-  async list(
-    @Query({ schema: ListDashboardsQuerySchema }) query: ListDashboardsQuery,
-    @CurrentUser() actor: AuthUser,
-  ): Promise<{ items: Dashboard[] }> {
-    return { items: await this.dashboards.list(query, actor) };
+  async list(@CurrentUser() actor: AuthUser): Promise<{ items: Dashboard[] }> {
+    return { items: await this.dashboards.list(actor) };
   }
 
   @Post()

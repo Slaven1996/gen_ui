@@ -43,6 +43,13 @@ export function TelemetryChart({
   if (series.isPending) return <Skeleton style={{ height }} />;
 
   const data = series.data;
+  if (data.series.length === 0) {
+    return (
+      <div className="flex items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground" style={{ height }}>
+        The chosen tags no longer exist.
+      </div>
+    );
+  }
   const domain: [number, number] = [new Date(data.from).getTime(), new Date(data.to).getTime()];
   const groupHeight = Math.max(140, Math.floor(height / Math.max(groups.length, 1)));
 

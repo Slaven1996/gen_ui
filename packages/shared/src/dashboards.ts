@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { alarmFilters } from './alarms.js';
 import { alarmTrendParams, KpiMetricSchema, topAlarmsParams } from './analytics.js';
-import { csvEnum, itemsSchema, nullableText, RelativeRangeSchema, searchParam, UserRefSchema } from './common/query.js';
+import { csvEnum, itemsSchema, nullableText, RelativeRangeSchema, UserRefSchema } from './common/query.js';
 import { logbookFilters } from './logbook.js';
 import { SHIFT_ROLES } from './shifts.js';
 import { ChartTypeSchema, MAX_SERIES_TAGS, seriesParams } from './telemetry.js';
@@ -187,13 +187,6 @@ export const DashboardDetailSchema = DashboardSchema.extend({
 export type DashboardDetail = z.infer<typeof DashboardDetailSchema>;
 
 export const DashboardsSchema = itemsSchema(DashboardSchema).meta({ id: 'Dashboards' });
-
-export const ListDashboardsQuerySchema = z.object({
-  scope: z.enum(['all', 'mine', 'shared']).default('all'),
-  search: searchParam('the name'),
-});
-export type ListDashboardsQueryInput = z.input<typeof ListDashboardsQuerySchema>;
-export type ListDashboardsQuery = z.output<typeof ListDashboardsQuerySchema>;
 
 export const DASHBOARD_TEMPLATES = ['blank', 'operations'] as const;
 

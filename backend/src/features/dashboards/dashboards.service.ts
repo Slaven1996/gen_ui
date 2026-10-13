@@ -7,7 +7,6 @@ import {
   type Dashboard,
   type DashboardDetail,
   type DashboardWidget,
-  type ListDashboardsQuery,
   type UpdateDashboardDto,
   type UpdateLayoutDto,
   type UpdateWidgetDto,
@@ -15,7 +14,7 @@ import {
 } from '@gen-ui/shared';
 import type { Prisma } from '../../generated/prisma/client.js';
 import { diff, AuditService } from '../audit/audit.service.js';
-import { insensitive, iso } from '../../common/list-query.js';
+import { iso } from '../../common/list-query.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { UnitOfWork } from '../../prisma/unit-of-work.service.js';
 import type { AuthUser } from '../users/user.mapper.js';
@@ -105,15 +104,9 @@ export class DashboardsService {
     private readonly audit: AuditService,
   ) {}
 
-  async list(query: ListDashboardsQuery, actor: AuthUser): Promise<Dashboard[]> {
-    const visibility: Prisma.DashboardWhereInput =
-      query.scope === 'mine'
-        ? { ownerId: actor.id }
-        : query.scope === 'shared'
-          ? { isShared: true, ownerId: { not: actor.id } }
-          : { OR: [{ ownerId: actor.id }, { isShared: true }] };
+  async list(actor: AuthUser): Promise<Dashboard[]> {
     const rows = await this.prisma.dashboard.findMany({
-      where: { ...visibility, ...(query.search && { name: insensitive(query.search) }) },
+      where: { OR: [{ ownerId: actor.id }, { isShared: true }] },
       select: dashboardSelect,
       orderBy: [{ name: 'asc' }, { id: 'asc' }],
     });
@@ -241,19 +234,32 @@ export class DashboardsService {
     dto: UpdateWidgetDto,
     actor: AuthUser,
   ): Promise<DashboardWidget> {
-    await this.editable(dashboardId, actor);
-    const widget = await this.prisma.dashboardWidget.findFirst({ where: { id: widgetId, dashboardId } });
+    const dashboard = await this.editable(dashboardId, actor);
+    const widget = await this.prisma.dashboardWidget.findFirst({ where: { id: widgetId, dashboardId }, select: widgetSelect });
     if (!widget) throw new NotFoundException('Widget not found');
 
-    const row = await this.prisma.dashboardWidget.update({
-      where: { id: widgetId },
-      data: {
-        ...(dto.title !== undefined && { title: dto.title }),
-        ...(dto.width !== undefined && { width: dto.width }),
-        ...(dto.height !== undefined && { height: dto.height }),
-        ...(dto.config !== undefined && { config: parseConfig(widget.type, dto.config) }),
-      },
-      select: widgetSelect,
+    const patch = {
+      ...(dto.title !== undefined && { title: dto.title }),
+      ...(dto.width !== undefined && { width: dto.width }),
+      ...(dto.height !== undefined && { height: dto.height }),
+      ...(dto.config !== undefined && { config: parseConfig(widget.type, dto.config) }),
+    };
+    const row = await this.uow.run(async (tx) => {
+      const updated = await tx.dashboardWidget.update({ where: { id: widgetId }, data: patch, select: widgetSelect });
+      await tx.dashboard.update({ where: { id: dashboardId }, data: { updatedAt: new Date() } });
+      await this.audit.record(
+        {
+          actorId: actor.id,
+          action: 'dashboard.widget_update',
+          entityType: 'DASHBOARD',
+          entityId: dashboardId,
+          summary: `Updated widget “${patch.title ?? widget.title}” on “${dashboard.name}”`,
+          // Against the parsed config, so key order and filled-in defaults don't read as changes.
+          changes: diff(toWidget(widget), patch),
+        },
+        tx,
+      );
+      return updated;
     });
     return toWidget(row);
   }

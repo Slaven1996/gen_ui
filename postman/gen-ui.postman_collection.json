@@ -2820,23 +2820,12 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/dashboards?scope=all",
+              "raw": "{{baseUrl}}/dashboards",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "dashboards"
-              ],
-              "query": [
-                {
-                  "key": "scope",
-                  "value": "all"
-                },
-                {
-                  "key": "search",
-                  "value": "overview",
-                  "disabled": true
-                }
               ]
             }
           },
