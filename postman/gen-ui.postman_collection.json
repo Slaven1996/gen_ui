@@ -3169,7 +3169,7 @@
     },
     {
       "name": "Notifications",
-      "description": "Your own inbox: every alarm a reading raised while your account was active, newest first (plus made-up demo alarms, `demo: true`, while `MOCK_ALARM_NOTIFICATIONS` is on). New ones also arrive over the notifications socket (namespace `/notifications`, path `/api/socket.io`), which these requests don't open. Everything here touches only the signed-in user's notifications; **Clear** empties that inbox for good.",
+      "description": "Your own inbox, newest first, of what happened while your account was active (`type`): alarms raised (plus made-up demo alarms, `demo: true`, while `MOCK_ALARM_NOTIFICATIONS` is on), alarms someone else acknowledged or cleared by hand, others' notes on alarms, others' warning or critical logbook entries, and your shifts being scheduled, changed or removed. `severity` is set for the alarm kinds, `entrySeverity` for logbook entries and `shiftDate` for shifts. New ones also arrive over the notifications socket (namespace `/notifications`, path `/api/socket.io`), which these requests don't open. Everything here touches only the signed-in user's notifications; **Clear** empties that inbox for good.",
       "item": [
         {
           "name": "List notifications",

@@ -35,12 +35,22 @@ import type { Prisma } from '../../generated/prisma/client.js';
 import { diff, AuditService } from '../audit/audit.service.js';
 import { iso, orderBy, pageArgs, toPaginated } from '../../common/list-query.js';
 import { AppConfigService } from '../../config/app-config.service.js';
+import type { ForUser } from '../notifications/new-notification.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import type { Db } from '../../prisma/transaction.js';
 import { UnitOfWork } from '../../prisma/unit-of-work.service.js';
 import type { AuthUser } from '../users/user.mapper.js';
 import { computeCoverage } from './coverage.js';
 import { planCopy } from './copy-plan.js';
+import {
+  changedNotices,
+  removedNotices,
+  sameOrNull,
+  scheduledNotices,
+  type ShiftChange,
+  type ShiftNoticeContext,
+} from './shift-notifications.js';
 import {
   assignmentSelect,
   readCoverage,
@@ -62,6 +72,9 @@ const DAY_MS = 86_400_000;
  * date and wall-clock time is in the plant time zone (`SHIFT_TIME_ZONE`):
  * a template's "06:00" is 06:00 there, and a shift belongs to the day it
  * starts on there.
+ *
+ * Whoever a change schedules, moves or removes is notified of it, unless
+ * they made it themselves or the shift is already over.
  */
 @Injectable()
 export class ShiftsService {
@@ -71,6 +84,7 @@ export class ShiftsService {
     private readonly prisma: PrismaService,
     private readonly uow: UnitOfWork,
     private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
     config: AppConfigService,
   ) {
     this.timeZone = config.get('SHIFT_TIME_ZONE');
@@ -328,8 +342,12 @@ export class ShiftsService {
       notes: dto.notes,
       createdById: actor.id,
     }));
+    const notices = scheduledNotices(
+      { userId: dto.userId, template: template.name, role: dto.role, shifts: rows },
+      this.noticeContext(actor),
+    );
 
-    await this.uow.run(async (tx) => {
+    const addressed = await this.uow.run(async (tx) => {
       await this.assertNoOverlap(dto.userId, rows, tx);
       await tx.shiftAssignment.createMany({ data: rows });
       const hours = custom ? ` (${startTime}, ${durationMinutes / 60} h)` : '';
@@ -347,7 +365,9 @@ export class ShiftsService {
         },
         tx,
       );
+      return this.notifications.createFor(notices, tx);
     });
+    this.notifications.push(addressed);
 
     return { items: await this.getAssignments(rows.map((row) => row.id)), skipped: 0 };
   }
@@ -417,8 +437,9 @@ export class ShiftsService {
       ...(seriesId !== undefined && { seriesId }),
     };
     const ids = rows.map((row) => row.id);
+    const notices = this.updateNotices(current, rows, dto, template, period, actor);
 
-    await this.uow.run(async (tx) => {
+    const addressed = await this.uow.run(async (tx) => {
       if (reassigns || period) {
         await this.assertNoOverlap(dto.userId ?? current.user.id, period ? [period] : rows, tx, ids);
       }
@@ -452,7 +473,9 @@ export class ShiftsService {
         },
         tx,
       );
+      return this.notifications.createFor(notices, tx);
     });
+    this.notifications.push(addressed);
 
     return { items: await this.getAssignments(ids), skipped };
   }
@@ -464,8 +487,17 @@ export class ShiftsService {
 
     const { rows, skipped } = await this.scopeRows(current, scope);
     if (rows.length === 0) return { removed: 0, skipped };
+    const notices = removedNotices(
+      {
+        userId: current.user.id,
+        template: current.template.name,
+        role: sameOrNull(rows.map((row) => row.role)),
+        shifts: rows,
+      },
+      this.noticeContext(actor),
+    );
 
-    await this.uow.run(async (tx) => {
+    const addressed = await this.uow.run(async (tx) => {
       await tx.shiftAssignment.deleteMany({ where: { id: { in: rows.map((row) => row.id) } } });
       await this.audit.record(
         {
@@ -480,7 +512,9 @@ export class ShiftsService {
         },
         tx,
       );
+      return this.notifications.createFor(notices, tx);
     });
+    this.notifications.push(addressed);
     return { removed: rows.length, skipped };
   }
 
@@ -506,7 +540,7 @@ export class ShiftsService {
         startsAt: true,
         endsAt: true,
         user: { select: { isActive: true } },
-        template: { select: { isActive: true } },
+        template: { select: { isActive: true, name: true } },
       },
       orderBy: { startsAt: 'asc' },
     });
@@ -531,7 +565,28 @@ export class ShiftsService {
       throw new BadRequestException(`That would create ${rows.length} shifts; the limit is ${MAX_COPIED_SHIFTS}`);
     }
 
-    await this.uow.run(async (tx) => {
+    // One notice per person, about all the copies of their shifts.
+    const templateNames = new Map(usable.map((source) => [source.templateId, source.template.name]));
+    const byUser = new Map<string, typeof rows>();
+    for (const row of rows) {
+      const own = byUser.get(row.userId);
+      if (own) own.push(row);
+      else byUser.set(row.userId, [row]);
+    }
+    const ctx = this.noticeContext(actor);
+    const notices = [...byUser].flatMap(([userId, own]) =>
+      scheduledNotices(
+        {
+          userId,
+          template: sameOrNull(own.map((row) => templateNames.get(row.templateId) ?? null)),
+          role: sameOrNull(own.map((row) => row.role)),
+          shifts: own.sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime()),
+        },
+        ctx,
+      ),
+    );
+
+    const addressed = await this.uow.run(async (tx) => {
       const clashes = await tx.shiftAssignment.findMany({
         where: { OR: rows.map((row) => ({ userId: row.userId, startsAt: { lt: row.endsAt }, endsAt: { gt: row.startsAt } })) },
         select: { startsAt: true, user: { select: { name: true } }, template: { select: { name: true } } },
@@ -556,7 +611,9 @@ export class ShiftsService {
         },
         tx,
       );
+      return this.notifications.createFor(notices, tx);
     });
+    this.notifications.push(addressed);
 
     return { items: await this.getAssignments(rows.map((row) => row.id)), skipped: sources.length - usable.length };
   }
@@ -598,6 +655,50 @@ export class ShiftsService {
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
+
+  private noticeContext(actor: AuthUser): ShiftNoticeContext {
+    return { by: actor, timeZone: this.timeZone, now: new Date() };
+  }
+
+  /**
+   * Who hears about an edit: handing shifts to someone else tells the old
+   * person they're off them and the new one that they're on; otherwise the
+   * person hears what changed (time, role, notes), if anything did.
+   */
+  private updateNotices(
+    current: AssignmentRecord,
+    rows: AssignmentRecord[],
+    dto: UpdateShiftAssignmentDto,
+    template: { id: string; name: string },
+    period: Period | undefined,
+    actor: AuthUser,
+  ): ForUser[] {
+    const ctx = this.noticeContext(actor);
+    const role = sameOrNull(rows.map((row) => row.role));
+    const after = period ? [period] : rows;
+    if (dto.userId !== undefined && dto.userId !== current.user.id) {
+      return [
+        ...removedNotices({ userId: current.user.id, template: current.template.name, role, shifts: rows }, ctx),
+        ...scheduledNotices({ userId: dto.userId, template: template.name, role: dto.role ?? role, shifts: after }, ctx),
+      ];
+    }
+
+    const moved =
+      period !== undefined &&
+      (template.id !== current.template.id ||
+        period.startsAt.getTime() !== current.startsAt.getTime() ||
+        period.endsAt.getTime() !== current.endsAt.getTime());
+    const change: ShiftChange = {
+      ...(moved && { before: { shift: current, template: current.template.name } }),
+      ...(dto.role !== undefined && rows.some((row) => row.role !== dto.role) && { role: { to: dto.role, from: role } }),
+      ...(dto.notes !== undefined && rows.some((row) => row.notes !== dto.notes) && { notes: dto.notes }),
+    };
+    return changedNotices(
+      { userId: current.user.id, template: template.name, role: dto.role ?? role, shifts: after },
+      change,
+      ctx,
+    );
+  }
 
   /**
    * The shifts a scoped change applies to. `following`/`series` skip shifts

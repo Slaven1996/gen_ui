@@ -8,13 +8,16 @@ import {
   type Paginated,
 } from '@gen-ui/shared';
 import type { Prisma } from '../../generated/prisma/client.js';
+import { assetRefSelect } from '../assets/asset.mapper.js';
 import { AuditService, type AuditEntry } from '../audit/audit.service.js';
 import { insensitive, nullsLast, orderBy, pageArgs, timeWindow, toPaginated, withinAsset } from '../../common/list-query.js';
 import { LogbookService } from '../logbook/logbook.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { UnitOfWork } from '../../prisma/unit-of-work.service.js';
 import type { AuthUser } from '../users/user.mapper.js';
 import { alarmSelect, toAlarm } from './alarm.mapper.js';
+import { acknowledgedNotification, clearedNotification, type AlarmSummary } from './alarm-notifications.js';
 
 /** Acknowledging keeps "is the condition present" and adds "someone has seen it". */
 const ACKNOWLEDGED_STATE: Partial<Record<AlarmState, AlarmState>> = {
@@ -35,6 +38,7 @@ export class AlarmsService {
     private readonly uow: UnitOfWork,
     private readonly audit: AuditService,
     private readonly logbook: LogbookService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async list(query: ListAlarmsQuery): Promise<Paginated<Alarm>> {
@@ -94,17 +98,27 @@ export class AlarmsService {
   /**
    * Acknowledges every listed alarm that still needs it. Each row changes only
    * if it is still in the state we read, so a concurrent acknowledgement or
-   * clear is never overwritten, and nobody is credited twice.
+   * clear is never overwritten, and nobody is credited twice. Everyone else
+   * gets one notification about what this acknowledged.
    */
   async acknowledgeMany(ids: string[], note: string | undefined, actor: AuthUser): Promise<AcknowledgeResult> {
-    return this.uow.run(async (tx) => {
+    const { result, addressed } = await this.uow.run(async (tx) => {
       const candidates = await tx.alarm.findMany({
         where: { id: { in: ids }, state: { in: [...UNACKNOWLEDGED_ALARM_STATES] } },
-        select: { id: true, state: true, message: true, assetId: true, definition: { select: { name: true } } },
+        select: {
+          id: true,
+          state: true,
+          severity: true,
+          message: true,
+          assetId: true,
+          asset: { select: assetRefSelect },
+          definition: { select: { name: true } },
+        },
       });
 
       const now = new Date();
       const audit: AuditEntry[] = [];
+      const acknowledged: AlarmSummary[] = [];
       for (const alarm of candidates) {
         const { count } = await tx.alarm.updateMany({
           where: { id: alarm.id, state: alarm.state },
@@ -137,23 +151,40 @@ export class AlarmsService {
           summary: `Acknowledged “${alarm.message}”`,
           changes: { state: { from: alarm.state, to: ACKNOWLEDGED_STATE[alarm.state] }, ...(note && { note }) },
         });
+        acknowledged.push({ id: alarm.id, severity: alarm.severity, rule: alarm.definition.name, asset: alarm.asset });
       }
       await this.audit.recordMany(audit, tx);
-      return { acknowledged: audit.length, skipped: ids.length - audit.length };
+      const notification = acknowledgedNotification(acknowledged, actor.name, note);
+      return {
+        result: { acknowledged: audit.length, skipped: ids.length - audit.length },
+        addressed: notification ? await this.notifications.createForActiveUsers([notification], tx, actor.id) : [],
+      };
     });
+    this.notifications.push(addressed);
+    return result;
   }
 
-  /** Ends the condition by hand, e.g. after a sensor fault or when the device stopped reporting. */
+  /**
+   * Ends the condition by hand, e.g. after a sensor fault or when the device
+   * stopped reporting. Everyone else is notified.
+   */
   async clear(id: string, actor: AuthUser): Promise<Alarm> {
     const alarm = await this.prisma.alarm.findUnique({
       where: { id },
-      select: { state: true, message: true, assetId: true, definition: { select: { name: true } } },
+      select: {
+        state: true,
+        severity: true,
+        message: true,
+        assetId: true,
+        asset: { select: assetRefSelect },
+        definition: { select: { name: true } },
+      },
     });
     if (!alarm) throw new NotFoundException('Alarm not found');
     const next = CLEARED_STATE[alarm.state];
     if (!next) throw new ConflictException('This alarm is already cleared');
 
-    await this.uow.run(async (tx) => {
+    const addressed = await this.uow.run(async (tx) => {
       const { count } = await tx.alarm.updateMany({
         where: { id, state: alarm.state },
         data: { state: next, clearedAt: new Date() },
@@ -182,7 +213,10 @@ export class AlarmsService {
         },
         tx,
       );
+      const summary = { id, severity: alarm.severity, rule: alarm.definition.name, asset: alarm.asset };
+      return this.notifications.createForActiveUsers([clearedNotification(summary, actor.name)], tx, actor.id);
     });
+    this.notifications.push(addressed);
     return this.get(id);
   }
 }

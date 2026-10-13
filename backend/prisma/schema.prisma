@@ -490,29 +490,44 @@ model DashboardWidget {
 // ═══════════════════════════════════════════════════════════════════════════
 
 enum NotificationType {
-  ALARM
+  ALARM_RAISED
+  ALARM_ACKNOWLEDGED
+  ALARM_CLEARED
+  ALARM_NOTE
+  LOGBOOK_ENTRY
+  SHIFT_SCHEDULED
+  SHIFT_CHANGED
+  SHIFT_REMOVED
 }
 
-/// One person's copy of a notification: every active user gets their own row,
-/// so each reads, dismisses and clears theirs alone. The text is written when
-/// it is sent; the asset and the alarm are only links, so deleting either
-/// keeps the notification. Pruned after NOTIFICATION_RETENTION_DAYS.
+/// One person's copy of a notification. Alarm kinds and warning or critical
+/// logbook entries go to every active user but the one who caused them, a
+/// shift change to the person whose shift it is; each reads, dismisses and
+/// clears their own. The text is written when it is sent; the asset and the
+/// alarm are only links, so deleting either keeps the notification. A CHECK
+/// in init.sql ties `severity`, `entrySeverity` and `shiftDate` to their
+/// kinds. Pruned after NOTIFICATION_RETENTION_DAYS.
 model Notification {
-  id        String           @id @default(uuid()) @db.Uuid
-  userId    String           @map("user_id") @db.Uuid
-  user      User             @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
-  type      NotificationType
-  severity  AlarmSeverity
-  title     String
-  message   String
-  assetId   String?          @map("asset_id") @db.Uuid
-  asset     Asset?           @relation(fields: [assetId], references: [id], onDelete: SetNull)
-  alarmId   String?          @map("alarm_id") @db.Uuid
-  alarm     Alarm?           @relation(fields: [alarmId], references: [id], onDelete: SetNull)
+  id            String           @id @default(uuid()) @db.Uuid
+  userId        String           @map("user_id") @db.Uuid
+  user          User             @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  type          NotificationType
+  /// The alarm's, for the alarm kinds.
+  severity      AlarmSeverity?
+  /// The entry's, for LOGBOOK_ENTRY.
+  entrySeverity LogSeverity?     @map("entry_severity")
+  title         String
+  message       String
+  assetId       String?          @map("asset_id") @db.Uuid
+  asset         Asset?           @relation(fields: [assetId], references: [id], onDelete: SetNull)
+  alarmId       String?          @map("alarm_id") @db.Uuid
+  alarm         Alarm?           @relation(fields: [alarmId], references: [id], onDelete: SetNull)
+  /// The plant day of the (first) shift, for the shift kinds.
+  shiftDate     DateTime?        @map("shift_date") @db.Date
   /// Made up by the demo generator; `alarmId` is null.
-  demo      Boolean          @default(false)
-  readAt    DateTime?        @map("read_at")
-  createdAt DateTime         @default(now()) @map("created_at")
+  demo          Boolean          @default(false)
+  readAt        DateTime?        @map("read_at")
+  createdAt     DateTime         @default(now()) @map("created_at")
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([createdAt])

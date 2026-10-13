@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
 import { Bell } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -65,7 +64,7 @@ export function NotificationBell() {
 
         {items.length === 0 ? (
           <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-            Nothing yet. New alarms show up here as they happen.
+            Nothing yet. Alarms, notes and shift changes show up here as they happen.
           </p>
         ) : (
           <ul className="max-h-96 divide-y overflow-y-auto">
@@ -79,14 +78,6 @@ export function NotificationBell() {
             ))}
           </ul>
         )}
-
-        <div className="border-t p-2">
-          <Button variant="ghost" size="sm" className="w-full" asChild>
-            <Link to="/alarms" onClick={close}>
-              View all alarms
-            </Link>
-          </Button>
-        </div>
       </PopoverContent>
     </Popover>
   );

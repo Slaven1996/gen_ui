@@ -1,12 +1,17 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { io, type Socket } from 'socket.io-client';
+import type { QueryKey } from '@tanstack/react-query';
 import {
   NOTIFICATIONS_NAMESPACE,
   SOCKET_IO_PATH,
   type AppNotification,
   type NotificationList,
   type NotificationServerEvents,
+  type NotificationType,
 } from '@gen-ui/shared';
+import { alarmKeys } from '@/features/alarms/api/queries';
+import { logbookKeys } from '@/features/logbook/api/queries';
+import { shiftKeys } from '@/features/shifts/api/queries';
 import { API_BASE_URL } from '@/lib/api/config';
 import { queryClient } from '@/lib/api/query-client';
 import { refreshSession } from '@/lib/auth/refresh';
@@ -19,11 +24,24 @@ import { notificationKeys } from '../api/queries';
  * (`notificationsQueryOptions`); the socket only keeps that cache current. Each
  * pushed notification is added to it the moment it arrives, and every
  * (re)connect refetches it, for whatever came while the socket was down.
- * Nothing here polls.
+ * An arrival also refreshes the views of what it is about, so a page someone
+ * else just changed updates at once. Nothing here polls.
  */
 
 /** A refused socket (e.g. the account was deactivated) tries again this much later. */
 const RETRY_REFUSED_MS = 15_000;
+
+/** The cached views each kind of notification makes stale. */
+const STALE_VIEWS: Record<NotificationType, readonly QueryKey[]> = {
+  ALARM_RAISED: [alarmKeys.all, logbookKeys.all],
+  ALARM_ACKNOWLEDGED: [alarmKeys.all, logbookKeys.all],
+  ALARM_CLEARED: [alarmKeys.all, logbookKeys.all],
+  ALARM_NOTE: [logbookKeys.all],
+  LOGBOOK_ENTRY: [logbookKeys.all],
+  SHIFT_SCHEDULED: [shiftKeys.all],
+  SHIFT_CHANGED: [shiftKeys.all],
+  SHIFT_REMOVED: [shiftKeys.all],
+};
 
 let connected = false;
 const listeners = new Set<() => void>();
@@ -80,6 +98,9 @@ function connect(): void {
   });
   next.on('notification', (notification) => {
     queryClient.setQueryData<NotificationList>(notificationKeys.inbox, (inbox) => withArrival(inbox, notification));
+    // A demo alarm changed nothing.
+    if (notification.demo) return;
+    for (const queryKey of STALE_VIEWS[notification.type]) void queryClient.invalidateQueries({ queryKey });
   });
   socket = next;
 }

@@ -9,13 +9,16 @@ import type {
   UpdateLogbookEntryDto,
 } from '@gen-ui/shared';
 import type { Prisma } from '../../generated/prisma/client.js';
+import type { AlarmSummary } from '../alarms/alarm-notifications.js';
 import { assetRefSelect } from '../assets/asset.mapper.js';
 import { diff, AuditService } from '../audit/audit.service.js';
 import { insensitive, iso, orderBy, pageArgs, timeWindow, toPaginated, withinAsset } from '../../common/list-query.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import type { Db } from '../../prisma/transaction.js';
 import { UnitOfWork } from '../../prisma/unit-of-work.service.js';
 import type { AuthUser } from '../users/user.mapper.js';
+import { newEntryNotification } from './logbook-notifications.js';
 
 const entrySelect = {
   id: true,
@@ -74,6 +77,7 @@ export class LogbookService {
     private readonly prisma: PrismaService,
     private readonly uow: UnitOfWork,
     private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async list(query: ListLogbookQuery): Promise<Paginated<LogbookEntry>> {
@@ -126,18 +130,27 @@ export class LogbookService {
     return toEntry(row);
   }
 
+  /**
+   * Writes a person's entry. Everyone else is notified of a note on an alarm,
+   * and of any other entry that is a warning or critical one.
+   */
   async create(dto: CreateLogbookEntryDto, actor: AuthUser): Promise<LogbookEntry> {
     let assetId = dto.assetId;
+    let alarm: AlarmSummary | null = null;
     if (dto.alarmId) {
-      const alarm = await this.prisma.alarm.findUnique({ where: { id: dto.alarmId }, select: { assetId: true } });
-      if (!alarm) throw new BadRequestException('Alarm not found');
-      assetId ??= alarm.assetId;
+      const found = await this.prisma.alarm.findUnique({
+        where: { id: dto.alarmId },
+        select: { assetId: true, severity: true, asset: { select: assetRefSelect }, definition: { select: { name: true } } },
+      });
+      if (!found) throw new BadRequestException('Alarm not found');
+      assetId ??= found.assetId;
+      alarm = { id: dto.alarmId, severity: found.severity, rule: found.definition.name, asset: found.asset };
     }
     if (assetId && !(await this.prisma.asset.count({ where: { id: assetId } }))) {
       throw new BadRequestException('Asset not found');
     }
 
-    const row = await this.uow.run(async (tx) => {
+    const { row, addressed } = await this.uow.run(async (tx) => {
       const entry = await tx.logbookEntry.create({
         data: {
           category: dto.category,
@@ -161,8 +174,13 @@ export class LogbookService {
         },
         tx,
       );
-      return entry;
+      const notification = newEntryNotification(entry, alarm, actor.name);
+      return {
+        row: entry,
+        addressed: notification ? await this.notifications.createForActiveUsers([notification], tx, actor.id) : [],
+      };
     });
+    this.notifications.push(addressed);
     return toEntry(row);
   }
 

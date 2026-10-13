@@ -6,7 +6,8 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { formatReading } from '../alarms/alarm.mapper.js';
 import { assetRefSelect } from '../assets/asset.mapper.js';
 import { NotificationsGateway } from './notifications.gateway.js';
-import { NotificationsService, type NewNotification } from './notifications.service.js';
+import { draft, type NewNotification } from './new-notification.js';
+import { NotificationsService } from './notifications.service.js';
 
 const EVERY_MS = 60_000;
 /** Chance that a tick sends an alarm: 40% do, 60% stay quiet. */
@@ -80,14 +81,13 @@ export class MockAlarmNotifier implements OnApplicationBootstrap {
     const limit = high ? max - span * 0.1 : min + span * 0.1;
     const value = limit + (high ? 1 : -1) * span * 0.05 * Math.random();
 
-    return {
-      type: 'ALARM',
+    return draft({
+      type: 'ALARM_RAISED',
       severity: pick(ALARM_SEVERITIES),
       title: `${tag.name} ${high ? 'high' : 'low'}`,
       message: `${tag.name} ${high ? 'above' : 'below'} ${formatReading(limit, tag.unit)} (${formatReading(value, tag.unit)})`,
       asset: tag.device.asset,
-      alarmId: null,
       demo: true,
-    };
+    });
   }
 }

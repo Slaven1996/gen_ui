@@ -53,7 +53,7 @@ CREATE TYPE "ShiftRole" AS ENUM ('OPERATOR', 'SUPERVISOR', 'ON_CALL');
 CREATE TYPE "WidgetType" AS ENUM ('KPI', 'TAG_VALUE', 'TIME_SERIES', 'ALARM_TABLE', 'ALARM_TREND', 'TOP_ALARMS', 'LOGBOOK_FEED', 'DEVICE_STATUS', 'ON_DUTY');
 
 -- Notifications
-CREATE TYPE "NotificationType" AS ENUM ('ALARM');
+CREATE TYPE "NotificationType" AS ENUM ('ALARM_RAISED', 'ALARM_ACKNOWLEDGED', 'ALARM_CLEARED', 'ALARM_NOTE', 'LOGBOOK_ENTRY', 'SHIFT_SCHEDULED', 'SHIFT_CHANGED', 'SHIFT_REMOVED');
 
 -- ─── Users & sessions ───────────────────────────────────────────────────────
 
@@ -401,25 +401,36 @@ CREATE INDEX "dashboard_widgets_dashboard_id_position_idx" ON "dashboard_widgets
 
 -- ─── Notifications ──────────────────────────────────────────────────────────
 
--- One person's copy of a notification: every active user gets their own row,
--- so each reads, dismisses and clears theirs alone. The text is written when
--- it is sent and the asset and alarm are only links, so deleting either keeps
--- the notification. demo: made up by the demo generator (alarm_id is NULL).
+-- One person's copy of a notification. Alarm kinds and warning or critical
+-- logbook entries go to every active user but the one who caused them, a
+-- shift change to the person whose shift it is; each reads, dismisses and
+-- clears their own. The text is written when it is sent and the asset and
+-- alarm are only links, so deleting either keeps the notification.
+-- severity: the alarm's (alarm kinds); entry_severity: the entry's
+-- (LOGBOOK_ENTRY); shift_date: the plant day of the (first) shift (shift
+-- kinds). demo: made up by the demo generator (alarm_id is NULL).
 -- Rows older than NOTIFICATION_RETENTION_DAYS are deleted by a daily job.
 CREATE TABLE "notifications" (
-    "id"         UUID               NOT NULL,
-    "user_id"    UUID               NOT NULL,
-    "type"       "NotificationType" NOT NULL,
-    "severity"   "AlarmSeverity"    NOT NULL,
-    "title"      TEXT               NOT NULL,
-    "message"    TEXT               NOT NULL,
-    "asset_id"   UUID,
-    "alarm_id"   UUID,
-    "demo"       BOOLEAN            NOT NULL DEFAULT false,
-    "read_at"    TIMESTAMP(3),
-    "created_at" TIMESTAMP(3)       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "id"             UUID               NOT NULL,
+    "user_id"        UUID               NOT NULL,
+    "type"           "NotificationType" NOT NULL,
+    "severity"       "AlarmSeverity",
+    "entry_severity" "LogSeverity",
+    "title"          TEXT               NOT NULL,
+    "message"        TEXT               NOT NULL,
+    "asset_id"       UUID,
+    "alarm_id"       UUID,
+    "shift_date"     DATE,
+    "demo"           BOOLEAN            NOT NULL DEFAULT false,
+    "read_at"        TIMESTAMP(3),
+    "created_at"     TIMESTAMP(3)       NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "notifications_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "notifications_kind_fields_check" CHECK (
+        ("severity" IS NOT NULL) = ("type" IN ('ALARM_RAISED', 'ALARM_ACKNOWLEDGED', 'ALARM_CLEARED', 'ALARM_NOTE'))
+        AND ("entry_severity" IS NOT NULL) = ("type" = 'LOGBOOK_ENTRY')
+        AND ("shift_date" IS NOT NULL) = ("type" IN ('SHIFT_SCHEDULED', 'SHIFT_CHANGED', 'SHIFT_REMOVED'))
+    ),
     CONSTRAINT "notifications_user_id_fkey" FOREIGN KEY ("user_id")
         REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT "notifications_asset_id_fkey" FOREIGN KEY ("asset_id")

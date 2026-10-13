@@ -4,9 +4,9 @@ import { AppConfigService } from '../../config/app-config.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 
 /**
- * Every alarm becomes a row per active user, so `notifications` grows
+ * Every alarm event becomes a row per active user, so `notifications` grows
  * quickly. Ones older than NOTIFICATION_RETENTION_DAYS, read or not, are
- * deleted; the alarms themselves and their logbook entries stay.
+ * deleted; the alarms, logbook entries and shifts they were about stay.
  *
  * Deletion is idempotent, so running this on every instance is harmless.
  */

@@ -24,7 +24,7 @@ export class NotificationsController {
   @ApiOperation({
     summary: 'Your notifications',
     description:
-      'Your own inbox, newest first: every alarm a reading raised while your account was active (and, with MOCK_ALARM_NOTIFICATIONS on, made-up demo alarms marked `demo`). `unread` counts all your unread ones, whatever the filter and page. New ones also arrive over the notifications socket (namespace `/notifications`, path `/api/socket.io`) the moment they are stored. Kept for NOTIFICATION_RETENTION_DAYS.',
+      'Your own inbox, newest first, of what happened while your account was active: alarms raised (and, with MOCK_ALARM_NOTIFICATIONS on, made-up demo alarms marked `demo`), acknowledged or cleared by hand by someone else, others’ notes on alarms, others’ warning or critical logbook entries, and your shifts being scheduled, changed or removed (`type`). `unread` counts all your unread ones, whatever the filter and page. New ones also arrive over the notifications socket (namespace `/notifications`, path `/api/socket.io`) the moment they are stored. Kept for NOTIFICATION_RETENTION_DAYS.',
   })
   @ApiOkResponse({ standardSchema: NotificationListSchema })
   @ApiErrorResponse(400, 'A query parameter is invalid.')

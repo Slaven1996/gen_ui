@@ -1,15 +1,22 @@
 import {
   Bell,
   BellDot,
+  BellOff,
   BellRing,
   Box,
   Building2,
+  CalendarClock,
+  CalendarPlus,
+  CalendarX,
+  CheckCheck,
   CheckCircle2,
   CircleAlert,
   Cog,
   Cpu,
   Info,
   Map as MapIcon,
+  MessageSquareText,
+  NotebookPen,
   OctagonAlert,
   OctagonX,
   StickyNote,
@@ -41,6 +48,7 @@ import {
   type DeviceStatus,
   type LogbookCategory,
   type LogSeverity,
+  type NotificationType,
   type ShiftCalendarView,
   type ShiftRole,
   type ShiftScope,
@@ -90,6 +98,18 @@ export const LOGBOOK_CATEGORY: Record<LogbookCategory, { label: string; icon: Lu
   DEVICE: { label: 'Device', icon: Cpu },
   MAINTENANCE: { label: 'Maintenance', icon: Wrench },
   SHIFT: { label: 'Shift handover', icon: Users },
+};
+
+/** What a notification is about, shown above its title in the bell. */
+export const NOTIFICATION_TYPE: Record<NotificationType, { label: string; icon: LucideIcon }> = {
+  ALARM_RAISED: { label: 'Alarm', icon: BellRing },
+  ALARM_ACKNOWLEDGED: { label: 'Acknowledged', icon: CheckCheck },
+  ALARM_CLEARED: { label: 'Cleared by hand', icon: BellOff },
+  ALARM_NOTE: { label: 'Note on alarm', icon: MessageSquareText },
+  LOGBOOK_ENTRY: { label: 'Logbook', icon: NotebookPen },
+  SHIFT_SCHEDULED: { label: 'Shift scheduled', icon: CalendarPlus },
+  SHIFT_CHANGED: { label: 'Shift changed', icon: CalendarClock },
+  SHIFT_REMOVED: { label: 'Shift removed', icon: CalendarX },
 };
 
 export const ASSET_TYPE: Record<AssetType, { label: string; icon: LucideIcon }> = {
