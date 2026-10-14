@@ -4,7 +4,7 @@ import { API_PREFIX, DOCS_PATH, REFRESH_COOKIE_PATH } from '../common/constants.
 import { AppConfigService } from '../config/app-config.service.js';
 
 const DESCRIPTION = `
-The API behind the Gen UI dashboard. Everything lives under \`/${API_PREFIX}\`.
+The API behind the Hydro Telemetry dashboard. Everything lives under \`/${API_PREFIX}\`.
 
 ### Signing in
 
@@ -45,7 +45,7 @@ export function setupSwagger(app: INestApplication): void {
   const document = SwaggerModule.createDocument(
     app,
     new DocumentBuilder()
-      .setTitle('Gen UI API')
+      .setTitle('Hydro Telemetry API')
       .setDescription(DESCRIPTION)
       .setVersion('0.1.0')
       .addServer('/', 'Same origin as the web app')
@@ -81,7 +81,7 @@ export function setupSwagger(app: INestApplication): void {
   SwaggerModule.setup(DOCS_PATH, app, document, {
     jsonDocumentUrl: `${DOCS_PATH}/openapi.json`,
     yamlDocumentUrl: `${DOCS_PATH}/openapi.yaml`,
-    customSiteTitle: 'Gen UI API docs',
+    customSiteTitle: 'Hydro Telemetry API docs',
     swaggerOptions: {
       // Keep the pasted access token across reloads, and send the refresh
       // cookie on "Try it out" so /auth/refresh and /auth/logout work.

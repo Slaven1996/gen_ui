@@ -1,5 +1,5 @@
 -- ════════════════════════════════════════════════════════════════════════════
--- Gen UI — the database schema (PostgreSQL 17)
+-- Hydro Telemetry — the database schema (PostgreSQL 17)
 --
 -- The one place the database structure is defined. The Postgres container
 -- runs this file once, when its data volume is empty (it is mounted into

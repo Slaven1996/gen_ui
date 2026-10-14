@@ -1,10 +1,10 @@
 <mxfile host="app.diagrams.net" agent="gen-ui">
-  <diagram id="gen-ui-class-diagram" name="Gen UI — domain model (UML)">
+  <diagram id="gen-ui-class-diagram" name="Hydro Telemetry — domain model (UML)">
     <mxGraphModel dx="5414" dy="3176" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2480" pageHeight="1600" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
-        <mxCell id="title" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=20;fontStyle=1;strokeColor=none;fillColor=none;" value="Gen UI — domain model (UML class diagram)" vertex="1">
+        <mxCell id="title" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=20;fontStyle=1;strokeColor=none;fillColor=none;" value="Hydro Telemetry — domain model (UML class diagram)" vertex="1">
           <mxGeometry height="36" width="900" x="40" y="-90" as="geometry" />
         </mxCell>
         <mxCell id="note-about" parent="1" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=14;fillColor=#fdfdfd;strokeColor=#999999;align=left;verticalAlign=top;spacingLeft=10;spacingRight=10;spacingTop=6;fontSize=11;" value="&lt;b&gt;About this diagram&lt;/b&gt;&lt;br&gt;One class per Prisma model (backend/prisma/schema.prisma; tables in backend/prisma/init.sql). Foreign keys are drawn as associations, not attributes.&lt;br&gt;Operations are the behaviour the backend implements for each entity; in code they live in the feature&#39;s NestJS service (Alarm.acknowledge → AlarmsService.acknowledge). The usual list / get / create / update / remove are left out.&lt;br&gt;Parameter types such as AuditEntry, SystemEvent, TimeRange and UIMessage are DTOs and are not drawn.&lt;br&gt;&lt;b&gt;Colours:&lt;/b&gt; purple users and sessions · blue assets and telemetry · red alarms · yellow logbook and audit · green shifts · orange dashboards · teal assistant." vertex="1">

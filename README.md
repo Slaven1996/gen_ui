@@ -1,4 +1,4 @@
-# Gen UI
+# Hydro Telemetry
 
 A dashboard app that combines classic CRUD screens with **Generative UI**: an AI assistant whose answers can include the app's own React components (live, paged tables) streamed into the page.
 

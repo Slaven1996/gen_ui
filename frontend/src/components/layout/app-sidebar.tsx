@@ -97,9 +97,9 @@ export function AppSidebar() {
             <SidebarMenuButton size="lg" asChild>
               <Link to="/dashboard">
                 <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sm font-semibold text-sidebar-primary-foreground">
-                  G
+                  H
                 </div>
-                <span className="truncate font-semibold">Gen UI</span>
+                <span className="truncate font-semibold">Hydro Telemetry</span>
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
