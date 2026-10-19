@@ -34,13 +34,13 @@ import { searchSchema } from '@/lib/search';
 
 /**
  * `board`: which dashboard is open; without it, the first of your own.
- * `conversation` + `toolCall`: a dashboard the assistant put together in that
- * conversation, opened unsaved in edit mode.
+ * `conversationId` + `toolCallId`: a dashboard the assistant put together in
+ * that conversation, opened unsaved in edit mode.
  */
 const dashboardSearch = z.object({
   board: z.guid().optional(),
-  conversation: z.uuid().optional(),
-  toolCall: z.string().min(1).max(200).optional(),
+  conversationId: z.uuid().optional(),
+  toolCallId: z.string().min(1).max(200).optional(),
 });
 
 /** `board` if it is one you can see, else the first in the list (your own come first). */
@@ -50,13 +50,17 @@ const openDashboardId = (list: Dashboard[], board: string | undefined) =>
 export const Route = createFileRoute('/_authenticated/dashboard')({
   staticData: { title: 'Dashboard' },
   validateSearch: searchSchema(dashboardSearch),
-  loaderDeps: ({ search }) => ({ board: search.board, conversation: search.conversation, toolCall: search.toolCall }),
+  loaderDeps: ({ search }) => ({
+    board: search.board,
+    conversationId: search.conversationId,
+    toolCallId: search.toolCallId,
+  }),
   // The open dashboard needs the list to resolve, so its widgets load right after it, before the page renders.
   loader: async ({ context, deps }) => {
-    if (deps.conversation && deps.toolCall) {
+    if (deps.conversationId && deps.toolCallId) {
       // A draft already saved (an old tab, the browser history) opens the dashboard saved from it.
       const draft = await context.queryClient
-        .ensureQueryData(dashboardDraftQueryOptions(deps.conversation, deps.toolCall))
+        .ensureQueryData(dashboardDraftQueryOptions(deps.conversationId, deps.toolCallId))
         .catch(() => undefined);
       if (draft?.dashboard) throw redirect({ to: '/dashboard', search: { board: draft.dashboard.id }, replace: true });
     }
@@ -75,7 +79,7 @@ export const Route = createFileRoute('/_authenticated/dashboard')({
  * they are saved.
  */
 function DashboardPage() {
-  const { board, conversation, toolCall } = Route.useSearch();
+  const { board, conversationId, toolCallId } = Route.useSearch();
   const navigate = Route.useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -85,9 +89,11 @@ function DashboardPage() {
   const selected = useQuery({ ...dashboardQueryOptions(selectedId ?? ''), enabled: Boolean(selectedId) });
   const detail = selected.data;
 
-  const source: DashboardSource | undefined =
-    conversation && toolCall ? { conversationId: conversation, toolCallId: toolCall } : undefined;
-  const fromChat = useQuery({ ...dashboardDraftQueryOptions(conversation ?? '', toolCall ?? ''), enabled: Boolean(source) });
+  const source: DashboardSource | undefined = conversationId && toolCallId ? { conversationId, toolCallId } : undefined;
+  const fromChat = useQuery({
+    ...dashboardDraftQueryOptions(conversationId ?? '', toolCallId ?? ''),
+    enabled: Boolean(source),
+  });
 
   const editor = useDashboardEditor();
   const draft = editor.draft;

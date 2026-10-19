@@ -94,5 +94,5 @@ export function sameDraft(a: DashboardDraft, b: DashboardDraft): boolean {
 /** The page that opens an assistant's draft: the Dashboard page, with that draft in edit mode. */
 export const draftLink = (source: DashboardSource): Pick<LinkProps, 'to' | 'search'> => ({
   to: '/dashboard',
-  search: { conversation: source.conversationId, toolCall: source.toolCallId },
+  search: { conversationId: source.conversationId, toolCallId: source.toolCallId },
 });

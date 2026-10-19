@@ -54,9 +54,13 @@ export function WidgetDialog({
   const [width, setWidth] = useState<WidgetWidth>(4);
   const [height, setHeight] = useState<WidgetHeight>(2);
   const [config, setConfig] = useState<ConfigDraft>({});
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  // The same check as the grid's, existing tags and assets included.
+  const [flagged, setFlagged] = useState<string[]>([]);
   const state = useWidgetStates(type ? [{ key: CHECKED, type, title, config }] : []).get(CHECKED);
+  const errors: Record<string, string> = {};
+  for (const field of flagged) {
+    const message = state?.errors[field];
+    if (message) errors[field] = message;
+  }
 
   const choose = (next: WidgetType) => {
     setType(next);
@@ -64,12 +68,12 @@ export function WidgetDialog({
     setWidth(WIDGET_DEFAULT_SIZE[next].width);
     setHeight(WIDGET_DEFAULT_SIZE[next].height);
     setConfig({ ...WIDGETS[next].defaultConfig });
-    setErrors({});
+    setFlagged([]);
   };
 
   useEffect(() => {
     if (!open) return;
-    setErrors(initialErrors ?? {});
+    setFlagged(Object.keys(initialErrors ?? {}));
     if (widget) {
       setType(widget.type);
       setTitle(widget.title);
@@ -86,7 +90,7 @@ export function WidgetDialog({
     event.preventDefault();
     if (!type || !state || state.checking) return;
     if (!state.config) {
-      setErrors(state.errors);
+      setFlagged(Object.keys(state.errors));
       return;
     }
     onSubmit({

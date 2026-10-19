@@ -20,7 +20,7 @@ How one chat message becomes a rendered answer, how a conversation is saved and 
 | `showAlarmRule` | ADMIN, USER | checks `ruleId` against the prompt's rule list; `AlarmDefinitionsService.get` | `DefinitionDetail` in a `DetailCard` · admins: edit, enable/disable | `/alarm-rules?rule=…` |
 | `showDevice` | ADMIN, USER | checks `deviceId` against the prompt's device list; `DevicesService.get` | `DeviceDetail` in a `DetailCard` · admins: edit | `/devices?device=…` |
 | `showTag` | ADMIN, USER | checks `tagId` against the prompt's tag list; `TagsService.get`, plus the counts of its rules and open alarms | `TagDetail` in a `DetailCard` · chart; admins: add rule, edit | `/tags?tag=…` |
-| `createDashboard` | ADMIN, USER | nothing is saved: checks each widget against its type (`WIDGET_CONFIG_SCHEMAS`) and its `tagId`/`tagIds`/`assetId` against the prompt's lists, and tells Claude what each widget still lacks | a preview with the Dashboard page's `DashboardGrid` and widgets, read-only, with *Not created yet* or *Created* (read from the dashboards) | `/dashboard?conversation=…&toolCall=…`: the draft, unsaved, in edit mode; once saved, `/dashboard?board=…` |
+| `createDashboard` | ADMIN, USER | nothing is saved: checks each widget against its type (`WIDGET_CONFIG_SCHEMAS`) and its `tagId`/`tagIds`/`assetId` against the prompt's lists, and tells Claude what each widget still lacks | a preview with the Dashboard page's `DashboardGrid` and widgets, read-only, with *Not created yet* or *Created* (read from the dashboards) | `/dashboard?conversationId=…&toolCallId=…`: the draft, unsaved, in edit mode; once saved, `/dashboard?board=…` |
 | `listAuditLogs` | ADMIN (checked again in `execute`) | `AuditService.list` | `AuditTable` · read-only | `/audit` |
 | `createUser` | ADMIN (checked again in `execute`) | nothing: opens the form | the Add user form (`CreateUserForm`), inside the answer | `/users`, once saved |
 | `createAlarmRule` | ADMIN (checked again in `execute`) | checks `tagId` against the prompt's tag list | the New alarm rule form (`DefinitionForm`), inside the answer | `/alarm-rules`, once saved |
@@ -300,7 +300,7 @@ sequenceDiagram
   Chat->>API: GET /api/ai/conversations/:id/dashboard-drafts/:toolCallId
   API-->>Chat: { draft, dashboard: null } → "Not created yet"
   Chat->>User: preview: the page's grid, a widget without a tag in red
-  User->>Page: Open in new tab · /dashboard?conversation=…&toolCall=…
+  User->>Page: Open in new tab · /dashboard?conversationId=…&toolCallId=…
   Page->>API: GET …/dashboard-drafts/:toolCallId (owner only)
   Page->>User: the draft in edit mode, Save off: "1 widget needs attention"
   User->>Page: picks the tag, Save

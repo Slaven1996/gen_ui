@@ -49,7 +49,11 @@ function summarizeWidget(widget: DraftWidget, label: string, known: DraftLookups
     );
   }
 
-  const tags = [config.tagId, ...(config.tagIds ?? [])].flatMap((id) => (id === undefined ? [] : [known.tag(id).name]));
+  // The tags it names: a live value's one `tagId`, or a chart's `tagIds` (the check above
+  // left each widget only its own type's field). `known.tag` throws on an id that isn't
+  // in the prompt's tag list, so Claude corrects it; otherwise it gives the tag's name.
+  const tagIds = [config.tagId, ...(config.tagIds ?? [])].filter((id) => id !== undefined);
+  const tags = tagIds.map((id) => known.tag(id).name);
   const asset = config.assetId === undefined ? undefined : known.asset(config.assetId)?.name;
 
   const missing = requiredWidgetFields(widget.type).filter((key) => isBlank(values[key]));
