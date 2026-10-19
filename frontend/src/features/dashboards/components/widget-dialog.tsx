@@ -1,13 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import {
-  WIDGET_CONFIG_SCHEMAS,
   WIDGET_DEFAULT_SIZE,
   WIDGET_HEIGHTS,
   WIDGET_TYPES,
   WIDGET_WIDTHS,
-  type CreateWidgetInput,
-  type DashboardWidget,
+  type WidgetHeight,
   type WidgetType,
+  type WidgetWidth,
 } from '@gen-ui/shared';
 import { Field } from '@/components/form/field';
 import { Button } from '@/components/ui/button';
@@ -21,36 +20,43 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { getErrorMessage } from '@/lib/api/errors';
-import { fieldErrors } from '@/lib/form';
-import { useAddWidget, useUpdateWidget } from '../api/mutations';
+import { useWidgetStates } from '../hooks/use-widget-states';
+import { newWidgetKey } from '../lib/draft';
 import { HEIGHT_LABELS, WIDTH_LABELS } from '../lib/grid-metrics';
 import { WIDGETS } from '../lib/widget-registry';
-import type { ConfigDraft } from '../types';
+import type { ConfigDraft, DraftWidget } from '../types';
 import { WidgetConfigFields } from './widget-config-fields';
 
-/** Add a widget (pick a type, then set it up) or edit one — a widget's type is fixed once added. */
+const CHECKED = 'dialog';
+
+/**
+ * Add a widget (pick a type, then set it up) or edit one; a widget's type is
+ * fixed once added. It changes only the dashboard being edited, which is
+ * saved as a whole. A widget can't be added or changed while its settings
+ * are incomplete; `initialErrors` marks what is wrong with one that came in
+ * incomplete (from the assistant) or whose tag was deleted since.
+ */
 export function WidgetDialog({
-  dashboardId,
   widget,
+  initialErrors,
   open,
   onOpenChange,
+  onSubmit,
 }: {
-  dashboardId: string;
-  widget?: DashboardWidget;
+  widget?: DraftWidget;
+  initialErrors?: Record<string, string>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onSubmit: (widget: DraftWidget) => void;
 }) {
   const [type, setType] = useState<WidgetType | null>(widget?.type ?? null);
   const [title, setTitle] = useState('');
-  const [width, setWidth] = useState<number>(4);
-  const [height, setHeight] = useState<number>(2);
+  const [width, setWidth] = useState<WidgetWidth>(4);
+  const [height, setHeight] = useState<WidgetHeight>(2);
   const [config, setConfig] = useState<ConfigDraft>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const add = useAddWidget(dashboardId);
-  const update = useUpdateWidget(dashboardId);
-  const saving = add.isPending || update.isPending;
-  const error = add.error ?? update.error;
+  // The same check as the grid's, existing tags and assets included.
+  const state = useWidgetStates(type ? [{ key: CHECKED, type, title, config }] : []).get(CHECKED);
 
   const choose = (next: WidgetType) => {
     setType(next);
@@ -63,9 +69,7 @@ export function WidgetDialog({
 
   useEffect(() => {
     if (!open) return;
-    add.reset();
-    update.reset();
-    setErrors({});
+    setErrors(initialErrors ?? {});
     if (widget) {
       setType(widget.type);
       setTitle(widget.title);
@@ -76,25 +80,25 @@ export function WidgetDialog({
       setType(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset only when (re)opened.
-  }, [open, widget?.id]);
+  }, [open, widget?.key]);
 
-  const onSubmit = (event: FormEvent) => {
+  const onFormSubmit = (event: FormEvent) => {
     event.preventDefault();
-    if (!type) return;
-    const parsed = WIDGET_CONFIG_SCHEMAS[type].safeParse(config);
-    const next: Record<string, string> = parsed.success ? {} : fieldErrors(parsed.error);
-    if (!title.trim()) next.title = 'Give the widget a title';
-    if (Object.keys(next).length > 0) {
-      setErrors(next);
+    if (!type || !state || state.checking) return;
+    if (!state.config) {
+      setErrors(state.errors);
       return;
     }
-    const size = { width, height } as Pick<CreateWidgetInput, 'width' | 'height'>;
-    const close = { onSuccess: () => onOpenChange(false) };
-    if (widget) {
-      update.mutate({ widgetId: widget.id, patch: { title: title.trim(), ...size, config: parsed.data as ConfigDraft } }, close);
-    } else {
-      add.mutate({ type, title: title.trim(), ...size, config: parsed.data } as CreateWidgetInput, close);
-    }
+    onSubmit({
+      key: widget?.key ?? newWidgetKey(),
+      id: widget?.id,
+      type,
+      title: title.trim(),
+      width,
+      height,
+      config: { ...state.config },
+    });
+    onOpenChange(false);
   };
 
   return (
@@ -127,7 +131,7 @@ export function WidgetDialog({
             </div>
           </>
         ) : (
-          <form onSubmit={onSubmit} className="space-y-4" noValidate>
+          <form onSubmit={onFormSubmit} className="space-y-4" noValidate>
             <DialogHeader>
               <DialogTitle>{widget ? `Edit “${widget.title}”` : `New ${WIDGETS[type].label.toLowerCase()} widget`}</DialogTitle>
               <DialogDescription>{WIDGETS[type].description}</DialogDescription>
@@ -137,7 +141,7 @@ export function WidgetDialog({
             </Field>
             <div className="grid grid-cols-2 gap-3">
               <Field id="widget-width" label="Width">
-                <Select value={String(width)} onValueChange={(value) => setWidth(Number(value))}>
+                <Select value={String(width)} onValueChange={(value) => setWidth(Number(value) as WidgetWidth)}>
                   <SelectTrigger id="widget-width" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
@@ -151,7 +155,7 @@ export function WidgetDialog({
                 </Select>
               </Field>
               <Field id="widget-height" label="Height">
-                <Select value={String(height)} onValueChange={(value) => setHeight(Number(value))}>
+                <Select value={String(height)} onValueChange={(value) => setHeight(Number(value) as WidgetHeight)}>
                   <SelectTrigger id="widget-height" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
@@ -166,11 +170,6 @@ export function WidgetDialog({
               </Field>
             </div>
             <WidgetConfigFields type={type} config={config} onChange={setConfig} errors={errors} />
-            {error && (
-              <p className="text-sm text-destructive" role="alert">
-                {getErrorMessage(error)}
-              </p>
-            )}
             <DialogFooter className="sm:justify-between">
               {!widget ? (
                 <Button type="button" variant="ghost" onClick={() => setType(null)}>
@@ -179,8 +178,8 @@ export function WidgetDialog({
               ) : (
                 <span />
               )}
-              <Button type="submit" disabled={saving}>
-                {saving ? 'Saving…' : widget ? 'Save widget' : 'Add widget'}
+              <Button type="submit" disabled={!state || state.checking}>
+                {widget ? 'Apply' : 'Add widget'}
               </Button>
             </DialogFooter>
           </form>

@@ -55,6 +55,7 @@ import { ShiftsService } from '../shifts/shifts.service.js';
 import { TelemetryService } from '../telemetry/telemetry.service.js';
 import type { AuthUser } from '../users/user.mapper.js';
 import { UsersService } from '../users/users.service.js';
+import { summarizeDashboardDraft } from './dashboard-draft-summary.js';
 
 /** Rows handed to the model per list; the table in the chat pages through the rest itself. */
 const ROWS_FOR_MODEL = 20;
@@ -80,7 +81,7 @@ const SHIFTS_FOR_MODEL = 60;
  * The other lists are loaded only when a tool on offer takes them, so other
  * prompts stay short: every device, tag and alarm rule (`deviceId`, `tagId`,
  * `tagIds`, `ruleId`: the choices the device and tag pickers offer, the tags
- * a chart plots, the records a details card shows and those an admin can
+ * a chart or a dashboard draft's widgets show, the records a details card shows and those an admin can
  * open to edit), the user's own latest logbook entries (`entryId`: the ones
  * they may edit), and the shift templates (`templateId`: the Shifts page's
  * Shift dropdown). The details cards are offered to everyone, so devices,
@@ -323,6 +324,7 @@ const TOOL_ROLES = {
   showAlarmRule: ['ADMIN', 'USER'],
   showDevice: ['ADMIN', 'USER'],
   showTag: ['ADMIN', 'USER'],
+  createDashboard: ['ADMIN', 'USER'],
   createUser: ['ADMIN'],
   createAlarmRule: ['ADMIN'],
   editAlarmRule: ['ADMIN'],
@@ -384,7 +386,7 @@ export class AiTools {
       this.assets.tree(),
       this.users.options(),
       takenBy('showDevice', 'editDevice', 'createTag') ? this.devices.options() : undefined,
-      takenBy('showTag', 'createAlarmRule', 'editTag', 'plotTags') ? this.tags.options() : undefined,
+      takenBy('showTag', 'createAlarmRule', 'editTag', 'plotTags', 'createDashboard') ? this.tags.options() : undefined,
       takenBy('showAlarmRule', 'editAlarmRule') ? this.alarmRules.options() : undefined,
       takenBy('editLogbookEntry') ? this.logbook.options(user.id, OWN_ENTRIES_FOR_MODEL) : undefined,
       takenBy('showShiftCalendar', 'scheduleShift', 'editShift', 'copyShiftWeek', 'editShiftTemplate')
@@ -757,6 +759,19 @@ export class AiTools {
             },
           };
         },
+      }),
+
+      // ─── Dashboards ──────────────────────────────────────────────────────
+      // A dashboard draft: the chat previews it with the page's own grid,
+      // and the user saves it on the Dashboard page. Like a form, it never
+      // writes; whether it was saved is read from the dashboards themselves
+      // (DashboardDraftsService), not recorded on the call.
+
+      createDashboard: tool({
+        ...genUiToolSchemas.createDashboard,
+        // What each widget shows by name and still lacks; an id not on the lists, or a
+        // field its type doesn't take, throws for Claude to correct.
+        execute: async (input) => summarizeDashboardDraft(input, known),
       }),
 
       // ─── Forms ───────────────────────────────────────────────────────────

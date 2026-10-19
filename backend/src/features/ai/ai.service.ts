@@ -23,6 +23,7 @@ import { AppConfigService } from '../../config/app-config.service.js';
 import type { AuthUser } from '../users/user.mapper.js';
 import { AiTools, type AiToolSet } from './ai.tools.js';
 import { ConversationsService } from './conversations.service.js';
+import { DashboardDraftsService } from './dashboard-drafts.service.js';
 import { buildInstructions } from './system-prompt.js';
 
 /*
@@ -62,6 +63,9 @@ import { buildInstructions } from './system-prompt.js';
  *  only open the app's own form in the answer. The user saves it later
  *  through the page's REST endpoint, and the browser reports the outcome to
  *  PUT /ai/conversations/:id/forms/:toolCallId (ai-forms.service.ts).
+ *  A dashboard draft (createDashboard) is saved on the Dashboard page, which
+ *  records the draft on the dashboard; step 4 tells Claude which drafts are
+ *  saved, and as what (dashboard-drafts.service.ts).
  *
  *  In the browser a fixed registry turns each tool part into a React
  *  component (frontend/src/features/assistant/lib/tool-renderers.ts). Claude chooses
@@ -96,6 +100,7 @@ export class AiService {
   constructor(
     private readonly tools: AiTools,
     private readonly conversations: ConversationsService,
+    private readonly drafts: DashboardDraftsService,
     private readonly config: AppConfigService,
   ) {
     const apiKey = config.get('ANTHROPIC_API_KEY');
@@ -131,13 +136,17 @@ export class AiService {
     const messages = await validate(nextHistory(stored, request), tools);
     await this.conversations.save(request.id, user.id, messages);
 
+    // Claude's copy of the history says which dashboard drafts were saved since, and as
+    // what; the copy that is streamed and saved stays as it was.
+    const forClaude = forModel(await this.drafts.withStatus(messages, request.id), request.model);
+
     // 4 [app] One call to streamText. It runs steps 5–7 by itself: [AI] Claude
     // answers or calls tools, [app] the SDK runs their `execute`, [AI] Claude
     // reads the results, and so on until it stops calling tools.
     const result = streamText({
       model: this.anthropic(request.model),
       instructions: buildInstructions({ user, timeZone, generateUi: request.generateUi, forms, options }),
-      messages: await convertToModelMessages(forModel(messages, request.model), { tools }),
+      messages: await convertToModelMessages(forClaude, { tools }),
       tools,
       activeTools,
       stopWhen: isStepCount(this.config.get('AI_MAX_STEPS')),

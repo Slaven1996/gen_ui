@@ -332,12 +332,12 @@ ON CONFLICT (id) DO NOTHING;
 -- A shared operations overview (admin) and a personal one (Liam).
 -- Widget configs match WIDGET_CONFIG_SCHEMAS in @gen-ui/shared.
 
-INSERT INTO dashboards (id, owner_id, name, description, is_shared, updated_at)
+INSERT INTO dashboards (id, owner_id, name, is_shared, updated_at)
 VALUES
   ('60000000-0000-4000-8000-000000000001', (SELECT id FROM users WHERE email = 'admin@example.com'),
-   'Operations overview', 'The control room wall: alarms, key levels and who is on duty.', true, now()),
+   'Operations overview', true, now()),
   ('60000000-0000-4000-8000-000000000002', (SELECT id FROM users WHERE email = 'liam.carter@example.com'),
-   'Riverside pumps', 'My view of PS-01.', false, now())
+   'Riverside pumps', false, now())
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO dashboard_widgets (id, dashboard_id, type, title, position, width, height, config, updated_at)

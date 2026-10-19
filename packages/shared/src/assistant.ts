@@ -1,12 +1,14 @@
 import type { ToolUIPart, UIMessage } from 'ai';
 import { z } from 'zod';
 import {
+  ALARM_SEVERITIES,
   AlarmConditionSchema,
   AlarmDefinitionSchema,
   AlarmSchema,
   AlarmSeveritySchema,
   AlarmStateSchema,
 } from './alarms.js';
+import { KpiMetricSchema, TOP_ALARMS_GROUPINGS, TREND_INTERVALS } from './analytics.js';
 import {
   AssetSchema,
   AssetTypeSchema,
@@ -19,6 +21,13 @@ import {
 import { PublicUserSchema, RoleSchema } from './auth.js';
 import { RelativeRangeSchema, timeZoneParam } from './common/query.js';
 import {
+  WidgetHeightSchema,
+  WidgetTypeSchema,
+  WidgetWidthSchema,
+  type WidgetConfigInput,
+  type WidgetType,
+} from './dashboards.js';
+import {
   AuditLogSchema,
   LOGBOOK_SOURCES,
   LogbookCategorySchema,
@@ -29,6 +38,7 @@ import {
 import {
   ChartTypeSchema,
   MAX_SERIES_TAGS,
+  SERIES_INTERVALS,
   SeriesAggregateSchema,
   SeriesIntervalSchema,
   TagStatsSchema,
@@ -151,7 +161,8 @@ export interface LatestConversation {
  * one exception is the on-duty card's `when`, which picks one half of the
  * Shifts page's on-duty strip. A details card takes one record's id, which
  * its page carries without the `Id` (`deviceId` → `/devices?device=…`) to
- * open the same panel.
+ * open the same panel. A dashboard draft holds a whole dashboard: each
+ * widget's config is the query of that widget's page.
  */
 
 const titleField = (examples: string) =>
@@ -1629,6 +1640,178 @@ export const ShowTagToolOutputSchema = z.object({
   }),
 });
 
+// ─── Dashboards ─────────────────────────────────────────────────────────────
+
+/*
+ * A new dashboard put together from the user's description. Like a form tool
+ * it never saves anything: the answer shows a preview drawn with the
+ * Dashboard page's own grid and widgets, and its link opens the page with
+ * this layout as an unsaved dashboard in edit mode, where the user completes
+ * and saves it. The call itself is the draft: the page reads its input back
+ * from the saved conversation (GET /ai/conversations/:id/dashboard-drafts/:toolCallId).
+ * Whether a dashboard was saved from it is kept on that dashboard (its
+ * source), not in the conversation, so deleting the dashboard makes the
+ * draft "not created" again; the server tells Claude through `created`.
+ *
+ * A widget's config is its page's query, as on the Dashboard page
+ * (WIDGET_CONFIG_SCHEMAS). Here it is one flat object holding every widget
+ * type's fields, each optional and saying which types use it: far smaller
+ * for the model than one variant per type. `execute` checks each widget
+ * against its own type.
+ */
+
+export const MAX_DRAFT_WIDGETS = 12;
+
+const DashboardWidgetConfigDraftSchema = z.object({
+  metric: KpiMetricSchema.optional().describe(
+    "KPI only: the figure. OPEN_ALARMS (raised and not closed yet), ACTIVE_ALARMS (condition still present), UNACKNOWLEDGED_ALARMS, CRITICAL_ALARMS (open critical ones), ALARMS_LAST_24H (raised in the last 24 hours), MTTA (mean time to acknowledge), DEVICES_ONLINE, DEVICES_OFFLINE (offline or faulted), ASSETS, TAGS. Omit if the user didn't say which figure.",
+  ),
+  tagId: z
+    .guid()
+    .optional()
+    .describe(
+      "TAG_VALUE only: the tag whose latest reading it shows, from the tag list. Match the user's words to a tag's name, code, unit or asset, allowing for typos and Serbian: 'the reservoir level' → that tag's id. Omit if the user didn't say which tag.",
+    ),
+  tagIds: z
+    .array(z.guid())
+    .max(MAX_SERIES_TAGS)
+    .optional()
+    .describe(
+      `TIME_SERIES only: the tags to chart, from the tag list, at most ${MAX_SERIES_TAGS}. Match the user's words the same way: 'pressures at Riverside' → the id of every pressure tag at Riverside Pumping Station. Omit if the user didn't say which tags.`,
+    ),
+  assetId: z
+    .guid()
+    .optional()
+    .describe(
+      "KPI, ALARM_TABLE, ALARM_TREND, TOP_ALARMS, LOGBOOK_FEED and DEVICE_STATUS: only this asset and everything below it, from the asset list: 'for Riverside' → the id of Riverside Pumping Station. Omit for every asset.",
+    ),
+  range: RelativeRangeSchema.optional().describe(
+    "TAG_VALUE, TIME_SERIES, ALARM_TABLE, ALARM_TREND and TOP_ALARMS: the window, ending now. 'last hour' → 1h, 'today' or 'last 24 hours' → 24h, '7-day' or 'this week' → 7d, 'this month' → 30d. Omit for the widget's default: 24h for readings, 7d for the alarm trend, 30d for the most frequent alarms, any time for an alarm list.",
+  ),
+  interval: z
+    .enum([...TREND_INTERVALS, 'auto', ...SERIES_INTERVALS])
+    .optional()
+    .describe(
+      "ALARM_TREND: hour, day (default) or week per bar: 'alarms per week' → week. TIME_SERIES: auto (default), 1m, 5m, 15m, 1h, 6h or 1d per point: 'hourly' → 1h. Omit for the default.",
+    ),
+  aggregate: SeriesAggregateSchema.optional().describe(
+    "TIME_SERIES only: how the readings in one point are combined: avg (default), min, max, sum, or last. 'daily peaks' → max with interval 1d.",
+  ),
+  chartType: ChartTypeSchema.optional().describe(
+    'TIME_SERIES only: line (default), step (good for on/off tags), area or bar. Omit unless the user asks for a kind of chart.',
+  ),
+  state: z
+    .array(AlarmStateSchema)
+    .optional()
+    .describe(
+      "ALARM_TABLE only. ACTIVE: condition present, not acknowledged. ACKNOWLEDGED: present, acknowledged. CLEARED: gone, not acknowledged yet. CLOSED: gone and acknowledged. 'open alarms' → ['ACTIVE', 'ACKNOWLEDGED', 'CLEARED']; 'unacknowledged' → ['ACTIVE', 'CLEARED']. Omit for every state.",
+    ),
+  severity: z
+    .array(z.enum([...ALARM_SEVERITIES, 'WARNING']))
+    .optional()
+    .describe(
+      "ALARM_TABLE and ALARM_TREND: alarm severities, CRITICAL, HIGH, MEDIUM, LOW, INFO: 'critical alarms' → ['CRITICAL']. LOGBOOK_FEED: entry severities, INFO, WARNING, CRITICAL: 'logbook warnings' → ['WARNING']. Omit for every severity.",
+    ),
+  groupBy: z
+    .enum(TOP_ALARMS_GROUPINGS)
+    .optional()
+    .describe('TOP_ALARMS only: definition ranks the alarm rules that fire most (default); asset ranks the assets with the most alarms.'),
+  limit: z.int().min(3).max(10).optional().describe('TOP_ALARMS only: how many it ranks, 3 to 10 (default 5).'),
+  pageSize: z.int().min(3).max(20).optional().describe('ALARM_TABLE and LOGBOOK_FEED: rows shown, 3 to 20 (default 5).'),
+  category: z
+    .array(LogbookCategorySchema)
+    .optional()
+    .describe('LOGBOOK_FEED only: kinds of entry. NOTE, ALARM, DEVICE, MAINTENANCE, SHIFT (handovers). Omit for every kind.'),
+  source: z
+    .enum(LOGBOOK_SOURCES)
+    .optional()
+    .describe('LOGBOOK_FEED only: user for entries people wrote, system for the events the app recorded. Omit for both.'),
+  role: z
+    .array(ShiftRoleSchema)
+    .optional()
+    .describe('ON_DUTY only: the shift roles shown, OPERATOR, SUPERVISOR, ON_CALL. Omit for everyone on duty.'),
+});
+
+// Every widget config field has a field here: a new one fails to compile until the tool takes it too.
+type DraftConfigKey = keyof z.infer<typeof DashboardWidgetConfigDraftSchema>;
+type WidgetConfigKey = { [T in WidgetType]: keyof WidgetConfigInput<T> }[WidgetType];
+const draftConfigCoversWidgets: [Exclude<WidgetConfigKey, DraftConfigKey>] extends [never] ? true : false = true;
+void draftConfigCoversWidgets;
+
+export const CreateDashboardToolInputSchema = z.object({
+  name: z
+    .string()
+    .max(80)
+    .optional()
+    .describe(
+      "A short name for the dashboard, from the request: 'a dashboard for Riverside' → 'Riverside'; 'my morning overview' → 'Morning overview'. Omit only if nothing in the request names it: the user names it on the page.",
+    ),
+  isShared: z
+    .boolean()
+    .optional()
+    .describe('true only if the user asks to share it with everyone (others see it read-only). Omit to keep it private.'),
+  widgets: z
+    .array(
+      z.object({
+        type: WidgetTypeSchema.describe(
+          'What the widget shows. KPI: one headline number. TAG_VALUE: one tag’s latest reading with a sparkline. TIME_SERIES: a chart of up to eight tags over time. ALARM_TABLE: a list of alarms. ALARM_TREND: alarms raised per hour, day or week, by severity. TOP_ALARMS: the rules or assets raising the most alarms. LOGBOOK_FEED: the latest logbook entries. DEVICE_STATUS: how many devices are online, offline, faulted or in maintenance. ON_DUTY: who is on shift right now.',
+        ),
+        title: z
+          .string()
+          .max(80)
+          .optional()
+          .describe("A short caption: 'Open critical alarms', 'Reservoir level, 7 days'. Omit for the type's default."),
+        width: WidgetWidthSchema.optional().describe(
+          "Columns out of 12: 3 (a quarter), 4 (a third), 6 (half), 8 (two thirds) or 12 (full width). Widgets fill rows left to right in order, so make each row add up to 12: four KPIs of 3, or a chart of 8 beside a list of 4. Omit for the type's default: 3 for KPI and TAG_VALUE, 8 for TIME_SERIES and ALARM_TABLE, 6 for ALARM_TREND, 4 for the rest.",
+        ),
+        height: WidgetHeightSchema.optional().describe(
+          "Rows: 1 short (enough for a KPI or a live value), 2 standard, 3 tall. Omit for the type's default: 1 for KPI and TAG_VALUE, 2 for the rest.",
+        ),
+        config: DashboardWidgetConfigDraftSchema.optional().describe(
+          "The widget's settings: only fields its type uses (each field names its types), and only what the user asked for. Omit for the type's defaults.",
+        ),
+      }),
+    )
+    .max(MAX_DRAFT_WIDGETS)
+    .describe(
+      `Every widget, in reading order: left to right, top to bottom. At most ${MAX_DRAFT_WIDGETS}. To change a draft ('make the chart wider', 'add the logbook'), call again with the whole layout.`,
+    ),
+});
+export type CreateDashboardToolInput = z.infer<typeof CreateDashboardToolInputSchema>;
+
+export const CreateDashboardToolOutputSchema = z.object({
+  name: z.string().nullable().describe("The dashboard's name; null when the user still has to name it on the page."),
+  widgets: z.array(
+    z.object({
+      title: z.string(),
+      type: WidgetTypeSchema,
+      shows: z.string().nullable().describe('What it shows, by name: its tags, or the asset it is limited to.'),
+      missing: z
+        .array(z.string())
+        .describe("What the user still has to pick for it on the page, e.g. 'a tag'. Empty when it is complete."),
+    }),
+  ),
+  created: z
+    .object({ name: z.string().describe('Its name now; the user may have renamed it.') })
+    .nullable()
+    .optional()
+    .describe(
+      'Added by the app on later turns: the dashboard the user saved from this draft, or null while none is (never saved, or deleted since). Absent right after the call, when nothing is saved yet.',
+    ),
+});
+
+/** GET /ai/conversations/:id/dashboard-drafts/:toolCallId: a draft, for the Dashboard page and the chat. */
+export const DashboardDraftResponseSchema = z
+  .object({
+    draft: CreateDashboardToolInputSchema.describe("The call's input: the dashboard as the assistant put it together."),
+    dashboard: z
+      .object({ id: z.guid(), name: z.string() })
+      .nullable()
+      .describe('The dashboard saved from it, under its name now; null while none is.'),
+  })
+  .meta({ id: 'DashboardDraft' });
+export type DashboardDraftResponse = z.infer<typeof DashboardDraftResponseSchema>;
+
 // ─── The tool set ───────────────────────────────────────────────────────────
 
 export const genUiToolSchemas = {
@@ -1720,6 +1903,12 @@ export const genUiToolSchemas = {
       "Show one tag's details card, the panel the Tags page opens on a row click: its latest reading, description, type, unit, range, log interval, device and asset, and how many alarm rules watch it and how many of its alarms are open, with links to them. Use it when the user asks about one tag ('details of the inlet pressure at Riverside', 'tell me about PS01.WET_WELL_LEVEL'). For just current values, find the tags instead; for its history, draw a chart; to change it, open its edit form.",
     inputSchema: ShowTagToolInputSchema,
     outputSchema: ShowTagToolOutputSchema,
+  },
+  createDashboard: {
+    description:
+      "Put together a new dashboard from the user's description and show it in the chat as a preview, drawn with the Dashboard page's own widgets: headline KPIs, live tag values, charts, alarm lists and trends, the most frequent alarms, the logbook, device health and who is on duty. Anyone can build one. It doesn't create the dashboard: the preview's link opens it on the Dashboard page, unsaved, where the user fills in what is missing and saves it. Call it whenever the user wants a dashboard, even with few details, and don't ask first: fill in only what they said, and they complete the rest on the page. The result lists what each widget still lacks; after it, say in one sentence what is left to pick, if anything, and that they save it from the Dashboard page. To change the draft, call it again with the whole layout. It can't change a dashboard that already exists: for that, point the user to Edit on the Dashboard page.",
+    inputSchema: CreateDashboardToolInputSchema,
+    outputSchema: CreateDashboardToolOutputSchema,
   },
   createUser: {
     description:
@@ -1841,6 +2030,12 @@ export type FormOutcome = NonNullable<FormToolOutput['outcome']>;
 /** A message part that is a form tool's call (parts are typed `tool-<name>`). */
 export const isFormToolPart = (part: { type: string }): part is FormToolUIPart =>
   part.type.startsWith('tool-') && isFormToolName(part.type.slice('tool-'.length));
+
+/** A dashboard draft inside a message: a `createDashboard` call. */
+export type DashboardDraftUIPart = ToolUIPart<Pick<GenUITools, 'createDashboard'>>;
+
+export const isDashboardDraftPart = (part: { type: string }): part is DashboardDraftUIPart =>
+  part.type === 'tool-createDashboard';
 
 /** Per-message metadata streamed on `start` / `finish`, and saved with the message. */
 export interface GenUIMetadata {

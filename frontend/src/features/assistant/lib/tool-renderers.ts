@@ -1,5 +1,6 @@
 import { getStaticToolName } from 'ai';
 import type { GenUITools } from '@gen-ui/shared';
+import { draftLink } from '@/features/dashboards/lib/draft';
 import { plural } from '@/lib/format';
 import { AlarmDetailBody } from '../components/tool-bodies/alarm-detail-body';
 import { AlarmRuleDetailBody } from '../components/tool-bodies/alarm-rule-detail-body';
@@ -7,6 +8,7 @@ import { AlarmRulesBody } from '../components/tool-bodies/alarm-rules-body';
 import { AlarmsBody } from '../components/tool-bodies/alarms-body';
 import { AssetsBody } from '../components/tool-bodies/assets-body';
 import { AuditBody } from '../components/tool-bodies/audit-body';
+import { DashboardDraftBody } from '../components/tool-bodies/dashboard-draft-body';
 import { DeviceDetailBody } from '../components/tool-bodies/device-detail-body';
 import { DevicesBody } from '../components/tool-bodies/devices-body';
 import { GraphBody } from '../components/tool-bodies/graph-body';
@@ -148,6 +150,22 @@ export const RENDERERS: { [N in ListToolName]: ToolRenderer<N> } = {
     Body: TagDetailBody,
     framed: false,
     found: (output) => output.tag.name,
+  },
+  // A dashboard draft is a card of its own with the page's grid; its link opens the draft on the Dashboard
+  // page (or, once saved, the dashboard), which reads the call from the saved conversation.
+  createDashboard: {
+    pending: 'Putting the dashboard together…',
+    title: (input) => input.name?.trim() || 'New dashboard',
+    link: (_input, call) =>
+      call.conversationId && call.done
+        ? draftLink({ conversationId: call.conversationId, toolCallId: call.toolCallId })
+        : { to: '/dashboard', search: {} },
+    Body: DashboardDraftBody,
+    framed: false,
+    found: (output) => {
+      const incomplete = output.widgets.filter((widget) => widget.missing.length > 0).length;
+      return plural(output.widgets.length, 'widget') + (incomplete > 0 ? ` · ${incomplete} need${incomplete === 1 ? 's' : ''} settings` : '');
+    },
   },
 };
 

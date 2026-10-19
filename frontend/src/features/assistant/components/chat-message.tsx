@@ -41,7 +41,7 @@ export function ChatMessage({ message, streaming = false }: { message: GenUIMess
           return generateUi ? (
             <ToolPartView key={part.toolCallId} part={part} streaming={streaming} />
           ) : (
-            <ToolStatusLine key={part.toolCallId} part={part} />
+            <ToolStatusLine key={part.toolCallId} part={part} streaming={streaming} />
           );
         }
         return null;

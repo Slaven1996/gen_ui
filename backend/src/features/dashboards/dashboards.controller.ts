@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Put } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Put } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -10,28 +10,20 @@ import {
 } from '@nestjs/swagger';
 import {
   CreateDashboardSchema,
-  CreateWidgetSchema,
   DashboardDetailSchema,
   DashboardsSchema,
-  DashboardWidgetSchema,
-  UpdateDashboardSchema,
-  UpdateLayoutSchema,
-  UpdateWidgetSchema,
+  SaveDashboardSchema,
   type CreateDashboardDto,
-  type CreateWidgetDto,
   type Dashboard,
   type DashboardDetail,
-  type DashboardWidget,
-  type UpdateDashboardDto,
-  type UpdateLayoutDto,
-  type UpdateWidgetDto,
+  type SaveDashboardDto,
 } from '@gen-ui/shared';
 import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
 import { ApiErrorResponse, AUTH_REQUIRED } from '../../docs/api-error.js';
 import type { AuthUser } from '../users/user.mapper.js';
 import { DashboardsService } from './dashboards.service.js';
 
-const NOT_EDITABLE = 'Only the owner (or, for a shared dashboard, an admin) can change it.';
+const NOT_EDITABLE = 'Only its owner can change it; a shared dashboard is read-only for everyone else.';
 const NOT_FOUND = 'No dashboard with that id that you can see.';
 
 @ApiTags('Dashboards')
@@ -44,7 +36,8 @@ export class DashboardsController {
   @Get()
   @ApiOperation({
     summary: 'List dashboards',
-    description: 'Your own dashboards (first) and those others have shared. `canEdit` says whether you may change each one.',
+    description:
+      'Your own dashboards (first) and those others have shared. `canEdit` says whether you may change each one (only its owner), `canDelete` whether you may delete it (its owner, or an admin when it is shared).',
   })
   @ApiOkResponse({ standardSchema: DashboardsSchema })
   async list(@CurrentUser() actor: AuthUser): Promise<{ items: Dashboard[] }> {
@@ -54,10 +47,12 @@ export class DashboardsController {
   @Post()
   @ApiOperation({
     summary: 'Create a dashboard',
-    description: '`template: "operations"` starts with a ready-made layout; `blank` starts empty.',
+    description:
+      'A whole dashboard in one request: its name, whether it is shared, and its widgets in grid order. Each `config` is validated against its widget `type`; width and height default by type. `source` names the assistant draft it is saved from (`GET /ai/conversations/:id/dashboard-drafts/:toolCallId`), so the chat shows that draft as created; it is kept only for a conversation of yours.',
   })
   @ApiCreatedResponse({ standardSchema: DashboardDetailSchema })
-  @ApiErrorResponse(400, 'A field is invalid.')
+  @ApiErrorResponse(400, 'A field is invalid, or a config does not fit its widget type.')
+  @ApiErrorResponse(409, 'A dashboard was already saved from this draft.')
   create(@Body({ schema: CreateDashboardSchema }) dto: CreateDashboardDto, @CurrentUser() actor: AuthUser): Promise<DashboardDetail> {
     return this.dashboards.create(dto, actor);
   }
@@ -74,98 +69,36 @@ export class DashboardsController {
     return this.dashboards.get(id, actor);
   }
 
-  @Patch(':id')
-  @ApiOperation({ summary: 'Rename, describe or share a dashboard' })
+  @Put(':id')
+  @ApiOperation({
+    summary: 'Save a dashboard',
+    description:
+      'Replaces its name, sharing and widgets in one transaction. A widget with an `id` is kept and updated (its type is fixed), one without is added, and one left out is removed. Order in `widgets` is the order on the grid.',
+  })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ standardSchema: DashboardDetailSchema })
-  @ApiErrorResponse(400, 'No fields sent, or a field is invalid.')
+  @ApiErrorResponse(
+    400,
+    'A field is invalid, a config does not fit its widget type, a widget id is not on this dashboard, or a widget’s type changed.',
+  )
   @ApiErrorResponse(403, NOT_EDITABLE)
   @ApiErrorResponse(404, NOT_FOUND)
-  update(
+  replace(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body({ schema: UpdateDashboardSchema }) dto: UpdateDashboardDto,
+    @Body({ schema: SaveDashboardSchema }) dto: SaveDashboardDto,
     @CurrentUser() actor: AuthUser,
   ): Promise<DashboardDetail> {
-    return this.dashboards.update(id, dto, actor);
+    return this.dashboards.replace(id, dto, actor);
   }
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete a dashboard' })
+  @ApiOperation({ summary: 'Delete a dashboard', description: 'Its owner may, and an admin may delete a shared one.' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiNoContentResponse({ description: 'Deleted, with its widgets.' })
-  @ApiErrorResponse(403, NOT_EDITABLE)
+  @ApiErrorResponse(403, 'Only its owner, or an admin for a shared dashboard, can delete it.')
   @ApiErrorResponse(404, NOT_FOUND)
   remove(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() actor: AuthUser): Promise<void> {
     return this.dashboards.remove(id, actor);
-  }
-
-  @Put(':id/layout')
-  @ApiOperation({
-    summary: 'Arrange widgets',
-    description: 'Positions and sizes for the widgets you send, applied together. Widgets left out keep their place.',
-  })
-  @ApiParam({ name: 'id', format: 'uuid' })
-  @ApiOkResponse({ standardSchema: DashboardDetailSchema })
-  @ApiErrorResponse(400, 'A size is invalid, or a widget belongs to another dashboard.')
-  @ApiErrorResponse(403, NOT_EDITABLE)
-  @ApiErrorResponse(404, NOT_FOUND)
-  updateLayout(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body({ schema: UpdateLayoutSchema }) dto: UpdateLayoutDto,
-    @CurrentUser() actor: AuthUser,
-  ): Promise<DashboardDetail> {
-    return this.dashboards.updateLayout(id, dto, actor);
-  }
-
-  @Post(':id/widgets')
-  @ApiOperation({
-    summary: 'Add a widget',
-    description: 'Appended at the end of the grid. `config` is validated against `type`; width and height default by type.',
-  })
-  @ApiParam({ name: 'id', format: 'uuid' })
-  @ApiCreatedResponse({ standardSchema: DashboardWidgetSchema })
-  @ApiErrorResponse(400, 'The type is unknown, or the config does not fit it.')
-  @ApiErrorResponse(403, NOT_EDITABLE)
-  @ApiErrorResponse(404, NOT_FOUND)
-  addWidget(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body({ schema: CreateWidgetSchema }) dto: CreateWidgetDto,
-    @CurrentUser() actor: AuthUser,
-  ): Promise<DashboardWidget> {
-    return this.dashboards.addWidget(id, dto, actor);
-  }
-
-  @Patch(':id/widgets/:widgetId')
-  @ApiOperation({ summary: 'Update a widget', description: 'Title, size or config. A widget’s type is fixed; `config` is checked against it.' })
-  @ApiParam({ name: 'id', format: 'uuid' })
-  @ApiParam({ name: 'widgetId', format: 'uuid' })
-  @ApiOkResponse({ standardSchema: DashboardWidgetSchema })
-  @ApiErrorResponse(400, 'No fields sent, or the config does not fit the widget type.')
-  @ApiErrorResponse(403, NOT_EDITABLE)
-  @ApiErrorResponse(404, 'No such dashboard or widget.')
-  updateWidget(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Param('widgetId', ParseUUIDPipe) widgetId: string,
-    @Body({ schema: UpdateWidgetSchema }) dto: UpdateWidgetDto,
-    @CurrentUser() actor: AuthUser,
-  ): Promise<DashboardWidget> {
-    return this.dashboards.updateWidget(id, widgetId, dto, actor);
-  }
-
-  @Delete(':id/widgets/:widgetId')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Remove a widget' })
-  @ApiParam({ name: 'id', format: 'uuid' })
-  @ApiParam({ name: 'widgetId', format: 'uuid' })
-  @ApiNoContentResponse({ description: 'Removed.' })
-  @ApiErrorResponse(403, NOT_EDITABLE)
-  @ApiErrorResponse(404, 'No such dashboard or widget.')
-  removeWidget(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Param('widgetId', ParseUUIDPipe) widgetId: string,
-    @CurrentUser() actor: AuthUser,
-  ): Promise<void> {
-    return this.dashboards.removeWidget(id, widgetId, actor);
   }
 }

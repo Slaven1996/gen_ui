@@ -1,37 +1,40 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import type {
-  CreateDashboardInput,
-  CreateWidgetInput,
-  DashboardDetail,
-  DashboardWidget,
-  UpdateDashboardDto,
-  UpdateLayoutDto,
-  UpdateWidgetDto,
-} from '@gen-ui/shared';
+import type { CreateDashboardInput, DashboardDetail, SaveDashboardInput } from '@gen-ui/shared';
 import { getErrorMessage } from '@/lib/api/errors';
 import { http } from '@/lib/api/http';
 import { dashboardKeys } from './queries';
 
+/** A saved dashboard: its detail as returned, the list, and the drafts (one may now be saved). */
+function refreshDashboards(queryClient: QueryClient, dashboard: DashboardDetail) {
+  queryClient.setQueryData(dashboardKeys.detail(dashboard.id), dashboard);
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: dashboardKeys.list }),
+    queryClient.invalidateQueries({ queryKey: dashboardKeys.drafts }),
+  ]);
+}
+
+/** Creates a dashboard with its widgets; `source` when it is an assistant's draft. */
 export function useCreateDashboard() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (input: CreateDashboardInput) => (await http.post<DashboardDetail>('/dashboards', input)).data,
     onSuccess: (dashboard) => {
       toast.success(`Created “${dashboard.name}”`);
-      queryClient.setQueryData(dashboardKeys.detail(dashboard.id), dashboard);
-      return queryClient.invalidateQueries({ queryKey: dashboardKeys.list });
+      return refreshDashboards(queryClient, dashboard);
     },
   });
 }
 
-export function useUpdateDashboard(id: string) {
+/** Saves a whole dashboard: name, sharing and widgets, in one request. */
+export function useSaveDashboard() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (patch: UpdateDashboardDto) => (await http.patch<DashboardDetail>(`/dashboards/${id}`, patch)).data,
+    mutationFn: async ({ id, body }: { id: string; body: SaveDashboardInput }) =>
+      (await http.put<DashboardDetail>(`/dashboards/${id}`, body)).data,
     onSuccess: (dashboard) => {
-      queryClient.setQueryData(dashboardKeys.detail(id), dashboard);
-      return queryClient.invalidateQueries({ queryKey: dashboardKeys.list });
+      toast.success(`Saved “${dashboard.name}”`);
+      return refreshDashboards(queryClient, dashboard);
     },
   });
 }
@@ -46,69 +49,12 @@ export function useDeleteDashboard() {
     onSuccess: (dashboard) => {
       toast.success(`Deleted “${dashboard.name}”`);
       queryClient.removeQueries({ queryKey: dashboardKeys.detail(dashboard.id) });
-      return queryClient.invalidateQueries({ queryKey: dashboardKeys.list });
+      // A draft it was saved from reads "not created" again.
+      return Promise.all([
+        queryClient.invalidateQueries({ queryKey: dashboardKeys.list }),
+        queryClient.invalidateQueries({ queryKey: dashboardKeys.drafts }),
+      ]);
     },
     onError: (error) => toast.error(getErrorMessage(error)),
-  });
-}
-
-export function useAddWidget(dashboardId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (input: CreateWidgetInput) =>
-      (await http.post<DashboardWidget>(`/dashboards/${dashboardId}/widgets`, input)).data,
-    onSuccess: (widget) => {
-      toast.success(`Added “${widget.title}”`);
-      return queryClient.invalidateQueries({ queryKey: dashboardKeys.all });
-    },
-  });
-}
-
-export function useUpdateWidget(dashboardId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ widgetId, patch }: { widgetId: string; patch: UpdateWidgetDto }) =>
-      (await http.patch<DashboardWidget>(`/dashboards/${dashboardId}/widgets/${widgetId}`, patch)).data,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: dashboardKeys.detail(dashboardId) }),
-  });
-}
-
-export function useRemoveWidget(dashboardId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (widgetId: string) => {
-      await http.delete(`/dashboards/${dashboardId}/widgets/${widgetId}`);
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: dashboardKeys.all }),
-    onError: (error) => toast.error(getErrorMessage(error)),
-  });
-}
-
-/** Optimistic: the grid moves at once and snaps back if the save fails. */
-export function useUpdateLayout(dashboardId: string) {
-  const queryClient = useQueryClient();
-  const key = dashboardKeys.detail(dashboardId);
-  return useMutation({
-    mutationFn: async (layout: UpdateLayoutDto) =>
-      (await http.put<DashboardDetail>(`/dashboards/${dashboardId}/layout`, layout)).data,
-    onMutate: async (layout) => {
-      await queryClient.cancelQueries({ queryKey: key });
-      const previous = queryClient.getQueryData<DashboardDetail>(key);
-      if (previous) {
-        const byId = new Map(layout.widgets.map((widget) => [widget.id, widget]));
-        queryClient.setQueryData<DashboardDetail>(key, {
-          ...previous,
-          widgets: previous.widgets
-            .map((widget) => ({ ...widget, ...byId.get(widget.id) }) as DashboardWidget)
-            .sort((a, b) => a.position - b.position),
-        });
-      }
-      return { previous };
-    },
-    onError: (error, _layout, context) => {
-      if (context?.previous) queryClient.setQueryData(key, context.previous);
-      toast.error(getErrorMessage(error));
-    },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: key }),
   });
 }

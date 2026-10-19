@@ -1,30 +1,28 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   WIDGET_CONFIG_SCHEMAS,
   WIDGET_DEFAULT_SIZE,
   type CreateDashboardDto,
-  type CreateWidgetDto,
   type Dashboard,
   type DashboardDetail,
+  type DashboardSource,
   type DashboardWidget,
-  type UpdateDashboardDto,
-  type UpdateLayoutDto,
-  type UpdateWidgetDto,
-  type WidgetType,
+  type SaveDashboardDto,
+  type SaveWidgetDto,
 } from '@gen-ui/shared';
 import type { Prisma } from '../../generated/prisma/client.js';
 import { diff, AuditService } from '../audit/audit.service.js';
 import { iso } from '../../common/list-query.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import type { Db } from '../../prisma/transaction.js';
 import { UnitOfWork } from '../../prisma/unit-of-work.service.js';
 import type { AuthUser } from '../users/user.mapper.js';
-import { OPERATIONS_TEMPLATE } from './dashboard-templates.js';
+import { planWidgetChanges } from './widget-changes.js';
 
 const dashboardSelect = {
   id: true,
   ownerId: true,
   name: true,
-  description: true,
   isShared: true,
   createdAt: true,
   updatedAt: true,
@@ -47,21 +45,26 @@ const widgetSelect = {
 
 type WidgetRecord = Prisma.DashboardWidgetGetPayload<{ select: typeof widgetSelect }>;
 
-/** Owners edit their dashboards; admins may also edit shared ones. Nobody sees another's private dashboard. */
-const canEdit = (dashboard: { ownerId: string; isShared: boolean }, actor: AuthUser) =>
+type Access = { ownerId: string; isShared: boolean };
+
+/** Only its owner changes a dashboard; shared ones are read-only for everyone else. */
+const canEdit = (dashboard: Access, actor: AuthUser) => dashboard.ownerId === actor.id;
+
+/** Its owner deletes it, and an admin may delete a shared one. */
+const canDelete = (dashboard: Access, actor: AuthUser) =>
   dashboard.ownerId === actor.id || (actor.role === 'ADMIN' && dashboard.isShared);
 
-const canView = (dashboard: { ownerId: string; isShared: boolean }, actor: AuthUser) =>
-  dashboard.ownerId === actor.id || dashboard.isShared;
+/** Nobody sees another's private dashboard. */
+const canView = (dashboard: Access, actor: AuthUser) => dashboard.ownerId === actor.id || dashboard.isShared;
 
 function toDashboard(row: DashboardRecord, actor: AuthUser): Dashboard {
   return {
     id: row.id,
     name: row.name,
-    description: row.description,
     isShared: row.isShared,
     owner: row.owner,
     canEdit: canEdit(row, actor),
+    canDelete: canDelete(row, actor),
     widgetCount: row._count.widgets,
     createdAt: iso(row.createdAt),
     updatedAt: iso(row.updatedAt),
@@ -86,14 +89,24 @@ function toWidget(row: WidgetRecord): DashboardWidget {
   } as DashboardWidget;
 }
 
-function parseConfig(type: WidgetType, config: unknown): Prisma.InputJsonValue {
-  const parsed = WIDGET_CONFIG_SCHEMAS[type].safeParse(config);
-  if (!parsed.success) {
-    throw new BadRequestException(
-      parsed.error.issues.map((issue) => `config.${issue.path.join('.')}: ${issue.message}`),
-    );
-  }
-  return parsed.data as Prisma.InputJsonValue;
+/** A widget's row; its config was parsed against its type by the request schema. */
+function widgetData(widget: SaveWidgetDto, position: number) {
+  return {
+    title: widget.title,
+    position,
+    width: widget.width ?? WIDGET_DEFAULT_SIZE[widget.type].width,
+    height: widget.height ?? WIDGET_DEFAULT_SIZE[widget.type].height,
+    config: widget.config as Prisma.InputJsonValue,
+  };
+}
+
+const widgetCount = (count: number) => (count === 1 ? '1 widget' : `${count} widgets`);
+
+/** A dashboard saved from an assistant draft, by the call it came from. */
+export interface DashboardFromDraft {
+  toolCallId: string;
+  id: string;
+  name: string;
 }
 
 @Injectable()
@@ -125,22 +138,37 @@ export class DashboardsService {
     return { ...toDashboard(row, actor), widgets: row.widgets.map(toWidget) };
   }
 
+  /**
+   * Creates a dashboard with its widgets, in one transaction. With `source`
+   * (an assistant draft) the dashboard remembers the call it came from, once:
+   * a second dashboard from the same draft is a 409.
+   */
   async create(dto: CreateDashboardDto, actor: AuthUser): Promise<DashboardDetail> {
     const id = await this.uow.run(async (tx) => {
+      const source = dto.source && (await ownSource(tx, dto.source, actor));
+      if (source) {
+        const existing = await tx.dashboard.findFirst({
+          where: { sourceConversationId: source.conversationId, sourceToolCallId: source.toolCallId },
+          select: { name: true },
+        });
+        if (existing) throw new ConflictException(`This draft was already saved as “${existing.name}”.`);
+      }
       const dashboard = await tx.dashboard.create({
-        data: { ownerId: actor.id, name: dto.name, description: dto.description, isShared: dto.isShared },
+        data: {
+          ownerId: actor.id,
+          name: dto.name,
+          isShared: dto.isShared,
+          sourceConversationId: source?.conversationId ?? null,
+          sourceToolCallId: source?.toolCallId ?? null,
+        },
         select: { id: true },
       });
-      if (dto.template === 'operations') {
+      if (dto.widgets.length > 0) {
         await tx.dashboardWidget.createMany({
-          data: OPERATIONS_TEMPLATE.map((widget, position) => ({
+          data: dto.widgets.map((widget, position) => ({
             dashboardId: dashboard.id,
             type: widget.type,
-            title: widget.title,
-            position,
-            width: widget.width ?? WIDGET_DEFAULT_SIZE[widget.type].width,
-            height: widget.height ?? WIDGET_DEFAULT_SIZE[widget.type].height,
-            config: parseConfig(widget.type, widget.config),
+            ...widgetData(widget, position),
           })),
         });
       }
@@ -150,7 +178,7 @@ export class DashboardsService {
           action: 'dashboard.create',
           entityType: 'DASHBOARD',
           entityId: dashboard.id,
-          summary: `Created dashboard “${dto.name}”${dto.template === 'blank' ? '' : ` from the ${dto.template} template`}`,
+          summary: `Created dashboard “${dto.name}” with ${widgetCount(dto.widgets.length)}${source ? ' from an assistant draft' : ''}`,
         },
         tx,
       );
@@ -159,27 +187,60 @@ export class DashboardsService {
     return this.get(id, actor);
   }
 
-  async update(id: string, dto: UpdateDashboardDto, actor: AuthUser): Promise<DashboardDetail> {
+  /**
+   * Saves a whole dashboard: its name, sharing and widgets, in one
+   * transaction. Widgets with an id are kept, the others are new, and those
+   * left out are removed. Each change of content is audited; moves and
+   * resizes are arrangement, not content, and are not.
+   */
+  async replace(id: string, dto: SaveDashboardDto, actor: AuthUser): Promise<DashboardDetail> {
     const current = await this.editable(id, actor);
     await this.uow.run(async (tx) => {
-      await tx.dashboard.update({ where: { id }, data: dto });
-      await this.audit.record(
-        {
-          actorId: actor.id,
-          action: 'dashboard.update',
-          entityType: 'DASHBOARD',
-          entityId: id,
-          summary: `Updated dashboard “${dto.name ?? current.name}”`,
-          changes: diff(current, dto),
-        },
-        tx,
-      );
+      const rows = await tx.dashboardWidget.findMany({ where: { dashboardId: id }, select: widgetSelect });
+      const plan = planWidgetChanges(rows.map(toWidget), dto.widgets);
+      if ('error' in plan) throw new BadRequestException(plan.error);
+
+      await tx.dashboard.update({ where: { id }, data: { name: dto.name, isShared: dto.isShared, updatedAt: new Date() } });
+      if (plan.remove.length > 0) {
+        await tx.dashboardWidget.deleteMany({ where: { id: { in: plan.remove.map((widget) => widget.id) } } });
+      }
+      for (const { before, after, position } of plan.update) {
+        await tx.dashboardWidget.update({ where: { id: before.id }, data: widgetData(after, position) });
+      }
+      if (plan.create.length > 0) {
+        await tx.dashboardWidget.createMany({
+          data: plan.create.map(({ widget, position }) => ({ dashboardId: id, type: widget.type, ...widgetData(widget, position) })),
+        });
+      }
+
+      const record = (action: string, summary: string, changes?: Record<string, unknown> | null) =>
+        this.audit.record({ actorId: actor.id, action, entityType: 'DASHBOARD', entityId: id, summary, changes }, tx);
+      const settings = diff({ name: current.name, isShared: current.isShared }, { name: dto.name, isShared: dto.isShared });
+      if (settings) await record('dashboard.update', `Updated dashboard “${dto.name}”`, settings);
+      for (const { widget } of plan.create) {
+        await record('dashboard.widget_add', `Added widget “${widget.title}” to “${dto.name}”`, {
+          type: widget.type,
+          config: widget.config,
+        });
+      }
+      for (const { before, after } of plan.update) {
+        // Against the parsed config, so key order and filled-in defaults don't read as changes.
+        const changes = diff({ title: before.title, config: before.config }, { title: after.title, config: after.config });
+        if (changes) await record('dashboard.widget_update', `Updated widget “${after.title}” on “${dto.name}”`, changes);
+      }
+      for (const widget of plan.remove) {
+        await record('dashboard.widget_remove', `Removed widget “${widget.title}” from “${dto.name}”`);
+      }
     });
     return this.get(id, actor);
   }
 
   async remove(id: string, actor: AuthUser): Promise<void> {
-    const dashboard = await this.editable(id, actor);
+    const dashboard = await this.prisma.dashboard.findUnique({ where: { id } });
+    if (!dashboard || !canView(dashboard, actor)) throw new NotFoundException('Dashboard not found');
+    if (!canDelete(dashboard, actor)) {
+      throw new ForbiddenException('Only its owner, or an admin for a shared dashboard, can delete it');
+    }
     await this.uow.run(async (tx) => {
       await tx.dashboard.delete({ where: { id } });
       await this.audit.record(
@@ -195,118 +256,33 @@ export class DashboardsService {
     });
   }
 
-  async addWidget(dashboardId: string, dto: CreateWidgetDto, actor: AuthUser): Promise<DashboardWidget> {
-    const dashboard = await this.editable(dashboardId, actor);
-    const row = await this.uow.run(async (tx) => {
-      const last = await tx.dashboardWidget.aggregate({ where: { dashboardId }, _max: { position: true } });
-      const widget = await tx.dashboardWidget.create({
-        data: {
-          dashboardId,
-          type: dto.type,
-          title: dto.title,
-          position: (last._max.position ?? -1) + 1,
-          width: dto.width ?? WIDGET_DEFAULT_SIZE[dto.type].width,
-          height: dto.height ?? WIDGET_DEFAULT_SIZE[dto.type].height,
-          config: dto.config as Prisma.InputJsonValue,
-        },
-        select: widgetSelect,
-      });
-      await tx.dashboard.update({ where: { id: dashboardId }, data: { updatedAt: new Date() } });
-      await this.audit.record(
-        {
-          actorId: actor.id,
-          action: 'dashboard.widget_add',
-          entityType: 'DASHBOARD',
-          entityId: dashboardId,
-          summary: `Added widget “${dto.title}” to “${dashboard.name}”`,
-          changes: { type: dto.type, config: dto.config },
-        },
-        tx,
-      );
-      return widget;
+  /**
+   * The dashboards saved from drafts in this conversation, by the call each
+   * came from. A deleted dashboard is simply not here, so its draft reads as
+   * not created again. The caller checks the conversation is the user's.
+   */
+  async createdFrom(conversationId: string): Promise<DashboardFromDraft[]> {
+    const rows = await this.prisma.dashboard.findMany({
+      where: { sourceConversationId: conversationId },
+      select: { id: true, name: true, sourceToolCallId: true },
     });
-    return toWidget(row);
-  }
-
-  async updateWidget(
-    dashboardId: string,
-    widgetId: string,
-    dto: UpdateWidgetDto,
-    actor: AuthUser,
-  ): Promise<DashboardWidget> {
-    const dashboard = await this.editable(dashboardId, actor);
-    const widget = await this.prisma.dashboardWidget.findFirst({ where: { id: widgetId, dashboardId }, select: widgetSelect });
-    if (!widget) throw new NotFoundException('Widget not found');
-
-    const patch = {
-      ...(dto.title !== undefined && { title: dto.title }),
-      ...(dto.width !== undefined && { width: dto.width }),
-      ...(dto.height !== undefined && { height: dto.height }),
-      ...(dto.config !== undefined && { config: parseConfig(widget.type, dto.config) }),
-    };
-    const row = await this.uow.run(async (tx) => {
-      const updated = await tx.dashboardWidget.update({ where: { id: widgetId }, data: patch, select: widgetSelect });
-      await tx.dashboard.update({ where: { id: dashboardId }, data: { updatedAt: new Date() } });
-      await this.audit.record(
-        {
-          actorId: actor.id,
-          action: 'dashboard.widget_update',
-          entityType: 'DASHBOARD',
-          entityId: dashboardId,
-          summary: `Updated widget “${patch.title ?? widget.title}” on “${dashboard.name}”`,
-          // Against the parsed config, so key order and filled-in defaults don't read as changes.
-          changes: diff(toWidget(widget), patch),
-        },
-        tx,
-      );
-      return updated;
-    });
-    return toWidget(row);
-  }
-
-  async removeWidget(dashboardId: string, widgetId: string, actor: AuthUser): Promise<void> {
-    const dashboard = await this.editable(dashboardId, actor);
-    const widget = await this.prisma.dashboardWidget.findFirst({ where: { id: widgetId, dashboardId } });
-    if (!widget) throw new NotFoundException('Widget not found');
-
-    await this.uow.run(async (tx) => {
-      await tx.dashboardWidget.delete({ where: { id: widgetId } });
-      await this.audit.record(
-        {
-          actorId: actor.id,
-          action: 'dashboard.widget_remove',
-          entityType: 'DASHBOARD',
-          entityId: dashboardId,
-          summary: `Removed widget “${widget.title}” from “${dashboard.name}”`,
-        },
-        tx,
-      );
-    });
-  }
-
-  /** Moves and resizes widgets in one transaction. Not audited: it is arrangement, not content. */
-  async updateLayout(dashboardId: string, dto: UpdateLayoutDto, actor: AuthUser): Promise<DashboardDetail> {
-    await this.editable(dashboardId, actor);
-    const ids = dto.widgets.map((widget) => widget.id);
-    const owned = await this.prisma.dashboardWidget.count({ where: { id: { in: ids }, dashboardId } });
-    if (owned !== new Set(ids).size) throw new BadRequestException('Every widget must belong to this dashboard');
-
-    await this.uow.run(async (tx) => {
-      for (const widget of dto.widgets) {
-        await tx.dashboardWidget.update({
-          where: { id: widget.id },
-          data: { position: widget.position, width: widget.width, height: widget.height },
-        });
-      }
-      await tx.dashboard.update({ where: { id: dashboardId }, data: { updatedAt: new Date() } });
-    });
-    return this.get(dashboardId, actor);
+    return rows.flatMap((row) => (row.sourceToolCallId ? [{ toolCallId: row.sourceToolCallId, id: row.id, name: row.name }] : []));
   }
 
   private async editable(id: string, actor: AuthUser) {
     const dashboard = await this.prisma.dashboard.findUnique({ where: { id } });
     if (!dashboard || !canView(dashboard, actor)) throw new NotFoundException('Dashboard not found');
-    if (!canEdit(dashboard, actor)) throw new ForbiddenException('Only the owner can change this dashboard');
+    if (!canEdit(dashboard, actor)) throw new ForbiddenException('Only its owner can change this dashboard');
     return dashboard;
   }
+}
+
+/**
+ * The draft a dashboard is saved from, if its conversation is the caller's.
+ * Otherwise (a chat cleared since, or someone else's id) the dashboard is
+ * saved without it.
+ */
+async function ownSource(tx: Db, source: DashboardSource, actor: AuthUser): Promise<DashboardSource | undefined> {
+  const owned = await tx.conversation.count({ where: { id: source.conversationId, userId: actor.id } });
+  return owned > 0 ? source : undefined;
 }

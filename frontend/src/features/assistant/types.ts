@@ -15,20 +15,37 @@ export type SavedOutcome<N extends FormToolName> = Extract<NonNullable<ToolOutpu
 
 export type ToolLink = Pick<LinkProps, 'to' | 'search'>;
 
+/**
+ * Which call a part is. Most views need only its input; a dashboard draft
+ * also links back to the call (the page reads it from the saved conversation).
+ */
+export interface ToolCall {
+  /** The conversation holding the call; `undefined` while the chat is loading. */
+  conversationId: string | undefined;
+  toolCallId: string;
+  /** The call has its output and the answer holding it has ended, so the conversation is saved with it. */
+  done: boolean;
+}
+
 /** How one list tool's calls show in the chat. */
 export interface ToolRenderer<N extends ListToolName> {
   /** Shown while the model is still writing the call. */
   pending: string;
   title: (input: ToolInput<N>) => string;
   /** The full page with the same query, for "Open in new tab". */
-  link: (input: ToolInput<N>) => ToolLink;
+  link: (input: ToolInput<N>, call: ToolCall) => ToolLink;
   /**
    * The view inside the frame, once the call is complete — usually the
    * domain's own table. A view with its own filters reports them through
    * `onLinkChange`, so "Open in new tab" opens what the user now sees.
    * Without a frame, it gets that link as `action` to place itself.
    */
-  Body: ComponentType<{ input: ToolInput<N>; onLinkChange?: (link: ToolLink) => void; action?: ReactNode }>;
+  Body: ComponentType<{
+    input: ToolInput<N>;
+    call: ToolCall;
+    onLinkChange?: (link: ToolLink) => void;
+    action?: ReactNode;
+  }>;
   /** false: the view is a card of its own (as on its page), without the chat's frame and title. */
   framed?: false;
   /** The result in a few words, for text-only answers. */

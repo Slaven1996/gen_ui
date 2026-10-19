@@ -361,22 +361,32 @@ CREATE INDEX "shift_assignments_series_id_idx" ON "shift_assignments"("series_id
 
 -- ─── Dashboards ─────────────────────────────────────────────────────────────
 
--- is_shared: readable by every signed-in user; only the owner (or an admin) edits it.
+-- is_shared: readable by every signed-in user. Only the owner edits it; an
+-- admin may also delete a shared one.
+-- source_*: the assistant draft it was saved from (a createDashboard tool
+-- call in that conversation), so the chat can show the draft as created.
+-- Unique: one draft creates one dashboard. Clearing the chat empties
+-- source_conversation_id (foreign key below, after "conversations") and
+-- keeps the dashboard.
 CREATE TABLE "dashboards" (
-    "id"          UUID         NOT NULL,
-    "owner_id"    UUID         NOT NULL,
-    "name"        TEXT         NOT NULL,
-    "description" TEXT,
-    "is_shared"   BOOLEAN      NOT NULL DEFAULT false,
-    "created_at"  TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at"  TIMESTAMP(3) NOT NULL,
+    "id"                     UUID         NOT NULL,
+    "owner_id"               UUID         NOT NULL,
+    "name"                   TEXT         NOT NULL,
+    "is_shared"              BOOLEAN      NOT NULL DEFAULT false,
+    "source_conversation_id" UUID,
+    "source_tool_call_id"    TEXT,
+    "created_at"             TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at"             TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "dashboards_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "dashboards_owner_id_fkey" FOREIGN KEY ("owner_id")
-        REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE
+        REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "dashboards_source_check" CHECK ("source_conversation_id" IS NULL OR "source_tool_call_id" IS NOT NULL)
 );
 CREATE INDEX "dashboards_owner_id_idx" ON "dashboards"("owner_id");
 CREATE INDEX "dashboards_is_shared_idx" ON "dashboards"("is_shared");
+CREATE UNIQUE INDEX "dashboards_source_conversation_id_source_tool_call_id_key"
+    ON "dashboards"("source_conversation_id", "source_tool_call_id");
 
 -- A card on a dashboard's 12-column grid. `config` is validated against the
 -- widget type's Zod schema (WIDGET_CONFIG_SCHEMAS in @gen-ui/shared).
@@ -463,5 +473,10 @@ CREATE TABLE "conversations" (
         REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 CREATE INDEX "conversations_user_id_updated_at_idx" ON "conversations"("user_id", "updated_at" DESC);
+
+-- A dashboard saved from an assistant draft points at its conversation;
+-- clearing the chat drops the link, not the dashboard.
+ALTER TABLE "dashboards" ADD CONSTRAINT "dashboards_source_conversation_id_fkey" FOREIGN KEY ("source_conversation_id")
+    REFERENCES "conversations"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 COMMIT;

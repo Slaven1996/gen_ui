@@ -20,6 +20,7 @@ How one chat message becomes a rendered answer, how a conversation is saved and 
 | `showAlarmRule` | ADMIN, USER | checks `ruleId` against the prompt's rule list; `AlarmDefinitionsService.get` | `DefinitionDetail` in a `DetailCard` · admins: edit, enable/disable | `/alarm-rules?rule=…` |
 | `showDevice` | ADMIN, USER | checks `deviceId` against the prompt's device list; `DevicesService.get` | `DeviceDetail` in a `DetailCard` · admins: edit | `/devices?device=…` |
 | `showTag` | ADMIN, USER | checks `tagId` against the prompt's tag list; `TagsService.get`, plus the counts of its rules and open alarms | `TagDetail` in a `DetailCard` · chart; admins: add rule, edit | `/tags?tag=…` |
+| `createDashboard` | ADMIN, USER | nothing is saved: checks each widget against its type (`WIDGET_CONFIG_SCHEMAS`) and its `tagId`/`tagIds`/`assetId` against the prompt's lists, and tells Claude what each widget still lacks | a preview with the Dashboard page's `DashboardGrid` and widgets, read-only, with *Not created yet* or *Created* (read from the dashboards) | `/dashboard?conversation=…&toolCall=…`: the draft, unsaved, in edit mode; once saved, `/dashboard?board=…` |
 | `listAuditLogs` | ADMIN (checked again in `execute`) | `AuditService.list` | `AuditTable` · read-only | `/audit` |
 | `createUser` | ADMIN (checked again in `execute`) | nothing: opens the form | the Add user form (`CreateUserForm`), inside the answer | `/users`, once saved |
 | `createAlarmRule` | ADMIN (checked again in `execute`) | checks `tagId` against the prompt's tag list | the New alarm rule form (`DefinitionForm`), inside the answer | `/alarm-rules`, once saved |
@@ -38,7 +39,7 @@ How one chat message becomes a rendered answer, how a conversation is saved and 
 | `createShiftTemplate` | ADMIN (checked again in `execute`) | nothing: opens the form | the New shift template form (`TemplateForm`), inside the answer | `/shifts`, once saved |
 | `editShiftTemplate` | ADMIN (checked again in `execute`) | checks `templateId` against the shift template list; `ShiftsService.getTemplate` for Claude's copy | the template's edit form, loaded with the template as it is now | `/shifts`, once saved |
 
-The list tools all work the same way, so the diagrams below follow `listUsers`. Swap in another list tool and the flow is identical. `plotTags` does too, with a chart for the table: Claude reads per-tag stats instead of rows, and the chart fetches its buckets from `GET /api/telemetry/series` like the Graphs page. Its tag list is in every prompt, since the tool is offered to everyone. So do the two shift tools, with the Shifts page's calendar and on-duty strip for the table: Claude reads a summary (up to 60 shifts and every staffing gap, or the people on duty), and the component fetches its own data like the page. Unlike the chart, they carry no filters of their own: the calendar shows the period Claude chose, and "Open in new tab" is the way to look further. The four details cards follow it too, for one record: Claude reads that record (names instead of ids), and the card is the detail component the record's table opens in its side sheet on a row click, loading the record through the same `GET /api/<things>/:id`. It is read-only for Claude: "tell me about the PS-01 RTU" shows the card, "edit the PS-01 RTU" opens the edit form, and each tool's description points to the other. The card's buttons are the user's (Edit for admins goes through the same dialog as the row menu). The sixteen form tools open a form instead of a table and never write anything themselves; they have [their own section](#4-forms-in-the-chat-open-save-record).
+The list tools all work the same way, so the diagrams below follow `listUsers`. Swap in another list tool and the flow is identical. `plotTags` does too, with a chart for the table: Claude reads per-tag stats instead of rows, and the chart fetches its buckets from `GET /api/telemetry/series` like the Graphs page. Its tag list is in every prompt, since the tool is offered to everyone. So do the two shift tools, with the Shifts page's calendar and on-duty strip for the table: Claude reads a summary (up to 60 shifts and every staffing gap, or the people on duty), and the component fetches its own data like the page. Unlike the chart, they carry no filters of their own: the calendar shows the period Claude chose, and "Open in new tab" is the way to look further. The four details cards follow it too, for one record: Claude reads that record (names instead of ids), and the card is the detail component the record's table opens in its side sheet on a row click, loading the record through the same `GET /api/<things>/:id`. It is read-only for Claude: "tell me about the PS-01 RTU" shows the card, "edit the PS-01 RTU" opens the edit form, and each tool's description points to the other. The card's buttons are the user's (Edit for admins goes through the same dialog as the row menu). The sixteen form tools open a form instead of a table and never write anything themselves; they have [their own section](#4-forms-in-the-chat-open-save-record). `createDashboard` doesn't write either: it previews a whole dashboard that the user saves on the Dashboard page ([section 5](#5-dashboards-from-the-chat-preview-draft-save)).
 
 Example request: *"Get me all admins, and also users named John."*
 
@@ -175,6 +176,9 @@ flowchart TD
 | Which form to open, pre-filled with what, on which record | **Claude** | steered by the form tools' descriptions; ids from the prompt's pick lists |
 | Saving the form | **the user**, through the page's REST endpoint | the page's own hook: `useCreateUser`, `useSaveAlarmDefinition`, `useSaveDevice`, `useSaveTag`, `useSaveAsset`, `useSaveLogbookEntry`, `useCreateAssignments`, `useUpdateAssignment`, `useCopyWeek`, `useSaveTemplate` |
 | Recording what the user did with a form | code | `ai-forms.service.ts`, `hooks/use-record-form-outcome.ts` |
+| Which dashboard to put together: widgets, sizes, filters, name | **Claude** | steered by `createDashboard`'s descriptions; ids from the prompt's pick lists |
+| Completing and saving that dashboard | **the user**, on the Dashboard page | `POST /api/dashboards` with the draft as `source` |
+| Whether a draft was saved, and as what | code: read from the dashboards | `dashboard-drafts.service.ts`, `DashboardsService.createdFrom` |
 
 ## 2. Conversation lifecycle: open, restore, clear, sign out
 
@@ -273,6 +277,61 @@ sequenceDiagram
 
 The result: a reload shows the outcome line instead of the form (no duplicate "Add user"), Claude reads on its next turn that Milan was added, and none of it costs a model call. A rule saved through a form is in the next request's `<alarm-rules>`, so "now edit it" works straight away.
 
+## 5. Dashboards from the chat: preview, draft, save
+
+*"A dashboard for Riverside with the open critical alarms, a 7-day chart of the reservoir level and who's on duty"*: Claude calls `createDashboard` with a name and the widgets, each with its type, size and the filters of its page. The answer previews them with the Dashboard page's own `DashboardGrid` and widgets (`mode="preview"`), and **Open in new tab** opens the page with that layout as an unsaved dashboard in edit mode. The user fills in what is missing, adjusts it and saves it. Nothing is stored before that except the tool call in the saved conversation.
+
+```mermaid
+sequenceDiagram
+  actor User
+  participant Chat as Browser · chat
+  participant Page as Browser · Dashboard page (new tab)
+  participant API as API
+  participant Claude
+  participant DB as PostgreSQL
+
+  User->>Chat: "a dashboard for Riverside with ..."
+  Chat->>API: POST /api/ai/chat
+  API->>Claude: prompt (asset tree, tags) + history + tools
+  Claude->>API: createDashboard { name, widgets[] }
+  API->>API: execute: fields fit each widget's type? ids on the lists?<br/>→ { name, widgets: title, type, shows, missing }
+  API-->>Chat: the call streams in, Claude says what is still missing
+  API->>DB: the answer ends: save the conversation (the call is the draft)
+  Chat->>API: GET /api/ai/conversations/:id/dashboard-drafts/:toolCallId
+  API-->>Chat: { draft, dashboard: null } → "Not created yet"
+  Chat->>User: preview: the page's grid, a widget without a tag in red
+  User->>Page: Open in new tab · /dashboard?conversation=…&toolCall=…
+  Page->>API: GET …/dashboard-drafts/:toolCallId (owner only)
+  Page->>User: the draft in edit mode, Save off: "1 widget needs attention"
+  User->>Page: picks the tag, Save
+  Page->>API: POST /api/dashboards { name, isShared, widgets, source }
+  API->>DB: dashboard + widgets + audit, source unique per draft
+  Page->>User: /dashboard?board=…
+  User->>Chat: back to the chat tab (window focus)
+  Chat->>API: GET …/dashboard-drafts/:toolCallId
+  API-->>Chat: { dashboard: { id, name } } → "Created", link to ?board=…
+```
+
+**The status lives on the dashboard.** Unlike a form's outcome, it isn't written into the conversation: `dashboards.source_conversation_id` + `source_tool_call_id` (unique together) record which draft a dashboard was saved from, and the chat derives *Created* from them every time it asks.
+- **Delete the dashboard** and the draft reads *Not created yet* again; its link opens the draft again.
+- **Rename it** and the chat shows the new name.
+- **Two tabs from the same answer:** the second save is a 409 ("already created, open it").
+- **An old draft link** (an old tab, the browser history) redirects to the dashboard saved from it.
+- **Clear the chat** and the dashboard stays, its source cleared (`ON DELETE SET NULL`); the draft link then says the draft is no longer available.
+
+The chat's status query refetches when its window gets focus back, so switching back from the page's tab shows the change without a reload.
+
+**Claude reads the status too.** On every turn, `DashboardDraftsService.withStatus` gives Claude's copy of the history a `created` field on each draft's output: `{ name }` or `null`. Only that copy changes; the conversation streamed and saved is the one without it. So "did I save it?" is answered from the database, not from what the browser said.
+
+**Incomplete widgets are fine.** The user rarely names everything, so every config field is optional:
+- A missing value is accepted: `execute` lists it under `missing` ("a tag"), the preview and the page show that widget with a red border and the reason instead of its view, and *Save* stays off until it is filled in.
+- What Claude got wrong is rejected, and Claude tries again: a field the widget's type doesn't take, a value its page doesn't accept, or an id that isn't on the lists.
+- The page checks the draft again when it opens it (the same `widgetIssues`, plus whether its tags and assets still exist), since one may have been deleted after the chat.
+
+**One flat config, for a small schema.** The default model is Haiku 4.5, and an array of nine per-type variants is a large schema to fill. So each widget's `config` is one object holding every widget type's fields, each optional and saying which types use it. `execute` checks it against the widget's own type. A compile-time check in `assistant.ts` fails if a widget type gains a field the tool doesn't have.
+
+**Refining** ("make the chart wider", "add the logbook") is a new call with the whole layout: each call is its own preview and its own draft. Editing an existing dashboard from the chat is out of scope; Claude points to *Edit* on the Dashboard page.
+
 ## Adding the next domain
 
 1. **Contract:** add the tool's schema to `genUiToolSchemas` in `packages/shared/src/assistant.ts`, with a `description` and a `.describe()` on every field. That text is how Claude learns the tool.
@@ -302,6 +361,8 @@ The system prompt changes only for a new pick list. TypeScript fails the build i
 | The tables and views (page and chat) | `frontend/src/features/<feature>/components/`: `alarms/…/alarms-table.tsx`, `alarms/…/definitions-table.tsx`, `logbook/…/logbook-table.tsx`, `devices/…/devices-table.tsx`, `tags/…/tags-table.tsx`, `assets/…/assets-table.tsx`, `users/…/users-table.tsx`, `audit/…/audit-table.tsx`, `telemetry/…/telemetry-explorer.tsx`, `shifts/components/calendar/shift-calendar.tsx`, `shifts/components/on-duty/on-duty-strip.tsx` |
 | Asset, people, device, tag, alarm rule, own logbook entry and shift template lists, id check | `backend/src/features/ai/ai.tools.ts` (`filterOptions`, `idChecks`); listed by `system-prompt.ts` |
 | Recording a form's outcome | `backend/src/features/ai/ai-forms.service.ts`; `keepOutcomes` in `conversations.service.ts` |
+| Dashboard drafts: the tool's summary, the draft endpoint, the status for Claude | `backend/src/features/ai/dashboard-draft-summary.ts`, `dashboard-drafts.service.ts`; `DashboardsService.createdFrom` |
+| Dashboard drafts: the preview, the page that opens them | `frontend/src/features/assistant/components/tool-bodies/dashboard-draft-body.tsx`; `frontend/src/features/dashboards/` (`lib/draft.ts`, `hooks/use-widget-states.ts`, `components/dashboard-grid.tsx`) and `routes/_authenticated/dashboard.tsx` |
 | Contract: models, request, tools, messages | `packages/shared/src/assistant.ts` |
 | Endpoints | `backend/src/features/ai/ai.controller.ts` |
 | Model call, stream, save | `backend/src/features/ai/ai.service.ts` |

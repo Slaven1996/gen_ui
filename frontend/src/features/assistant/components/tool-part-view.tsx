@@ -1,5 +1,6 @@
 import { isFormToolPart } from '@gen-ui/shared';
 import { rendererFor } from '../lib/tool-renderers';
+import { useChatInstance } from '../store/chat-store';
 import type { GenUIToolPart } from '../types';
 import { FormPartView } from './form-part-view';
 import { ListToolCard } from './list-tool-card';
@@ -11,6 +12,7 @@ import { ToolSkeleton } from './tool-skeleton';
  * and "Open in new tab". `streaming`: the answer holding it is still arriving.
  */
 export function ToolPartView({ part, streaming = false }: { part: GenUIToolPart; streaming?: boolean }) {
+  const chat = useChatInstance();
   if (isFormToolPart(part)) return <FormPartView part={part} streaming={streaming} />;
   const renderer = rendererFor(part);
   switch (part.state) {
@@ -18,8 +20,14 @@ export function ToolPartView({ part, streaming = false }: { part: GenUIToolPart;
       return <ToolSkeleton label={renderer.pending} />;
     case 'output-error':
       return <ToolError message={part.errorText} />;
-    default:
+    default: {
+      const call = {
+        conversationId: chat?.id,
+        toolCallId: part.toolCallId,
+        done: part.state === 'output-available' && !streaming,
+      };
       // The query is complete, so the view can fetch while the server still runs the tool.
-      return <ListToolCard renderer={renderer} input={part.input} />;
+      return <ListToolCard renderer={renderer} input={part.input} call={call} />;
+    }
   }
 }

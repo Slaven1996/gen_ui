@@ -1,33 +1,47 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { createFileRoute } from '@tanstack/react-router';
-import { Check, LayoutDashboard, MoreHorizontal, Pencil, Plus, Share2 } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { createFileRoute, redirect } from '@tanstack/react-router';
+import { toast } from 'sonner';
 import { z } from 'zod';
-import type { Dashboard, DashboardWidget } from '@gen-ui/shared';
+import type { Dashboard, DashboardSource } from '@gen-ui/shared';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { PageContainer } from '@/components/layout/page-container';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useDeleteDashboard } from '@/features/dashboards/api/mutations';
-import { dashboardQueryOptions, dashboardsQueryOptions } from '@/features/dashboards/api/queries';
-import { DashboardFormDialog } from '@/features/dashboards/components/dashboard-form-dialog';
+import { useCreateDashboard, useDeleteDashboard, useSaveDashboard } from '@/features/dashboards/api/mutations';
+import {
+  dashboardDraftQueryOptions,
+  dashboardKeys,
+  dashboardQueryOptions,
+  dashboardsQueryOptions,
+} from '@/features/dashboards/api/queries';
+import { DashboardEditHeader } from '@/features/dashboards/components/dashboard-edit-header';
 import { DashboardGrid } from '@/features/dashboards/components/dashboard-grid';
+import { DashboardHeader } from '@/features/dashboards/components/dashboard-header';
+import { DashboardWelcome } from '@/features/dashboards/components/dashboard-welcome';
+import { DraftCreatedNotice } from '@/features/dashboards/components/draft-created-notice';
+import { DraftUnavailable } from '@/features/dashboards/components/draft-unavailable';
+import { EmptyDashboard } from '@/features/dashboards/components/empty-dashboard';
 import { WidgetDialog } from '@/features/dashboards/components/widget-dialog';
+import { useDashboardEditor } from '@/features/dashboards/hooks/use-dashboard-editor';
+import { useWidgetStates } from '@/features/dashboards/hooks/use-widget-states';
+import { draftFromDetail, draftFromToolInput, emptyDraft, toSaveBody, withWidget } from '@/features/dashboards/lib/draft';
+import type { DraftWidget } from '@/features/dashboards/types';
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
+import { getErrorMessage, getErrorStatus } from '@/lib/api/errors';
 import { useAuth } from '@/lib/auth/auth-store';
+import { plural } from '@/lib/format';
 import { searchSchema } from '@/lib/search';
 
-/** `board`: which dashboard is open. Without it, the first of your own. */
-const dashboardSearch = z.object({ board: z.guid().optional() });
+/**
+ * `board`: which dashboard is open; without it, the first of your own.
+ * `conversation` + `toolCall`: a dashboard the assistant put together in that
+ * conversation, opened unsaved in edit mode.
+ */
+const dashboardSearch = z.object({
+  board: z.guid().optional(),
+  conversation: z.uuid().optional(),
+  toolCall: z.string().min(1).max(200).optional(),
+});
 
 /** `board` if it is one you can see, else the first in the list (your own come first). */
 const openDashboardId = (list: Dashboard[], board: string | undefined) =>
@@ -36,9 +50,16 @@ const openDashboardId = (list: Dashboard[], board: string | undefined) =>
 export const Route = createFileRoute('/_authenticated/dashboard')({
   staticData: { title: 'Dashboard' },
   validateSearch: searchSchema(dashboardSearch),
-  loaderDeps: ({ search }) => ({ board: search.board }),
+  loaderDeps: ({ search }) => ({ board: search.board, conversation: search.conversation, toolCall: search.toolCall }),
   // The open dashboard needs the list to resolve, so its widgets load right after it, before the page renders.
   loader: async ({ context, deps }) => {
+    if (deps.conversation && deps.toolCall) {
+      // A draft already saved (an old tab, the browser history) opens the dashboard saved from it.
+      const draft = await context.queryClient
+        .ensureQueryData(dashboardDraftQueryOptions(deps.conversation, deps.toolCall))
+        .catch(() => undefined);
+      if (draft?.dashboard) throw redirect({ to: '/dashboard', search: { board: draft.dashboard.id }, replace: true });
+    }
     const list = await context.queryClient.ensureQueryData(dashboardsQueryOptions());
     const id = openDashboardId(list, deps.board);
     if (id) await context.queryClient.ensureQueryData(dashboardQueryOptions(id));
@@ -46,29 +67,93 @@ export const Route = createFileRoute('/_authenticated/dashboard')({
   component: DashboardPage,
 });
 
+/**
+ * Viewing shows the open dashboard. Editing works on a local copy of the
+ * whole dashboard (name, sharing, widgets with their order and sizes), saved
+ * in one request; Cancel drops it. A new dashboard, and one the assistant put
+ * together, are such copies from the start: nothing is on the server until
+ * they are saved.
+ */
 function DashboardPage() {
-  const { board } = Route.useSearch();
+  const { board, conversation, toolCall } = Route.useSearch();
   const navigate = Route.useNavigate();
+  const queryClient = useQueryClient();
   const { user } = useAuth();
   const dashboards = useQuery(dashboardsQueryOptions());
   const list = dashboards.data ?? [];
   const selectedId = openDashboardId(list, board);
   const selected = useQuery({ ...dashboardQueryOptions(selectedId ?? ''), enabled: Boolean(selectedId) });
-
-  const [editing, setEditing] = useState(false);
-  const [widgetDialog, setWidgetDialog] = useState<{ widget?: DashboardWidget } | null>(null);
-  const [settings, setSettings] = useState<'new' | 'edit' | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const remove = useDeleteDashboard();
-
-  const open = (id: string | undefined) => {
-    setEditing(false);
-    navigate({ search: { board: id }, replace: true });
-  };
-
   const detail = selected.data;
 
-  if (dashboards.isPending) {
+  const source: DashboardSource | undefined =
+    conversation && toolCall ? { conversationId: conversation, toolCallId: toolCall } : undefined;
+  const fromChat = useQuery({ ...dashboardDraftQueryOptions(conversation ?? '', toolCall ?? ''), enabled: Boolean(source) });
+
+  const editor = useDashboardEditor();
+  const draft = editor.draft;
+  const [widgetDialog, setWidgetDialog] = useState<{ widget?: DraftWidget; errors?: Record<string, string> } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const create = useCreateDashboard();
+  const save = useSaveDashboard();
+  const remove = useDeleteDashboard();
+
+  // The assistant's draft opens in edit mode, once per link.
+  const [openedDraft, setOpenedDraft] = useState<string>();
+  const draftKey = source && `${source.conversationId}/${source.toolCallId}`;
+  if (draftKey && draftKey !== openedDraft && fromChat.data && !fromChat.data.dashboard) {
+    setOpenedDraft(draftKey);
+    editor.start(draftFromToolInput(fromChat.data.draft, source));
+  }
+  // Left the link (Cancel, Save): coming back to it (Back) opens the draft again.
+  if (!draftKey && openedDraft) setOpenedDraft(undefined);
+
+  const viewWidgets = useMemo(() => (detail ? draftFromDetail(detail).widgets : []), [detail]);
+  const states = useWidgetStates(draft?.widgets ?? viewWidgets);
+  // Saved meanwhile from another tab (not by this page's own save, which leaves edit mode).
+  const createdElsewhere =
+    draft?.source && !create.isPending && !create.isSuccess ? (fromChat.data?.dashboard ?? undefined) : undefined;
+  const leave = useUnsavedChanges(editor.dirty && !createdElsewhere, 'the changes to this dashboard');
+
+  const invalid = draft ? draft.widgets.filter((widget) => !states.get(widget.key)?.config).length : 0;
+  const checking = draft ? draft.widgets.some((widget) => states.get(widget.key)?.checking) : false;
+  const attention =
+    [
+      draft && !draft.name.trim() && 'Name the dashboard',
+      invalid > 0 && `${plural(invalid, 'widget')} ${invalid === 1 ? 'needs' : 'need'} attention`,
+      checking && 'Checking the widgets…',
+      createdElsewhere && 'Already created',
+    ]
+      .filter(Boolean)
+      .join(' · ') || undefined;
+
+  const open = (id: string | undefined) => navigate({ search: { board: id }, replace: true });
+
+  /** Leaves edit mode, then opens `board` (the one just saved), or the page without a draft. */
+  const finish = (savedId?: string) => {
+    leave.release();
+    editor.stop();
+    if (savedId) void navigate({ search: { board: savedId }, replace: true });
+    else if (source) void navigate({ search: {}, replace: true });
+  };
+
+  const onSave = () => {
+    if (!draft || attention) return;
+    const body = toSaveBody(draft, states);
+    const onError = (error: unknown) => {
+      // One draft makes one dashboard: it was saved meanwhile, and the notice says where.
+      if (draft.source && getErrorStatus(error) === 409) {
+        void queryClient.invalidateQueries({
+          queryKey: dashboardKeys.draft(draft.source.conversationId, draft.source.toolCallId),
+        });
+        return;
+      }
+      toast.error(getErrorMessage(error));
+    };
+    if (draft.id) save.mutate({ id: draft.id, body }, { onSuccess: (saved) => finish(saved.id), onError });
+    else create.mutate({ ...body, source: draft.source }, { onSuccess: (created) => finish(created.id), onError });
+  };
+
+  if (dashboards.isPending || (source && fromChat.isPending && !draft)) {
     return (
       <PageContainer className="max-w-7xl">
         <Skeleton className="h-10 w-64" />
@@ -77,138 +162,95 @@ function DashboardPage() {
     );
   }
 
-  const firstName = user?.name.split(' ')[0] ?? 'there';
-
-  if (list.length === 0) {
+  if (draft) {
     return (
-      <PageContainer>
-        <Card className="mx-auto max-w-lg text-center">
-          <CardHeader>
-            <LayoutDashboard className="mx-auto size-8 text-muted-foreground" />
-            <CardTitle>Welcome, {firstName}</CardTitle>
-            <CardDescription>
-              Build a dashboard from live views of alarms, readings, shifts and the logbook. Start from the operations
-              layout and adjust it, or begin empty.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button onClick={() => setSettings('new')}>
-              <Plus />
-              Create a dashboard
-            </Button>
-          </CardContent>
-        </Card>
-        <DashboardFormDialog open={settings === 'new'} onOpenChange={(value) => !value && setSettings(null)} onCreated={(created) => open(created.id)} />
+      <PageContainer className="max-w-7xl">
+        {createdElsewhere && <DraftCreatedNotice dashboard={createdElsewhere} />}
+        <DashboardEditHeader
+          draft={draft}
+          attention={attention}
+          saving={create.isPending || save.isPending}
+          onChange={editor.change}
+          onAddWidget={() => setWidgetDialog({})}
+          onCancel={() => finish()}
+          onSave={onSave}
+        />
+        {draft.widgets.length === 0 ? (
+          <EmptyDashboard onAdd={() => setWidgetDialog({})} />
+        ) : (
+          <DashboardGrid
+            widgets={draft.widgets}
+            states={states}
+            mode="edit"
+            onChange={(widgets) => editor.change({ widgets })}
+            onEditWidget={(widget) => setWidgetDialog({ widget, errors: states.get(widget.key)?.errors })}
+          />
+        )}
+        <WidgetDialog
+          widget={widgetDialog?.widget}
+          initialErrors={widgetDialog?.errors}
+          open={widgetDialog !== null}
+          onOpenChange={(value) => !value && setWidgetDialog(null)}
+          onSubmit={(widget) => editor.change({ widgets: withWidget(draft.widgets, widget) })}
+        />
+        {leave.dialog}
       </PageContainer>
     );
   }
 
-  const mine = list.filter((item) => item.owner.id === user?.id);
-  const shared = list.filter((item) => item.owner.id !== user?.id);
+  const startNew = () => editor.start(emptyDraft());
+
+  if (source && fromChat.isError) {
+    return (
+      <PageContainer>
+        <DraftUnavailable
+          onOpenDashboards={() => void navigate({ search: {}, replace: true })}
+          onNew={() => {
+            void navigate({ search: {}, replace: true });
+            startNew();
+          }}
+        />
+      </PageContainer>
+    );
+  }
+
+  if (list.length === 0) {
+    return (
+      <PageContainer>
+        <DashboardWelcome firstName={user?.name.split(' ')[0] ?? 'there'} onCreate={startNew} />
+      </PageContainer>
+    );
+  }
 
   return (
     <PageContainer className="max-w-7xl">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <Select value={selectedId} onValueChange={open}>
-            <SelectTrigger className="w-64" aria-label="Dashboard">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <DashboardGroup label="My dashboards" items={mine} />
-              <DashboardGroup label="Shared with me" items={shared} />
-            </SelectContent>
-          </Select>
-          {detail?.isShared && (
-            <Badge variant="outline" className="gap-1">
-              <Share2 className="size-3" />
-              Shared{detail.owner.id !== user?.id && ` by ${detail.owner.name}`}
-            </Badge>
-          )}
-          {detail?.description && <p className="hidden truncate text-sm text-muted-foreground lg:block">{detail.description}</p>}
-        </div>
-
-        <div className="flex items-center gap-2">
-          {detail?.canEdit &&
-            (editing ? (
-              <>
-                <Button variant="outline" onClick={() => setWidgetDialog({})}>
-                  <Plus />
-                  Add widget
-                </Button>
-                <Button onClick={() => setEditing(false)}>
-                  <Check />
-                  Done
-                </Button>
-              </>
-            ) : (
-              <Button variant="outline" onClick={() => setEditing(true)}>
-                <Pencil />
-                Edit layout
-              </Button>
-            ))}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" aria-label="Dashboard options">
-                <MoreHorizontal />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={() => setSettings('new')}>New dashboard</DropdownMenuItem>
-              {detail?.canEdit && (
-                <>
-                  <DropdownMenuItem onSelect={() => setSettings('edit')}>Rename or share</DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(true)}>
-                    Delete dashboard
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
+      <DashboardHeader
+        dashboards={list}
+        userId={user?.id}
+        selected={detail ?? list.find((item) => item.id === selectedId)}
+        onOpen={open}
+        onEdit={() => detail && editor.start(draftFromDetail(detail))}
+        onNew={startNew}
+        onDelete={() => setDeleting(true)}
+      />
 
       {!detail ? (
         <Skeleton className="h-96" />
       ) : detail.widgets.length === 0 ? (
-        <Card className="border-dashed text-center">
-          <CardHeader>
-            <CardTitle>This dashboard is empty</CardTitle>
-            <CardDescription>Add widgets: alarm lists, charts, KPIs, the on-duty roster…</CardDescription>
-          </CardHeader>
-          {detail.canEdit && (
-            <CardContent>
-              <Button
-                onClick={() => {
-                  setEditing(true);
+        <EmptyDashboard
+          onAdd={
+            detail.canEdit
+              ? () => {
+                  editor.start(draftFromDetail(detail));
                   setWidgetDialog({});
-                }}
-              >
-                <Plus />
-                Add a widget
-              </Button>
-            </CardContent>
-          )}
-        </Card>
+                }
+              : undefined
+          }
+        />
       ) : (
-        <DashboardGrid dashboard={detail} editing={editing} onEditWidget={(widget) => setWidgetDialog({ widget })} />
+        <DashboardGrid widgets={viewWidgets} states={states} mode="view" />
       )}
 
-      {detail && (
-        <WidgetDialog
-          dashboardId={detail.id}
-          widget={widgetDialog?.widget}
-          open={widgetDialog !== null}
-          onOpenChange={(value) => !value && setWidgetDialog(null)}
-        />
-      )}
-      <DashboardFormDialog
-        open={settings !== null}
-        onOpenChange={(value) => !value && setSettings(null)}
-        dashboard={settings === 'edit' ? detail : undefined}
-        onCreated={(created) => open(created.id)}
-      />
       <ConfirmDialog
         open={deleting}
         onOpenChange={setDeleting}
@@ -226,19 +268,5 @@ function DashboardPage() {
         }
       />
     </PageContainer>
-  );
-}
-
-function DashboardGroup({ label, items }: { label: string; items: Dashboard[] }) {
-  if (items.length === 0) return null;
-  return (
-    <SelectGroup>
-      <SelectLabel>{label}</SelectLabel>
-      {items.map((item) => (
-        <SelectItem key={item.id} value={item.id}>
-          {item.name}
-        </SelectItem>
-      ))}
-    </SelectGroup>
   );
 }

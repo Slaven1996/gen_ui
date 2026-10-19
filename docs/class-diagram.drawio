@@ -175,13 +175,13 @@
         <mxCell id="dashboard" parent="1" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;html=1;whiteSpace=wrap;fontSize=12;swimlaneFillColor=#ffffff;fillColor=#ffe6cc;strokeColor=#d79b00;" value="Dashboard" vertex="1">
           <mxGeometry height="150" width="280" x="880" y="1250" as="geometry" />
         </mxCell>
-        <mxCell id="dashboard-a" parent="dashboard" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;html=1;whiteSpace=wrap;fontSize=11;" value="+ name: String&lt;br&gt;+ description: String [0..1]&lt;br&gt;+ isShared: Boolean = false" vertex="1">
+        <mxCell id="dashboard-a" parent="dashboard" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;html=1;whiteSpace=wrap;fontSize=11;" value="+ name: String&lt;br&gt;+ isShared: Boolean = false&lt;br&gt;+ sourceToolCallId: String [0..1]" vertex="1">
           <mxGeometry height="58" width="280" y="26" as="geometry" />
         </mxCell>
         <mxCell id="dashboard-l" parent="dashboard" style="line;strokeWidth=1;fillColor=none;align=left;verticalAlign=middle;spacingTop=-1;spacingLeft=3;spacingRight=3;rotatable=0;labelPosition=right;points=[];portConstraint=eastwest;strokeColor=inherit;" value="" vertex="1">
           <mxGeometry height="8" width="280" y="84" as="geometry" />
         </mxCell>
-        <mxCell id="dashboard-o" parent="dashboard" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;html=1;whiteSpace=wrap;fontSize=11;" value="+ addWidget(widget: DashboardWidget)&lt;br&gt;+ removeWidget(widget: DashboardWidget)&lt;br&gt;+ updateLayout(order: DashboardWidget [*])" vertex="1">
+        <mxCell id="dashboard-o" parent="dashboard" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;html=1;whiteSpace=wrap;fontSize=11;" value="+ save(name: String, isShared: Boolean,&lt;br&gt;&amp;nbsp; &amp;nbsp; widgets: DashboardWidget [*])&lt;br&gt;&lt;u&gt;+ createdFrom(c: Conversation): Dashboard [*]&lt;/u&gt;" vertex="1">
           <mxGeometry height="58" width="280" y="92" as="geometry" />
         </mxCell>
         <mxCell id="widget" parent="1" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;html=1;whiteSpace=wrap;fontSize=12;swimlaneFillColor=#ffffff;fillColor=#ffe6cc;strokeColor=#d79b00;" value="DashboardWidget" vertex="1">
@@ -744,6 +744,19 @@
         <mxCell id="r-dashboard-widget-t" connectable="0" parent="r-dashboard-widget" style="edgeLabel;resizable=0;html=1;fontSize=10;align=right;verticalAlign=bottom;" value="0..*" vertex="1">
           <mxGeometry relative="1" x="1" as="geometry">
             <mxPoint x="-6" y="-2" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="r-dashboard-conversation" edge="1" parent="1" source="dashboard" style="html=1;rounded=0;endArrow=none;jumpStyle=arc;jumpSize=6;exitX=0;exitY=0.39;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="conversation">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r-dashboard-conversation-s" connectable="0" parent="r-dashboard-conversation" style="edgeLabel;resizable=0;html=1;fontSize=10;align=right;verticalAlign=bottom;" value="0..*" vertex="1">
+          <mxGeometry relative="1" x="-1" as="geometry">
+            <mxPoint x="-6" y="-2" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="r-dashboard-conversation-t" connectable="0" parent="r-dashboard-conversation" style="edgeLabel;resizable=0;html=1;fontSize=10;align=left;verticalAlign=top;" value="draftedIn 0..1" vertex="1">
+          <mxGeometry relative="1" x="1" as="geometry">
+            <mxPoint x="6" y="2" as="offset" />
           </mxGeometry>
         </mxCell>
         <mxCell id="r-user-notification" edge="1" parent="1" source="user" style="html=1;rounded=0;endArrow=none;startArrow=diamondThin;startFill=1;startSize=16;jumpStyle=arc;jumpSize=6;exitX=1;exitY=0.9;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="notification">

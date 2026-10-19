@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { alarmFilters } from './alarms.js';
-import { alarmTrendParams, KpiMetricSchema, topAlarmsParams } from './analytics.js';
-import { csvEnum, itemsSchema, nullableText, RelativeRangeSchema, UserRefSchema } from './common/query.js';
+import { alarmTrendParams, KPI_METRICS, topAlarmsParams } from './analytics.js';
+import { csvEnum, itemsSchema, RelativeRangeSchema, UserRefSchema } from './common/query.js';
 import { logbookFilters } from './logbook.js';
 import { SHIFT_ROLES } from './shifts.js';
 import { ChartTypeSchema, MAX_SERIES_TAGS, seriesParams } from './telemetry.js';
@@ -11,7 +11,7 @@ import { ChartTypeSchema, MAX_SERIES_TAGS, seriesParams } from './telemetry.js';
  * subset of the query its full page understands — the alarm table widget takes
  * `state`, `severity`, `assetId`… exactly like `GET /api/alarms` and the
  * `/alarms` URL do. That is what makes "View full page" a plain link, and it is
- * the shape a Generative UI tool will emit to render the same view in chat.
+ * the shape the assistant's `createDashboard` tool emits for the same views.
  */
 
 export const WIDGET_TYPES = [
@@ -31,23 +31,28 @@ export type WidgetType = z.infer<typeof WidgetTypeSchema>;
 /** Column spans on the 12-column dashboard grid. */
 export const WIDGET_WIDTHS = [3, 4, 6, 8, 12] as const;
 export const WidgetWidthSchema = z.union(WIDGET_WIDTHS.map((width) => z.literal(width)));
+export type WidgetWidth = (typeof WIDGET_WIDTHS)[number];
 /** Row units (roughly 11rem each). */
 export const WIDGET_HEIGHTS = [1, 2, 3] as const;
 export const WidgetHeightSchema = z.union(WIDGET_HEIGHTS.map((height) => z.literal(height)));
+export type WidgetHeight = (typeof WIDGET_HEIGHTS)[number];
+
+/** Most widgets one dashboard holds. */
+export const MAX_DASHBOARD_WIDGETS = 50;
 
 const tableSize = z.coerce.number().int().min(3).max(20).default(5).describe('Rows shown.');
 
 export const WIDGET_CONFIG_SCHEMAS = {
   KPI: z.object({
-    metric: KpiMetricSchema,
+    metric: z.enum(KPI_METRICS, { error: 'Choose a figure' }),
     assetId: z.guid().optional(),
   }),
   TAG_VALUE: z.object({
-    tagId: z.guid(),
+    tagId: z.guid({ error: 'Choose a tag' }),
     range: RelativeRangeSchema.default('24h').describe('Window of the sparkline.'),
   }),
   TIME_SERIES: z.object({
-    tagIds: z.array(z.guid()).min(1, 'Pick at least one tag').max(MAX_SERIES_TAGS),
+    tagIds: z.array(z.guid(), { error: 'Pick at least one tag' }).min(1, 'Pick at least one tag').max(MAX_SERIES_TAGS),
     range: seriesParams.range,
     interval: seriesParams.interval,
     aggregate: seriesParams.aggregate,
@@ -90,7 +95,7 @@ export const WIDGET_CONFIG_SCHEMAS = {
 export type WidgetConfig<T extends WidgetType = WidgetType> = z.output<(typeof WIDGET_CONFIG_SCHEMAS)[T]>;
 export type WidgetConfigInput<T extends WidgetType = WidgetType> = z.input<(typeof WIDGET_CONFIG_SCHEMAS)[T]>;
 
-export const WIDGET_DEFAULT_SIZE: Record<WidgetType, { width: (typeof WIDGET_WIDTHS)[number]; height: (typeof WIDGET_HEIGHTS)[number] }> = {
+export const WIDGET_DEFAULT_SIZE: Record<WidgetType, { width: WidgetWidth; height: WidgetHeight }> = {
   KPI: { width: 3, height: 1 },
   TAG_VALUE: { width: 3, height: 1 },
   TIME_SERIES: { width: 8, height: 2 },
@@ -101,6 +106,58 @@ export const WIDGET_DEFAULT_SIZE: Record<WidgetType, { width: (typeof WIDGET_WID
   DEVICE_STATUS: { width: 4, height: 2 },
   ON_DUTY: { width: 4, height: 2 },
 };
+
+/** The title a widget gets when nobody gave it one (e.g. one the assistant left untitled). */
+export const WIDGET_DEFAULT_TITLES: Record<WidgetType, string> = {
+  KPI: 'Key figure',
+  TAG_VALUE: 'Live value',
+  TIME_SERIES: 'Trend',
+  ALARM_TABLE: 'Alarms',
+  ALARM_TREND: 'Alarm trend',
+  TOP_ALARMS: 'Most frequent alarms',
+  LOGBOOK_FEED: 'Latest in the logbook',
+  DEVICE_STATUS: 'Device health',
+  ON_DUTY: 'On duty now',
+};
+
+/** The config fields a widget can't do without, having no default: a KPI's figure, a live value's tag, a chart's tags. */
+export function requiredWidgetFields(type: WidgetType): string[] {
+  const shape: Record<string, z.ZodType> = WIDGET_CONFIG_SCHEMAS[type].shape;
+  return Object.entries(shape)
+    .filter(([, field]) => !field.safeParse(undefined).success)
+    .map(([key]) => key);
+}
+
+/** A widget as it is being put together: its config may still be incomplete. */
+export interface WidgetDraftInput {
+  type: WidgetType;
+  title: string;
+  config: unknown;
+}
+
+export interface WidgetCheck {
+  /** The config as the widget's view takes it, defaults filled in; only when nothing is wrong. */
+  config?: WidgetConfig;
+  /** What is wrong, by field (`title` or a config field), the first message for each. Empty when complete. */
+  errors: Record<string, string>;
+}
+
+/**
+ * The one check of a widget: a title, and a config its type's schema accepts.
+ * The assistant's dashboard tool, the chat's preview, the Dashboard page and
+ * the widget dialog all use it; the browser adds whether the tags and assets
+ * it names still exist.
+ */
+export function widgetIssues(widget: WidgetDraftInput): WidgetCheck {
+  const errors: Record<string, string> = {};
+  if (!widget.title.trim()) errors.title = 'Give the widget a title';
+  const parsed = WIDGET_CONFIG_SCHEMAS[widget.type].safeParse(widget.config ?? {});
+  if (!parsed.success) {
+    for (const issue of parsed.error.issues) errors[String(issue.path[0] ?? 'config')] ??= issue.message;
+    return { errors };
+  }
+  return Object.keys(errors).length > 0 ? { errors } : { config: parsed.data as WidgetConfig, errors };
+}
 
 type ConfigSchemas = typeof WIDGET_CONFIG_SCHEMAS;
 
@@ -127,42 +184,15 @@ export const DashboardWidgetSchema = widgetUnion({
 export type DashboardWidget = z.infer<typeof DashboardWidgetSchema>;
 export type DashboardWidgetOf<T extends WidgetType> = Extract<DashboardWidget, { type: T }>;
 
-export const CreateWidgetSchema = widgetUnion({
-  title: z.string().trim().min(1, 'Title is required').max(80),
+/** One widget of a dashboard being saved. Its place on the grid is its place in `widgets`. */
+export const SaveWidgetSchema = widgetUnion({
+  id: z.guid().optional().describe('A widget this dashboard already has, to keep it; leave it out for a new one.'),
+  title: z.string().trim().min(1, 'Give the widget a title').max(80),
   width: WidgetWidthSchema.optional().describe('Defaults by type.'),
   height: WidgetHeightSchema.optional().describe('Defaults by type.'),
-}).meta({ id: 'CreateWidget' });
-export type CreateWidgetInput = z.input<typeof CreateWidgetSchema>;
-export type CreateWidgetDto = z.output<typeof CreateWidgetSchema>;
-
-export const UpdateWidgetSchema = z
-  .object({
-    title: z.string().trim().min(1).max(80),
-    width: WidgetWidthSchema,
-    height: WidgetHeightSchema,
-    config: z.record(z.string(), z.unknown()).describe('Validated against the widget’s type.'),
-  })
-  .partial()
-  .refine((value) => Object.keys(value).length > 0, 'Provide at least one field to update')
-  .meta({ id: 'UpdateWidget' });
-export type UpdateWidgetDto = z.output<typeof UpdateWidgetSchema>;
-
-export const UpdateLayoutSchema = z
-  .object({
-    widgets: z
-      .array(
-        z.object({
-          id: z.guid(),
-          position: z.int().min(0),
-          width: WidgetWidthSchema,
-          height: WidgetHeightSchema,
-        }),
-      )
-      .max(50),
-  })
-  .describe('Every widget of the dashboard, in its new place. Widgets left out keep theirs.')
-  .meta({ id: 'UpdateLayout' });
-export type UpdateLayoutDto = z.output<typeof UpdateLayoutSchema>;
+}).meta({ id: 'SaveWidget' });
+export type SaveWidgetInput = z.input<typeof SaveWidgetSchema>;
+export type SaveWidgetDto = z.output<typeof SaveWidgetSchema>;
 
 // ─── Dashboards ─────────────────────────────────────────────────────────────
 
@@ -170,10 +200,10 @@ export const DashboardSchema = z
   .object({
     id: z.guid(),
     name: z.string(),
-    description: z.string().nullable(),
     isShared: z.boolean().describe('Visible (read-only) to every signed-in user.'),
     owner: UserRefSchema,
-    canEdit: z.boolean().describe('Whether the caller may change it: its owner, or an admin.'),
+    canEdit: z.boolean().describe('Whether the caller may change it (name, sharing, widgets): only its owner.'),
+    canDelete: z.boolean().describe('Whether the caller may delete it: its owner, or an admin when it is shared.'),
     widgetCount: z.int(),
     createdAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
@@ -188,29 +218,39 @@ export type DashboardDetail = z.infer<typeof DashboardDetailSchema>;
 
 export const DashboardsSchema = itemsSchema(DashboardSchema).meta({ id: 'Dashboards' });
 
-export const DASHBOARD_TEMPLATES = ['blank', 'operations'] as const;
+/**
+ * A whole dashboard, saved in one request. `POST /dashboards` creates it;
+ * `PUT /dashboards/:id` replaces the name, sharing and widgets with these:
+ * widgets with an `id` are kept and updated, missing ones removed, new ones added.
+ */
+const dashboardFields = {
+  name: z.string().trim().min(1, 'Give the dashboard a name').max(80),
+  isShared: z.boolean().default(false).describe('Visible (read-only) to every signed-in user.'),
+  widgets: z
+    .array(SaveWidgetSchema)
+    .max(MAX_DASHBOARD_WIDGETS)
+    .default([])
+    .describe('Every widget, in grid order: left to right, top to bottom.'),
+};
+
+export const SaveDashboardSchema = z.object(dashboardFields).meta({ id: 'SaveDashboard' });
+export type SaveDashboardInput = z.input<typeof SaveDashboardSchema>;
+export type SaveDashboardDto = z.output<typeof SaveDashboardSchema>;
+
+/** Where a dashboard came from: the assistant's `createDashboard` call it was saved from. */
+export const DashboardSourceSchema = z.object({
+  conversationId: z.uuid().describe('The conversation holding the call.'),
+  toolCallId: z.string().min(1).max(200).describe("The call's id."),
+});
+export type DashboardSource = z.infer<typeof DashboardSourceSchema>;
 
 export const CreateDashboardSchema = z
   .object({
-    name: z.string().trim().min(1, 'Name is required').max(80),
-    description: nullableText(300).default(null),
-    isShared: z.boolean().default(false),
-    template: z
-      .enum(DASHBOARD_TEMPLATES)
-      .default('blank')
-      .describe('`operations` starts with KPIs, an alarm table, an alarm trend and the on-duty list.'),
+    ...dashboardFields,
+    source: DashboardSourceSchema.optional().describe(
+      "The assistant's draft it is saved from. One draft creates one dashboard, and the chat then shows it as created. Left out when the conversation isn't yours or no longer exists.",
+    ),
   })
   .meta({ id: 'CreateDashboard' });
 export type CreateDashboardInput = z.input<typeof CreateDashboardSchema>;
 export type CreateDashboardDto = z.output<typeof CreateDashboardSchema>;
-
-export const UpdateDashboardSchema = z
-  .object({
-    name: z.string().trim().min(1).max(80),
-    description: nullableText(300),
-    isShared: z.boolean(),
-  })
-  .partial()
-  .refine((value) => Object.keys(value).length > 0, 'Provide at least one field to update')
-  .meta({ id: 'UpdateDashboard' });
-export type UpdateDashboardDto = z.output<typeof UpdateDashboardSchema>;

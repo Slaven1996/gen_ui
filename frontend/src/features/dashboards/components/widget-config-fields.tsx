@@ -95,7 +95,7 @@ export function WidgetConfigFields({
     case 'TAG_VALUE':
       return (
         <>
-          <WidgetConfigRow label="Tag" error={errors.tagId && 'Choose a tag'}>
+          <WidgetConfigRow label="Tag" error={errors.tagId}>
             <TagPicker
               value={text('tagId') ? [text('tagId')!] : []}
               onChange={(ids) => set('tagId', ids[0] ?? '')}

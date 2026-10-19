@@ -11,10 +11,12 @@ import {
 import type { Response } from 'express';
 import {
   ChatRequestSchema,
+  DashboardDraftResponseSchema,
   FormOutcomeRequestSchema,
   FormToolOutputSchema,
   LatestConversationSchema,
   type ChatRequest,
+  type DashboardDraftResponse,
   type FormOutcomeRequest,
   type FormToolOutput,
   type LatestConversation,
@@ -25,6 +27,7 @@ import type { AuthUser } from '../users/user.mapper.js';
 import { AiFormsService } from './ai-forms.service.js';
 import { AiService } from './ai.service.js';
 import { ConversationsService } from './conversations.service.js';
+import { DashboardDraftsService } from './dashboard-drafts.service.js';
 
 @ApiTags('Assistant')
 @ApiBearerAuth('access-token')
@@ -35,6 +38,7 @@ export class AiController {
     private readonly ai: AiService,
     private readonly conversations: ConversationsService,
     private readonly forms: AiFormsService,
+    private readonly drafts: DashboardDraftsService,
   ) {}
 
   /**
@@ -104,6 +108,25 @@ export class AiController {
     @CurrentUser() user: AuthUser,
   ): Promise<FormToolOutput> {
     return this.forms.recordOutcome(id, toolCallId, body, user);
+  }
+
+  @Get('conversations/:id/dashboard-drafts/:toolCallId')
+  @ApiOperation({
+    summary: 'Open a dashboard draft',
+    description:
+      'A dashboard the assistant put together in one of your conversations (a `createDashboard` call): its name, sharing and widgets as the call proposed them, for the Dashboard page to open as an unsaved dashboard. `dashboard` is the one saved from it (`POST /dashboards` with `source`), under its current name, or null while none is: deleting that dashboard makes it null again. No model call.',
+  })
+  @ApiParam({ name: 'id', format: 'uuid', description: 'The conversation.' })
+  @ApiParam({ name: 'toolCallId', description: "The `createDashboard` call's id, from its part in the conversation." })
+  @ApiOkResponse({ standardSchema: DashboardDraftResponseSchema })
+  @ApiErrorResponse(400, '`id` is not a UUID.')
+  @ApiErrorResponse(404, 'No such conversation of yours (it may have been cleared), or no dashboard draft with that id in it.')
+  dashboardDraft(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('toolCallId') toolCallId: string,
+    @CurrentUser() user: AuthUser,
+  ): Promise<DashboardDraftResponse> {
+    return this.drafts.get(id, toolCallId, user);
   }
 
   @Delete('conversations/:id')

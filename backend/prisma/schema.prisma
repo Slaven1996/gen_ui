@@ -449,18 +449,24 @@ enum WidgetType {
 }
 
 model Dashboard {
-  id          String   @id @default(uuid()) @db.Uuid
-  ownerId     String   @map("owner_id") @db.Uuid
-  owner       User     @relation("DashboardOwner", fields: [ownerId], references: [id], onDelete: Cascade)
-  name        String
-  description String?
-  /// Readable by every signed-in user; only the owner (or an admin) edits it.
-  isShared    Boolean  @default(false) @map("is_shared")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id                   String        @id @default(uuid()) @db.Uuid
+  ownerId              String        @map("owner_id") @db.Uuid
+  owner                User          @relation("DashboardOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  name                 String
+  /// Readable by every signed-in user. Only the owner edits it; an admin may also delete a shared one.
+  isShared             Boolean       @default(false) @map("is_shared")
+  /// The assistant draft it was saved from: a `createDashboard` tool call in
+  /// this conversation. Clearing the chat empties it; the dashboard stays.
+  sourceConversationId String?       @map("source_conversation_id") @db.Uuid
+  sourceConversation   Conversation? @relation(fields: [sourceConversationId], references: [id], onDelete: SetNull)
+  sourceToolCallId     String?       @map("source_tool_call_id")
+  createdAt            DateTime      @default(now()) @map("created_at")
+  updatedAt            DateTime      @updatedAt @map("updated_at")
 
   widgets DashboardWidget[]
 
+  /// One draft creates one dashboard.
+  @@unique([sourceConversationId, sourceToolCallId])
   @@index([ownerId])
   @@index([isShared])
   @@map("dashboards")
@@ -553,6 +559,9 @@ model Conversation {
   messages  Json
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
+
+  /// Dashboards saved from drafts in this conversation.
+  dashboards Dashboard[]
 
   @@index([userId, updatedAt(sort: Desc)])
   @@map("conversations")
