@@ -22,6 +22,9 @@ import type { FilterOptions, FormAccess } from './ai.tools.js';
  * Forms are also named, by their titles, where there is no form tool to open
  * them: with components off (Claude points to the switch that brings them
  * back), and for a role that can't use them (Claude says who can).
+ * New dashboards get a section of their own because they overrule a rule of
+ * this prompt: an unclear pick is left out for the user to choose on the page,
+ * not asked about. Said only in the tool's description, Haiku asked anyway.
  *
  * Kept static so it stays identical across requests; the per-request parts
  * (the answer format, the forms section, the pick lists, then the session)
@@ -52,7 +55,13 @@ Fields that name an asset, a person, a device, a tag, an alarm rule, a logbook e
 - Match the user's words to a name or code there, allowing for typos and partial names. Words in Serbian, or a description ("visok nivo u mokrom bunaru"), match the entry they mean.
 - An asset covers everything indented under it, so a site brings all its equipment and a district all its sites.
 - One asset per lookup. For several assets, make one call for each.
-- If the words fit several entries equally well, ask which one the user means before calling a tool. If nothing fits, say so instead of guessing.
+- A tag marked "same name at …" shares its name with tags at those assets: its name alone fits all of them. It is the user's tag only if they also named its asset or code ("the Harbor wet well level"), or asked for every one of them ("both wet well levels").
+- If the words fit several entries equally well, ask which one the user means before calling a tool. If nothing fits, say so instead of guessing. Never for a new dashboard, though: see below.
+
+## New dashboards
+When the user wants a new dashboard, put it together in this turn, however vague the request ("a dashboard for the station", "a KPI and a chart"). Don't ask anything first: not which asset, station, tag or figure.
+- Fill in only what is clear. Leave out every choice the user didn't make, or whose words fit several entries of a list equally well, or none. Never guess one. A widget left without its tag or figure is still shown, marked as needing it, and the user picks it on the Dashboard page.
+- Afterwards, say in one sentence what is left to pick, naming the entries that fit an unclear choice ("Pick the station, Riverside or Harbor, and the chart's tag on the page.").
 
 ## Language
 You work in English and Serbian only (Latin or Cyrillic script).
@@ -124,7 +133,9 @@ function listed<T>(tag: string, items: T[], line: (item: T) => string): string {
  * "  Hillcrest Reservoir · RES-01 · site · <id>". When a tool on offer
  * takes them, also every device ("PS-01 RTU · RTU-PS01-001 · Riverside Pumping
  * Station · <id>"), every tag ("Inlet pressure · PS01.INLET_PRESSURE · bar ·
- * Riverside Pumping Station · <id>"), every rule ("Wet well high level · tag
+ * Riverside Pumping Station · <id>"; a name other tags share adds where:
+ * "Wet well level · … · Riverside Pumping Station · same name at Harbor
+ * Pumping Station · <id>"), every rule ("Wet well high level · tag
  * Wet well level (PS01.WET_WELL_LEVEL) · Riverside Pumping Station · <id>")
  * and the user's own entries, at the user's local time ("2026-10-06 14:05 ·
  * maintenance · Pump 1 drive firmware updated · Pump 1 · <id>"). The shift
@@ -149,7 +160,17 @@ function pickLists(
     );
   }
   if (tags) {
-    lists.push(listed('tags', tags, (tag) => [tag.name, tag.code, tag.unit, tag.asset, tag.id].filter(Boolean).join(' · ')));
+    // The list goes by asset, so two stations' "Wet well level" sit far apart and Claude took the
+    // first it read as the only one. Each line says where else its name is used.
+    const byName = new Map<string, NonNullable<FilterOptions['tags']>>();
+    for (const tag of tags) byName.set(tag.name, [...(byName.get(tag.name) ?? []), tag]);
+    lists.push(
+      listed('tags', tags, (tag) => {
+        const others = (byName.get(tag.name) ?? []).filter((other) => other.id !== tag.id);
+        const shared = others.length > 0 && `same name at ${others.map((other) => other.asset).join(', ')}`;
+        return [tag.name, tag.code, tag.unit, tag.asset, shared, tag.id].filter(Boolean).join(' · ');
+      }),
+    );
   }
   if (rules) {
     lists.push(

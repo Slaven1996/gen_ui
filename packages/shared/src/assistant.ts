@@ -1664,26 +1664,26 @@ export const MAX_DRAFT_WIDGETS = 12;
 
 const DashboardWidgetConfigDraftSchema = z.object({
   metric: KpiMetricSchema.optional().describe(
-    "KPI only: the figure. OPEN_ALARMS (raised and not closed yet), ACTIVE_ALARMS (condition still present), UNACKNOWLEDGED_ALARMS, CRITICAL_ALARMS (open critical ones), ALARMS_LAST_24H (raised in the last 24 hours), MTTA (mean time to acknowledge), DEVICES_ONLINE, DEVICES_OFFLINE (offline or faulted), ASSETS, TAGS. Omit if the user didn't say which figure.",
+    "KPI only: the figure. OPEN_ALARMS (raised and not closed yet), ACTIVE_ALARMS (condition still present), UNACKNOWLEDGED_ALARMS, CRITICAL_ALARMS (open critical ones), ALARMS_LAST_24H (raised in the last 24 hours), MTTA (mean time to acknowledge), DEVICES_ONLINE, DEVICES_OFFLINE (offline or faulted), ASSETS, TAGS. Omit if the user didn't say which figure or it is unclear which one they mean; don't ask.",
   ),
   tagId: z
     .guid()
     .optional()
     .describe(
-      "TAG_VALUE only: the tag whose latest reading it shows, from the tag list. Match the user's words to a tag's name, code, unit or asset, allowing for typos and Serbian: 'the reservoir level' → that tag's id. Omit if the user didn't say which tag.",
+      "TAG_VALUE only: the tag whose latest reading it shows, from the tag list. Match the user's words to a tag's name, code, unit or asset, allowing for typos and Serbian: 'the reservoir level' → that tag's id. Omit if the user didn't say which tag, or their words fit several tags equally well or none: a tag marked 'same name at …' fits only if they also named its asset or code. Don't ask; they pick it on the page.",
     ),
   tagIds: z
     .array(z.guid())
     .max(MAX_SERIES_TAGS)
     .optional()
     .describe(
-      `TIME_SERIES only: the tags to chart, from the tag list, at most ${MAX_SERIES_TAGS}. Match the user's words the same way: 'pressures at Riverside' → the id of every pressure tag at Riverside Pumping Station. Omit if the user didn't say which tags.`,
+      `TIME_SERIES only: the tags to chart, from the tag list, at most ${MAX_SERIES_TAGS}. Match the user's words the same way: 'pressures at Riverside' → the id of every pressure tag at Riverside Pumping Station. Omit if the user didn't say which tags, or it is unclear which of several they mean (a tag marked 'same name at …' without its asset or code), or none fits. Don't ask; they pick them on the page.`,
     ),
   assetId: z
     .guid()
     .optional()
     .describe(
-      "KPI, ALARM_TABLE, ALARM_TREND, TOP_ALARMS, LOGBOOK_FEED and DEVICE_STATUS: only this asset and everything below it, from the asset list: 'for Riverside' → the id of Riverside Pumping Station. Omit for every asset.",
+      "KPI, ALARM_TABLE, ALARM_TREND, TOP_ALARMS, LOGBOOK_FEED and DEVICE_STATUS: only this asset and everything below it, from the asset list: 'for Riverside' → the id of Riverside Pumping Station. Omit for every asset, and also when the words fit several assets equally well or none: don't ask; the widget covers every asset until the user picks one on the page.",
     ),
   range: RelativeRangeSchema.optional().describe(
     "TAG_VALUE, TIME_SERIES, ALARM_TABLE, ALARM_TREND and TOP_ALARMS: the window, ending now. 'last hour' → 1h, 'today' or 'last 24 hours' → 24h, '7-day' or 'this week' → 7d, 'this month' → 30d. Omit for the widget's default: 24h for readings, 7d for the alarm trend, 30d for the most frequent alarms, any time for an alarm list.",
@@ -1906,7 +1906,7 @@ export const genUiToolSchemas = {
   },
   createDashboard: {
     description:
-      "Put together a new dashboard from the user's description and show it in the chat as a preview, drawn with the Dashboard page's own widgets: headline KPIs, live tag values, charts, alarm lists and trends, the most frequent alarms, the logbook, device health and who is on duty. Anyone can build one. It doesn't create the dashboard: the preview's link opens it on the Dashboard page, unsaved, where the user fills in what is missing and saves it. Call it whenever the user wants a dashboard, even with few details, and don't ask first: fill in only what they said, and they complete the rest on the page. The result lists what each widget still lacks; after it, say in one sentence what is left to pick, if anything, and that they save it from the Dashboard page. To change the draft, call it again with the whole layout. It can't change a dashboard that already exists: for that, point the user to Edit on the Dashboard page.",
+      "Put together a new dashboard from the user's description and show it in the chat as a preview, drawn with the Dashboard page's own widgets: headline KPIs, live tag values, charts, alarm lists and trends, the most frequent alarms, the logbook, device health and who is on duty. Anyone can build one. It doesn't create the dashboard: the preview's link opens it on the Dashboard page, unsaved, where the user fills in what is missing and saves it. Call it whenever the user wants a dashboard, even with few details, and never ask the user anything first, not even which tag, asset or figure they mean: fill in only what is clear, and they complete the rest on the page. Leave a choice out when the user didn't make it, when their words fit several entries of a list equally well, or when nothing fits. A widget without its tag or figure still shows in the preview, marked as needing it. The result lists what each widget still lacks; after it, say in one sentence what is left to pick, if anything (naming the entries that fit, for an unclear one), and that they save it from the Dashboard page. To change the draft, call it again with the whole layout. It can't change a dashboard that already exists: for that, point the user to Edit on the Dashboard page.",
     inputSchema: CreateDashboardToolInputSchema,
     outputSchema: CreateDashboardToolOutputSchema,
   },
