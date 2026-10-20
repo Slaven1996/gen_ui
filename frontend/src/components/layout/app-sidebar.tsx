@@ -1,7 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useMatchRoute } from '@tanstack/react-router';
 import {
-  BarChart3,
   Bell,
   CalendarClock,
   Cpu,
@@ -48,7 +47,6 @@ const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
     label: 'Overview',
     items: [
       { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-      { to: '/analytics', label: 'Analytics', icon: BarChart3 },
     ],
   },
   {

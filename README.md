@@ -92,8 +92,7 @@ The app monitors a small water utility (the seed data): a tree of **assets** (re
 
 | Page | API | What it is for |
 |---|---|---|
-| `/dashboard` | `/api/dashboards` | Customizable grid of widgets; own dashboards plus shared ones (see [Dashboards](#dashboards)). The assistant can also put one together from a description |
-| `/analytics` | `/api/analytics/*` | KPIs (open, unacknowledged, mean time to acknowledge, …), alarms raised per hour, day or week by severity, most frequent rules, most affected assets, device health |
+| `/dashboard` | `/api/dashboards`, `/api/analytics/*` | Customizable grid of widgets; own dashboards plus shared ones (see [Dashboards](#dashboards)). The assistant can also put one together from a description. The KPI (open, unacknowledged, mean time to acknowledge, …), alarm trend (per hour, day or week by severity), most frequent alarms (by rule or asset) and device health widgets read `/api/analytics/*` |
 | `/alarms` | `/api/alarms` | The alarm console: filter, acknowledge (one or many), clear by hand (admins), open an alarm's timeline |
 | `/alarm-rules` | `/api/alarm-definitions` | Threshold rules on tags (admins edit); a click on a rule opens its details |
 | `/logbook` | `/api/logbook` | Operator notes, maintenance, shift handovers — and system events |

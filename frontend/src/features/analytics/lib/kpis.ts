@@ -53,7 +53,7 @@ export const KPIS: Record<KpiMetric, KpiDefinition> = {
     value: (s) => s.alarms.mttaMinutes,
     format: (minutes) => formatDuration(minutes),
     hint: () => 'Alarms raised in the last 7 days',
-    link: (assetId) => ({ to: '/analytics', search: { range: '7d', ...withAsset(assetId) } }),
+    link: (assetId) => ({ to: '/alarms', search: { range: '7d', state: ['ACKNOWLEDGED', 'CLOSED'], ...withAsset(assetId) } }),
   },
   DEVICES_ONLINE: {
     label: 'Devices online',

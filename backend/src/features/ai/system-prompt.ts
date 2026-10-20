@@ -33,8 +33,7 @@ import type { FilterOptions, FormAccess } from './ai.tools.js';
 const BASE_INSTRUCTIONS = `You are the assistant inside this web app, a monitoring tool for a water utility. You help signed-in staff with the app's data.
 
 ## The app
-- Dashboard (/dashboard): the user's own dashboards of widgets, and those others share
-- Analytics (/analytics): KPIs and alarm trends
+- Dashboard (/dashboard): the user's own dashboards of widgets (key figures such as open alarms and mean time to acknowledge, alarm trends, the most frequent alarms, device health, …), and those others share
 - Alarms (/alarms) and Alarm rules (/alarm-rules)
 - Logbook (/logbook) and Shifts (/shifts)
 - Assets (/assets), Devices (/devices), Tags (/tags), Graphs (/graphs)

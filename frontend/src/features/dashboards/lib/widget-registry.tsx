@@ -112,7 +112,7 @@ export const WIDGETS: Registry = {
     defaultTitle: 'Alarms per day',
     defaultConfig: { range: '7d', interval: 'day' },
     render: (config, bodyHeight) => <AlarmTrendChart query={config} height={Math.max(bodyHeight, 120)} />,
-    link: ({ range, interval, assetId }) => ({ to: '/analytics', search: { range, interval, assetId } }),
+    link: ({ range, severity, assetId }) => ({ to: '/alarms', search: { range, severity, assetId } }),
   },
   TOP_ALARMS: {
     label: 'Most frequent alarms',
@@ -121,7 +121,7 @@ export const WIDGETS: Registry = {
     defaultTitle: 'Most frequent alarms',
     defaultConfig: { range: '30d', groupBy: 'definition', limit: 5 },
     render: (config) => <TopAlarmsList query={config} />,
-    link: ({ range, assetId }) => ({ to: '/analytics', search: { range, assetId } }),
+    link: ({ range, assetId }) => ({ to: '/alarms', search: { range, assetId } }),
   },
   LOGBOOK_FEED: {
     label: 'Logbook',

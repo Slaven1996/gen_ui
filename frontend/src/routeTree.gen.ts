@@ -14,7 +14,6 @@ import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AuthenticatedAlarmRulesRouteImport } from './routes/_authenticated/alarm-rules'
 import { Route as AuthenticatedAlarmsRouteImport } from './routes/_authenticated/alarms'
-import { Route as AuthenticatedAnalyticsRouteImport } from './routes/_authenticated/analytics'
 import { Route as AuthenticatedAssistantRouteImport } from './routes/_authenticated/assistant'
 import { Route as AuthenticatedAuditRouteImport } from './routes/_authenticated/audit'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
@@ -50,11 +49,6 @@ const AuthenticatedAlarmRulesRoute = AuthenticatedAlarmRulesRouteImport.update({
 const AuthenticatedAlarmsRoute = AuthenticatedAlarmsRouteImport.update({
   id: '/alarms',
   path: '/alarms',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
-const AuthenticatedAnalyticsRoute = AuthenticatedAnalyticsRouteImport.update({
-  id: '/analytics',
-  path: '/analytics',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedAssistantRoute = AuthenticatedAssistantRouteImport.update({
@@ -125,7 +119,6 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/alarm-rules': typeof AuthenticatedAlarmRulesRoute
   '/alarms': typeof AuthenticatedAlarmsRoute
-  '/analytics': typeof AuthenticatedAnalyticsRoute
   '/assistant': typeof AuthenticatedAssistantRoute
   '/audit': typeof AuthenticatedAuditRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
@@ -144,7 +137,6 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/alarm-rules': typeof AuthenticatedAlarmRulesRoute
   '/alarms': typeof AuthenticatedAlarmsRoute
-  '/analytics': typeof AuthenticatedAnalyticsRoute
   '/assistant': typeof AuthenticatedAssistantRoute
   '/audit': typeof AuthenticatedAuditRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
@@ -165,7 +157,6 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/_authenticated/alarm-rules': typeof AuthenticatedAlarmRulesRoute
   '/_authenticated/alarms': typeof AuthenticatedAlarmsRoute
-  '/_authenticated/analytics': typeof AuthenticatedAnalyticsRoute
   '/_authenticated/assistant': typeof AuthenticatedAssistantRoute
   '/_authenticated/audit': typeof AuthenticatedAuditRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
@@ -186,7 +177,6 @@ export interface FileRouteTypes {
     | '/login'
     | '/alarm-rules'
     | '/alarms'
-    | '/analytics'
     | '/assistant'
     | '/audit'
     | '/dashboard'
@@ -205,7 +195,6 @@ export interface FileRouteTypes {
     | '/login'
     | '/alarm-rules'
     | '/alarms'
-    | '/analytics'
     | '/assistant'
     | '/audit'
     | '/dashboard'
@@ -225,7 +214,6 @@ export interface FileRouteTypes {
     | '/login'
     | '/_authenticated/alarm-rules'
     | '/_authenticated/alarms'
-    | '/_authenticated/analytics'
     | '/_authenticated/assistant'
     | '/_authenticated/audit'
     | '/_authenticated/dashboard'
@@ -281,13 +269,6 @@ declare module '@tanstack/react-router' {
       path: '/alarms'
       fullPath: '/alarms'
       preLoaderRoute: typeof AuthenticatedAlarmsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/analytics': {
-      id: '/_authenticated/analytics'
-      path: '/analytics'
-      fullPath: '/analytics'
-      preLoaderRoute: typeof AuthenticatedAnalyticsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/assistant': {
@@ -380,7 +361,6 @@ declare module '@tanstack/react-router' {
 interface AuthenticatedRouteChildren {
   AuthenticatedAlarmRulesRoute: typeof AuthenticatedAlarmRulesRoute
   AuthenticatedAlarmsRoute: typeof AuthenticatedAlarmsRoute
-  AuthenticatedAnalyticsRoute: typeof AuthenticatedAnalyticsRoute
   AuthenticatedAssistantRoute: typeof AuthenticatedAssistantRoute
   AuthenticatedAuditRoute: typeof AuthenticatedAuditRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
@@ -398,7 +378,6 @@ interface AuthenticatedRouteChildren {
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedAlarmRulesRoute: AuthenticatedAlarmRulesRoute,
   AuthenticatedAlarmsRoute: AuthenticatedAlarmsRoute,
-  AuthenticatedAnalyticsRoute: AuthenticatedAnalyticsRoute,
   AuthenticatedAssistantRoute: AuthenticatedAssistantRoute,
   AuthenticatedAuditRoute: AuthenticatedAuditRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
