@@ -21,6 +21,7 @@ import { Route as AuthenticatedDevicesRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedGraphsRouteImport } from './routes/_authenticated/graphs'
 import { Route as AuthenticatedLogbookRouteImport } from './routes/_authenticated/logbook'
 import { Route as AuthenticatedProfileRouteImport } from './routes/_authenticated/profile'
+import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedShiftsRouteImport } from './routes/_authenticated/shifts'
 import { Route as AuthenticatedTagsRouteImport } from './routes/_authenticated/tags'
 import { Route as AuthenticatedUsersRouteImport } from './routes/_authenticated/users'
@@ -86,6 +87,11 @@ const AuthenticatedProfileRoute = AuthenticatedProfileRouteImport.update({
   path: '/profile',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedShiftsRoute = AuthenticatedShiftsRouteImport.update({
   id: '/shifts',
   path: '/shifts',
@@ -126,6 +132,7 @@ export interface FileRoutesByFullPath {
   '/graphs': typeof AuthenticatedGraphsRoute
   '/logbook': typeof AuthenticatedLogbookRoute
   '/profile': typeof AuthenticatedProfileRoute
+  '/settings': typeof AuthenticatedSettingsRoute
   '/shifts': typeof AuthenticatedShiftsRoute
   '/tags': typeof AuthenticatedTagsRoute
   '/users': typeof AuthenticatedUsersRoute
@@ -144,6 +151,7 @@ export interface FileRoutesByTo {
   '/graphs': typeof AuthenticatedGraphsRoute
   '/logbook': typeof AuthenticatedLogbookRoute
   '/profile': typeof AuthenticatedProfileRoute
+  '/settings': typeof AuthenticatedSettingsRoute
   '/shifts': typeof AuthenticatedShiftsRoute
   '/tags': typeof AuthenticatedTagsRoute
   '/users': typeof AuthenticatedUsersRoute
@@ -164,6 +172,7 @@ export interface FileRoutesById {
   '/_authenticated/graphs': typeof AuthenticatedGraphsRoute
   '/_authenticated/logbook': typeof AuthenticatedLogbookRoute
   '/_authenticated/profile': typeof AuthenticatedProfileRoute
+  '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/shifts': typeof AuthenticatedShiftsRoute
   '/_authenticated/tags': typeof AuthenticatedTagsRoute
   '/_authenticated/users': typeof AuthenticatedUsersRoute
@@ -184,6 +193,7 @@ export interface FileRouteTypes {
     | '/graphs'
     | '/logbook'
     | '/profile'
+    | '/settings'
     | '/shifts'
     | '/tags'
     | '/users'
@@ -202,6 +212,7 @@ export interface FileRouteTypes {
     | '/graphs'
     | '/logbook'
     | '/profile'
+    | '/settings'
     | '/shifts'
     | '/tags'
     | '/users'
@@ -221,6 +232,7 @@ export interface FileRouteTypes {
     | '/_authenticated/graphs'
     | '/_authenticated/logbook'
     | '/_authenticated/profile'
+    | '/_authenticated/settings'
     | '/_authenticated/shifts'
     | '/_authenticated/tags'
     | '/_authenticated/users'
@@ -320,6 +332,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedProfileRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/settings': {
+      id: '/_authenticated/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AuthenticatedSettingsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/shifts': {
       id: '/_authenticated/shifts'
       path: '/shifts'
@@ -368,6 +387,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedGraphsRoute: typeof AuthenticatedGraphsRoute
   AuthenticatedLogbookRoute: typeof AuthenticatedLogbookRoute
   AuthenticatedProfileRoute: typeof AuthenticatedProfileRoute
+  AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedShiftsRoute: typeof AuthenticatedShiftsRoute
   AuthenticatedTagsRoute: typeof AuthenticatedTagsRoute
   AuthenticatedUsersRoute: typeof AuthenticatedUsersRoute
@@ -385,6 +405,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedGraphsRoute: AuthenticatedGraphsRoute,
   AuthenticatedLogbookRoute: AuthenticatedLogbookRoute,
   AuthenticatedProfileRoute: AuthenticatedProfileRoute,
+  AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedShiftsRoute: AuthenticatedShiftsRoute,
   AuthenticatedTagsRoute: AuthenticatedTagsRoute,
   AuthenticatedUsersRoute: AuthenticatedUsersRoute,

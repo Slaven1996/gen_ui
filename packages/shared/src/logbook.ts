@@ -111,6 +111,7 @@ export const AUDIT_ENTITY_TYPES = [
   'SHIFT_ASSIGNMENT',
   'DASHBOARD',
   'USER',
+  'ASSISTANT_INSTRUCTIONS',
 ] as const;
 export const AuditEntityTypeSchema = z.enum(AUDIT_ENTITY_TYPES);
 export type AuditEntityType = z.infer<typeof AuditEntityTypeSchema>;

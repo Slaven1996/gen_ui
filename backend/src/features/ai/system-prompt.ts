@@ -1,3 +1,4 @@
+import type { SystemModelMessage } from 'ai';
 import { FORM_TITLES, templateTimes, utcOffset, type FormToolName } from '@gen-ui/shared';
 import type { AuthUser } from '../users/user.mapper.js';
 import type { FilterOptions, FormAccess } from './ai.tools.js';
@@ -26,18 +27,30 @@ import type { FilterOptions, FormAccess } from './ai.tools.js';
  * this prompt: an unclear pick is left out for the user to choose on the page,
  * not asked about. Said only in the tool's description, Haiku asked anyway.
  *
- * Kept static so it stays identical across requests; the per-request parts
- * (the answer format, the forms section, the pick lists, then the session)
- * are appended after it.
+ * Admins edit the standing instructions at its head on the Settings page
+ * (ai-instructions.service.ts); DEFAULT_INSTRUCTIONS below is the text until
+ * they first save. After them come the per-request parts: the answer format,
+ * the forms section, the pick lists, then the session.
+ *
+ * Sent as three blocks for Anthropic's prompt cache, which keeps a prompt's
+ * prefix (tools, then system, then messages) up to a marked block for five
+ * minutes and reads it back at a tenth of the input price, without processing
+ * it again: the instructions with the answer format and forms (the same for
+ * every user of a role with the same switch), the pick lists (the same for a
+ * user until a record changes), and the session, unmarked, since its clocks
+ * change every minute. Nothing that changes per request goes in the first
+ * two: one byte of difference and nothing after it is read from the cache.
  */
-const BASE_INSTRUCTIONS = `You are the assistant inside this web app, a monitoring tool for a water utility. You help signed-in staff with the app's data.
+
+/** The standing instructions until an admin first saves their own. */
+export const DEFAULT_INSTRUCTIONS = `You are the assistant inside this web app, a monitoring tool for a water utility. You help signed-in staff with the app's data.
 
 ## The app
 - Dashboard (/dashboard): the user's own dashboards of widgets (key figures such as open alarms and mean time to acknowledge, alarm trends, the most frequent alarms, device health, …), and those others share
 - Alarms (/alarms) and Alarm rules (/alarm-rules)
 - Logbook (/logbook) and Shifts (/shifts)
 - Assets (/assets), Devices (/devices), Tags (/tags), Graphs (/graphs)
-- Users (/users) and Audit log (/audit, admins only)
+- Users (/users), Audit log (/audit, admins only) and Settings (/settings, admins only: the assistant's instructions)
 
 ## Looking things up
 - You only know the app's data through your tools. Never invent data, and only state facts a tool returned.
@@ -221,19 +234,27 @@ function nowIn(timeZone: string, now = new Date()): string {
   return `${weekday} ${dayIn(timeZone, now)} ${clockIn(timeZone, now)} (time zone ${timeZone}, UTC${utcOffset(timeZone, now)})`;
 }
 
+/** Anthropic caches the prompt up to the end of a block with this, for five minutes. */
+const CACHE_BREAKPOINT: SystemModelMessage['providerOptions'] = {
+  anthropic: { cacheControl: { type: 'ephemeral' } },
+};
+
+/** `base`: the standing instructions in use (an admin's, or DEFAULT_INSTRUCTIONS). */
 export function buildInstructions({
+  base,
   user,
   timeZone,
   generateUi,
   forms,
   options,
 }: {
+  base: string;
   user: AuthUser;
   timeZone: string;
   generateUi: boolean;
   forms: FormAccess;
   options: FilterOptions;
-}): string {
+}): SystemModelMessage[] {
   // The plant's clock too: shift dates and times are on it, whatever the user's zone.
   const session = [
     `User: ${user.name} (role: ${user.role})`,
@@ -241,13 +262,18 @@ export function buildInstructions({
     `Plant: ${nowIn(options.plantTimeZone)}`,
   ].join('\n');
 
-  const sections = [BASE_INSTRUCTIONS, generateUi ? COMPONENTS_ON : COMPONENTS_OFF];
-  if (forms.allowed.length > 0) sections.push(generateUi ? FORMS : formsOff(forms.allowed));
-  if (forms.denied.length > 0) sections.push(formsDenied(forms.denied));
-  sections.push(pickLists(options, timeZone), `<session>\n${session}\n</session>`);
+  const rules = [base, generateUi ? COMPONENTS_ON : COMPONENTS_OFF];
+  if (forms.allowed.length > 0) rules.push(generateUi ? FORMS : formsOff(forms.allowed));
+  if (forms.denied.length > 0) rules.push(formsDenied(forms.denied));
 
-  const finalSystemPrompt = sections.join('\n\n');
+  const blocks: SystemModelMessage[] = [
+    { role: 'system', content: rules.join('\n\n'), providerOptions: CACHE_BREAKPOINT },
+    { role: 'system', content: pickLists(options, timeZone), providerOptions: CACHE_BREAKPOINT },
+    { role: 'system', content: `<session>\n${session}\n</session>` },
+  ];
+
+  const finalSystemPrompt = blocks.map((block) => block.content).join('\n\n');
   console.log(finalSystemPrompt);
 
-  return finalSystemPrompt;
+  return blocks;
 }

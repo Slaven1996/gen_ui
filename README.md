@@ -104,6 +104,7 @@ The app monitors a small water utility (the seed data): a tree of **assets** (re
 | `/users` | `/api/users` | People and their roles; admins add, promote and deactivate them (see [Users](#users)) |
 | `/assistant` | `/api/ai/*` | The AI assistant (see [Generative UI](#generative-ui)) |
 | `/profile` | `/api/profile` | Your own name and password (see [Your own account](#your-own-account)) |
+| `/settings` | `/api/ai/instructions` | The assistant's standing instructions, the head of its system prompt (admins; see [Generative UI](#generative-ui)) |
 
 Admins configure (assets, devices, tags, rules, shift plans), manage users, clear alarms by hand and post readings to the ingest endpoint; everyone can acknowledge alarms, write in the logbook and build dashboards. The header's theme switch picks light, dark or the system's setting, remembered in the browser. The entities, their attributes, operations and associations are drawn as a UML class diagram in [`docs/class-diagram.drawio`](docs/class-diagram.drawio) — open it in [diagrams.net](https://app.diagrams.net) or the VS Code *Draw.io Integration* extension. The tables themselves are in [`backend/prisma/init.sql`](backend/prisma/init.sql).
 
@@ -316,6 +317,10 @@ Questions to try:
 4. `features/assistant/lib/tool-renderers.ts` maps each tool to its view (a body component in `features/assistant/components/tool-bodies/`), and `components/tool-part-view.tsx` draws it according to the part's state (`input-streaming` → skeleton, input complete → the table, `output-error` → an alert).
 
 **The system prompt is generic.** It holds the app's pages, the rules for using tools, the language rule and the out-of-scope refusal, the answer format (components or Markdown), the rules for forms (or, when the user can't open one, where to get it), the pick lists below, and a session block with the user's name and role and both clocks. It never names a tool. What a tool does and how to fill its fields lives in its `description` and field `.describe()` texts in `packages/shared/src/assistant.ts`, which Claude receives with the tool.
+
+**Admins edit the standing instructions.** The head of the prompt (the page map and the rules for tools, pick lists, new dashboards, language, scope and style) is the text on the Settings page (`/settings`, admins only; `GET`/`PUT /api/ai/instructions`). It lives in one row of `assistant_instructions`, updated in place: only the latest text is kept, and each change is an audit record (`assistant_instructions.update`, without the text). Until an admin first saves, the text built into `system-prompt.ts` (`DEFAULT_INSTRUCTIONS`) is used, and *Restore default* puts it back. The next message anyone sends uses the new text; the answer format, forms, pick lists and session are still added after it by the server.
+
+**The prompt is cached.** Anthropic keeps a prompt's start (tools, then system, then messages) up to a marked block for five minutes and reads it back at a tenth of the input price without processing it again. The system prompt goes as three blocks: the instructions with the answer format and forms (marked; the same for every user of a role), the pick lists (marked; the same for a user until a record changes) and the session (unmarked, its clocks change every minute). The request also asks Anthropic to cache up to its last message, so each tool round reads the one before it. A prompt start shorter than the model's minimum (4,096 tokens on Haiku 4.5) is never cached.
 
 **English and Serbian only.** The assistant answers in the language of the question, English or Serbian (Latin or Cyrillic). A question in any other language gets a one-line refusal in both, with no lookup.
 

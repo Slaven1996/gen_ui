@@ -4,6 +4,7 @@ export * from './auth.js';
 export * from './users.js';
 export * from './profile.js';
 export * from './assistant.js';
+export * from './assistant-instructions.js';
 export * from './assets.js';
 export * from './telemetry.js';
 export * from './alarms.js';

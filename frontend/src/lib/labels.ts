@@ -182,6 +182,7 @@ export const AUDIT_ENTITY: Record<AuditEntityType, string> = {
   SHIFT_ASSIGNMENT: 'Shift assignment',
   DASHBOARD: 'Dashboard',
   USER: 'User',
+  ASSISTANT_INSTRUCTIONS: 'Assistant instructions',
 };
 
 // ─── Filter options, in the API's order ─────────────────────────────────────

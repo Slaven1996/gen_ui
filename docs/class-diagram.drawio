@@ -10,8 +10,8 @@
         <mxCell id="note-about" parent="1" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=14;fillColor=#fdfdfd;strokeColor=#999999;align=left;verticalAlign=top;spacingLeft=10;spacingRight=10;spacingTop=6;fontSize=11;" value="&lt;b&gt;About this diagram&lt;/b&gt;&lt;br&gt;One class per Prisma model (backend/prisma/schema.prisma; tables in backend/prisma/init.sql). Foreign keys are drawn as associations, not attributes.&lt;br&gt;Operations are the behaviour the backend implements for each entity; in code they live in the feature&#39;s NestJS service (Alarm.acknowledge → AlarmsService.acknowledge). The usual list / get / create / update / remove are left out.&lt;br&gt;Parameter types such as AuditEntry, SystemEvent, TimeRange and UIMessage are DTOs and are not drawn.&lt;br&gt;&lt;b&gt;Colours:&lt;/b&gt; purple users and sessions · blue assets and telemetry · red alarms · yellow logbook and audit · green shifts · orange dashboards · teal assistant." vertex="1">
           <mxGeometry height="190" width="390" x="40" y="-40" as="geometry" />
         </mxCell>
-        <mxCell id="note-base" parent="1" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=14;fillColor=#fdfdfd;strokeColor=#999999;align=left;verticalAlign=top;spacingLeft=10;spacingRight=10;spacingTop=6;fontSize=11;" value="&lt;b&gt;Entity and TrackedEntity&lt;/b&gt; factor out the columns the tables share (id, created_at, updated_at); Prisma declares them in each model.&lt;br&gt;&lt;b&gt;Alarm&lt;/b&gt; (raisedAt instead of createdAt) and &lt;b&gt;Measurement&lt;/b&gt; (identified by its tag and ts) don&#39;t fit, so they declare their own." vertex="1">
-          <mxGeometry height="130" width="380" x="1200" y="-40" as="geometry" />
+        <mxCell id="note-base" parent="1" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=14;fillColor=#fdfdfd;strokeColor=#999999;align=left;verticalAlign=top;spacingLeft=10;spacingRight=10;spacingTop=6;fontSize=11;" value="&lt;b&gt;Entity and TrackedEntity&lt;/b&gt; factor out the columns the tables share (id, created_at, updated_at); Prisma declares them in each model.&lt;br&gt;&lt;b&gt;Alarm&lt;/b&gt; (raisedAt instead of createdAt) and &lt;b&gt;Measurement&lt;/b&gt; (identified by its tag and ts) don&#39;t fit, so they declare their own, as does &lt;b&gt;AssistantInstructions&lt;/b&gt; (one row edited in place: no createdAt)." vertex="1">
+          <mxGeometry height="160" width="380" x="1200" y="-40" as="geometry" />
         </mxCell>
         <mxCell id="note-legend" parent="1" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=14;fillColor=#fdfdfd;strokeColor=#999999;align=left;verticalAlign=top;spacingLeft=10;spacingRight=10;spacingTop=6;fontSize=11;" value="&lt;b&gt;Notation&lt;/b&gt;&lt;br&gt;◆ &lt;b&gt;composition&lt;/b&gt;: the part is deleted with its whole (ON DELETE CASCADE).&lt;br&gt;◇ &lt;b&gt;aggregation&lt;/b&gt;: part of a hierarchy; a whole that still has parts cannot be deleted (RESTRICT).&lt;br&gt;— &lt;b&gt;association&lt;/b&gt;: a reference; the multiplicities follow the foreign keys.&lt;br&gt;▷ &lt;b&gt;generalization&lt;/b&gt; (grey, hollow triangle).&lt;br&gt;&lt;u&gt;underlined&lt;/u&gt; operation: class scope (static).&lt;br&gt;[0..1] optional · [*] many · = default value · {…} constraint." vertex="1">
           <mxGeometry height="290" width="280" x="1300" y="600" as="geometry" />
@@ -172,6 +172,18 @@
         <mxCell id="conversation-o" parent="conversation" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;html=1;whiteSpace=wrap;fontSize=11;" value="&lt;u&gt;+ latest(owner: User): Conversation [0..1]&lt;/u&gt;&lt;br&gt;+ save(messages: UIMessage [*])" vertex="1">
           <mxGeometry height="42" width="280" y="76" as="geometry" />
         </mxCell>
+        <mxCell id="instructions" parent="1" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;html=1;whiteSpace=wrap;fontSize=12;swimlaneFillColor=#ffffff;fillColor=#e6f7f5;strokeColor=#3b9c8f;" value="AssistantInstructions" vertex="1">
+          <mxGeometry height="134" width="280" x="460" y="1420" as="geometry" />
+        </mxCell>
+        <mxCell id="instructions-a" parent="instructions" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;html=1;whiteSpace=wrap;fontSize=11;" value="+ id: UUID {id, fixed: a single row}&lt;br&gt;+ content: String {1..20000 characters}&lt;br&gt;+ updatedAt: DateTime" vertex="1">
+          <mxGeometry height="58" width="280" y="26" as="geometry" />
+        </mxCell>
+        <mxCell id="instructions-l" parent="instructions" style="line;strokeWidth=1;fillColor=none;align=left;verticalAlign=middle;spacingTop=-1;spacingLeft=3;spacingRight=3;rotatable=0;labelPosition=right;points=[];portConstraint=eastwest;strokeColor=inherit;" value="" vertex="1">
+          <mxGeometry height="8" width="280" y="84" as="geometry" />
+        </mxCell>
+        <mxCell id="instructions-o" parent="instructions" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;html=1;whiteSpace=wrap;fontSize=11;" value="&lt;u&gt;+ current(): String {the built-in text without a row}&lt;/u&gt;&lt;br&gt;+ save(content: String, by: User)" vertex="1">
+          <mxGeometry height="42" width="280" y="92" as="geometry" />
+        </mxCell>
         <mxCell id="dashboard" parent="1" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;html=1;whiteSpace=wrap;fontSize=12;swimlaneFillColor=#ffffff;fillColor=#ffe6cc;strokeColor=#d79b00;" value="Dashboard" vertex="1">
           <mxGeometry height="150" width="280" x="880" y="1250" as="geometry" />
         </mxCell>
@@ -278,19 +290,19 @@
           <mxGeometry height="58" width="190" y="40" as="geometry" />
         </mxCell>
         <mxCell id="e-entitytype" parent="1" style="swimlane;fontStyle=0;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=40;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;html=1;whiteSpace=wrap;fontSize=11;swimlaneFillColor=#ffffff;fillColor=#eeeeee;strokeColor=#999999;" value="«enumeration»&lt;br&gt;&lt;b&gt;AuditEntityType&lt;/b&gt;" vertex="1">
-          <mxGeometry height="210" width="190" x="2200" y="498" as="geometry" />
+          <mxGeometry height="226" width="190" x="2200" y="498" as="geometry" />
         </mxCell>
-        <mxCell id="e-entitytype-v" parent="e-entitytype" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;html=1;whiteSpace=wrap;fontSize=11;" value="ASSET&lt;br&gt;DEVICE&lt;br&gt;TAG&lt;br&gt;ALARM_DEFINITION&lt;br&gt;ALARM&lt;br&gt;LOGBOOK_ENTRY&lt;br&gt;SHIFT_TEMPLATE&lt;br&gt;SHIFT_ASSIGNMENT&lt;br&gt;DASHBOARD&lt;br&gt;USER" vertex="1">
-          <mxGeometry height="170" width="190" y="40" as="geometry" />
+        <mxCell id="e-entitytype-v" parent="e-entitytype" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;html=1;whiteSpace=wrap;fontSize=11;" value="ASSET&lt;br&gt;DEVICE&lt;br&gt;TAG&lt;br&gt;ALARM_DEFINITION&lt;br&gt;ALARM&lt;br&gt;LOGBOOK_ENTRY&lt;br&gt;SHIFT_TEMPLATE&lt;br&gt;SHIFT_ASSIGNMENT&lt;br&gt;DASHBOARD&lt;br&gt;USER&lt;br&gt;ASSISTANT_INSTRUCTIONS" vertex="1">
+          <mxGeometry height="186" width="190" y="40" as="geometry" />
         </mxCell>
         <mxCell id="e-shiftrole" parent="1" style="swimlane;fontStyle=0;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=40;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;html=1;whiteSpace=wrap;fontSize=11;swimlaneFillColor=#ffffff;fillColor=#eeeeee;strokeColor=#999999;" value="«enumeration»&lt;br&gt;&lt;b&gt;ShiftRole&lt;/b&gt;" vertex="1">
-          <mxGeometry height="98" width="190" x="2200" y="728" as="geometry" />
+          <mxGeometry height="98" width="190" x="2200" y="744" as="geometry" />
         </mxCell>
         <mxCell id="e-shiftrole-v" parent="e-shiftrole" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;html=1;whiteSpace=wrap;fontSize=11;" value="OPERATOR&lt;br&gt;SUPERVISOR&lt;br&gt;ON_CALL" vertex="1">
           <mxGeometry height="58" width="190" y="40" as="geometry" />
         </mxCell>
         <mxCell id="e-widgettype" parent="1" style="swimlane;fontStyle=0;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=40;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;html=1;whiteSpace=wrap;fontSize=11;swimlaneFillColor=#ffffff;fillColor=#eeeeee;strokeColor=#999999;" value="«enumeration»&lt;br&gt;&lt;b&gt;WidgetType&lt;/b&gt;" vertex="1">
-          <mxGeometry height="194" width="190" x="2200" y="846" as="geometry" />
+          <mxGeometry height="194" width="190" x="2200" y="862" as="geometry" />
         </mxCell>
         <mxCell id="e-widgettype-v" parent="e-widgettype" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;html=1;whiteSpace=wrap;fontSize=11;" value="KPI&lt;br&gt;TAG_VALUE&lt;br&gt;TIME_SERIES&lt;br&gt;ALARM_TABLE&lt;br&gt;ALARM_TREND&lt;br&gt;TOP_ALARMS&lt;br&gt;LOGBOOK_FEED&lt;br&gt;DEVICE_STATUS&lt;br&gt;ON_DUTY" vertex="1">
           <mxGeometry height="154" width="190" y="40" as="geometry" />
@@ -713,6 +725,24 @@
         <mxCell id="r-user-conversation-t" connectable="0" parent="r-user-conversation" style="edgeLabel;resizable=0;html=1;fontSize=10;align=left;verticalAlign=bottom;" value="0..*" vertex="1">
           <mxGeometry relative="1" x="1" as="geometry">
             <mxPoint x="4" y="-2" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="r-instructions-user" edge="1" parent="1" source="instructions" style="html=1;rounded=0;endArrow=none;jumpStyle=arc;jumpSize=6;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.913;entryDx=0;entryDy=0;" target="user">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="430" y="1487" />
+              <mxPoint x="430" y="1150" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="r-instructions-user-s" connectable="0" parent="r-instructions-user" style="edgeLabel;resizable=0;html=1;fontSize=10;align=right;verticalAlign=bottom;" value="0..*" vertex="1">
+          <mxGeometry relative="1" x="-1" as="geometry">
+            <mxPoint x="-6" y="-2" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="r-instructions-user-t" connectable="0" parent="r-instructions-user" style="edgeLabel;resizable=0;html=1;fontSize=10;align=right;verticalAlign=bottom;" value="updatedBy 0..1" vertex="1">
+          <mxGeometry relative="1" x="1" as="geometry">
+            <mxPoint x="-6" y="-2" as="offset" />
           </mxGeometry>
         </mxCell>
         <mxCell id="r-user-dashboard" edge="1" parent="1" source="user" style="html=1;rounded=0;endArrow=none;startArrow=diamondThin;startFill=1;startSize=16;jumpStyle=arc;jumpSize=6;exitX=0.8;exitY=1;exitDx=0;exitDy=0;entryX=0.3;entryY=0;entryDx=0;entryDy=0;" target="dashboard">

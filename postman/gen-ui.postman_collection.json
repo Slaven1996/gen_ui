@@ -3322,6 +3322,81 @@
               }
             }
           ]
+        },
+        {
+          "name": "Get the assistant's instructions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/ai/instructions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ai",
+                "instructions"
+              ]
+            },
+            "description": "Admin only. The standing instructions every chat starts its system prompt with, as the Settings page shows them. `isDefault` is true until an admin first saves; `defaultContent` is the text built into the app. Free: no model call."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('defaultInstructionsJson', JSON.stringify(pm.response.json().defaultContent));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Change the assistant's instructions",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ai/instructions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ai",
+                "instructions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": {{defaultInstructionsJson}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Admin only. Replaces the instructions (1 to 20,000 characters); the next chat request uses them. Only the latest text is kept, and the change is an audit record without the text. Saving the text already in use changes nothing.\n\nThe example sends the built-in text (`defaultContent`, kept by \"Get the assistant's instructions\" in `defaultInstructionsJson`), so it restores the default. Put your own JSON string in `content` to change them."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -3541,6 +3616,11 @@
     },
     {
       "key": "notificationId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "defaultInstructionsJson",
       "value": "",
       "type": "string"
     }

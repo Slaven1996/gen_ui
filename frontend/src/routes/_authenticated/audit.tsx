@@ -29,6 +29,7 @@ const ACTION_OPTIONS = [
   { value: 'shift_template.', label: 'Shift templates' },
   { value: 'shift_assignment.', label: 'Shift schedule' },
   { value: 'dashboard.', label: 'Dashboards' },
+  { value: 'assistant_instructions.', label: 'Assistant instructions' },
 ];
 
 /** The families, plus an exact action (`alarm.acknowledge`) when a link brings one, so the select can show it. */

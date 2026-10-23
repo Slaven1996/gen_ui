@@ -46,7 +46,7 @@ CREATE TYPE "AlarmState" AS ENUM ('ACTIVE', 'ACKNOWLEDGED', 'CLEARED', 'CLOSED')
 -- Logbook & audit
 CREATE TYPE "LogbookCategory" AS ENUM ('NOTE', 'ALARM', 'DEVICE', 'MAINTENANCE', 'SHIFT');
 CREATE TYPE "LogSeverity" AS ENUM ('INFO', 'WARNING', 'CRITICAL');
-CREATE TYPE "AuditEntityType" AS ENUM ('ASSET', 'DEVICE', 'TAG', 'ALARM_DEFINITION', 'ALARM', 'LOGBOOK_ENTRY', 'SHIFT_TEMPLATE', 'SHIFT_ASSIGNMENT', 'DASHBOARD', 'USER');
+CREATE TYPE "AuditEntityType" AS ENUM ('ASSET', 'DEVICE', 'TAG', 'ALARM_DEFINITION', 'ALARM', 'LOGBOOK_ENTRY', 'SHIFT_TEMPLATE', 'SHIFT_ASSIGNMENT', 'DASHBOARD', 'USER', 'ASSISTANT_INSTRUCTIONS');
 
 -- Shifts & dashboards
 CREATE TYPE "ShiftRole" AS ENUM ('OPERATOR', 'SUPERVISOR', 'ON_CALL');
@@ -473,6 +473,21 @@ CREATE TABLE "conversations" (
         REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 CREATE INDEX "conversations_user_id_updated_at_idx" ON "conversations"("user_id", "updated_at" DESC);
+
+-- The assistant's standing instructions, edited by admins on the Settings
+-- page: a single row with a fixed id, updated in place. Until the first save
+-- there is no row and the API uses the text built into the code.
+CREATE TABLE "assistant_instructions" (
+    "id"            UUID         NOT NULL,
+    "content"       TEXT         NOT NULL,
+    "updated_by_id" UUID,
+    "updated_at"    TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "assistant_instructions_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "assistant_instructions_content_check" CHECK (btrim("content") <> ''),
+    CONSTRAINT "assistant_instructions_updated_by_id_fkey" FOREIGN KEY ("updated_by_id")
+        REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
 
 -- A dashboard saved from an assistant draft points at its conversation;
 -- clearing the chat drops the link, not the dashboard.

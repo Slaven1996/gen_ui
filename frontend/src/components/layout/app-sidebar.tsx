@@ -9,6 +9,7 @@ import {
   LineChart,
   Network,
   NotebookPen,
+  Settings,
   Settings2,
   Sparkles,
   Tags,
@@ -19,6 +20,7 @@ import type { Role } from '@gen-ui/shared';
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -80,12 +82,34 @@ const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
   },
 ];
 
+/** At the bottom of the sidebar, below the groups. */
+const FOOTER_ITEMS: NavItem[] = [{ to: '/settings', label: 'Settings', icon: Settings, roles: ['ADMIN'] }];
+
 export function AppSidebar() {
   const { user } = useAuth();
   const matchRoute = useMatchRoute();
   // The alarm badge is the one number that should always be in view.
   const summary = useQuery(summaryQueryOptions());
   const unacknowledged = summary.data?.alarms.unacknowledged ?? 0;
+
+  const visible = (items: NavItem[]) => items.filter((item) => !item.roles || (user && item.roles.includes(user.role)));
+  const footerItems = visible(FOOTER_ITEMS);
+
+  const menuItem = (item: NavItem) => (
+    <SidebarMenuItem key={item.to}>
+      <SidebarMenuButton asChild tooltip={item.label} isActive={Boolean(matchRoute({ to: item.to, fuzzy: !item.exact }))}>
+        <Link to={item.to}>
+          <item.icon />
+          <span>{item.label}</span>
+        </Link>
+      </SidebarMenuButton>
+      {item.to === '/alarms' && unacknowledged > 0 && (
+        <SidebarMenuBadge className="tabular-nums" aria-label={`${unacknowledged} unacknowledged alarms`}>
+          {unacknowledged}
+        </SidebarMenuBadge>
+      )}
+    </SidebarMenuItem>
+  );
 
   return (
     <Sidebar collapsible="icon">
@@ -106,38 +130,24 @@ export function AppSidebar() {
 
       <SidebarContent>
         {NAV_GROUPS.map((group) => {
-          const items = group.items.filter((item) => !item.roles || (user && item.roles.includes(user.role)));
+          const items = visible(group.items);
           if (items.length === 0) return null;
           return (
             <SidebarGroup key={group.label}>
               <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
               <SidebarGroupContent>
-                <SidebarMenu>
-                  {items.map((item) => (
-                    <SidebarMenuItem key={item.to}>
-                      <SidebarMenuButton
-                        asChild
-                        tooltip={item.label}
-                        isActive={Boolean(matchRoute({ to: item.to, fuzzy: !item.exact }))}
-                      >
-                        <Link to={item.to}>
-                          <item.icon />
-                          <span>{item.label}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                      {item.to === '/alarms' && unacknowledged > 0 && (
-                        <SidebarMenuBadge className="tabular-nums" aria-label={`${unacknowledged} unacknowledged alarms`}>
-                          {unacknowledged}
-                        </SidebarMenuBadge>
-                      )}
-                    </SidebarMenuItem>
-                  ))}
-                </SidebarMenu>
+                <SidebarMenu>{items.map(menuItem)}</SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>
           );
         })}
       </SidebarContent>
+
+      {footerItems.length > 0 && (
+        <SidebarFooter>
+          <SidebarMenu>{footerItems.map(menuItem)}</SidebarMenu>
+        </SidebarFooter>
+      )}
 
       {/* The account menu lives top right in the header (UserMenu). */}
       <SidebarRail />

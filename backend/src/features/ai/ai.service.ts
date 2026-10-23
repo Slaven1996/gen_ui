@@ -21,6 +21,7 @@ import {
 } from '@gen-ui/shared';
 import { AppConfigService } from '../../config/app-config.service.js';
 import type { AuthUser } from '../users/user.mapper.js';
+import { AiInstructionsService } from './ai-instructions.service.js';
 import { AiTools, type AiToolSet } from './ai.tools.js';
 import { ConversationsService } from './conversations.service.js';
 import { DashboardDraftsService } from './dashboard-drafts.service.js';
@@ -39,6 +40,10 @@ import { buildInstructions } from './system-prompt.js';
  *  3 [app] Save it, so the question survives a failed model call.
  *  4 [app] Call the chosen model with the system prompt (system-prompt.ts),
  *          the history, and the tools this user's role may use (ai.tools.ts).
+ *          The prompt starts with the standing instructions admins edit on
+ *          the Settings page (ai-instructions.service.ts), and is marked for
+ *          Anthropic's prompt cache, so its unchanged start isn't processed
+ *          again on the next request or tool round.
  *          The prompt lists the assets, people and shift templates the
  *          pages' pickers offer, so Claude can fill those filters with
  *          their ids, and the plant's clock that shift dates are on. Lists a
@@ -99,6 +104,7 @@ export class AiService {
 
   constructor(
     private readonly tools: AiTools,
+    private readonly instructions: AiInstructionsService,
     private readonly conversations: ConversationsService,
     private readonly drafts: DashboardDraftsService,
     private readonly config: AppConfigService,
@@ -127,7 +133,11 @@ export class AiService {
     const forms = this.tools.formsFor(user);
     // The pickers' choices (and, for the form tools on offer, the records they
     // take): listed in the prompt, and the only ids the tools accept.
-    const options = await this.tools.filterOptions(user, activeTools);
+    // The standing instructions: an admin's, or the built-in ones.
+    const [options, base] = await Promise.all([
+      this.tools.filterOptions(user, activeTools),
+      this.instructions.current(),
+    ]);
     const tools = this.tools.create({ user, timeZone, options });
     const effort = effortFor(request);
 
@@ -145,7 +155,7 @@ export class AiService {
     // reads the results, and so on until it stops calling tools.
     const result = streamText({
       model: this.anthropic(request.model),
-      instructions: buildInstructions({ user, timeZone, generateUi: request.generateUi, forms, options }),
+      instructions: buildInstructions({ base, user, timeZone, generateUi: request.generateUi, forms, options }),
       messages: await convertToModelMessages(forClaude, { tools }),
       tools,
       activeTools,
@@ -197,14 +207,18 @@ export class AiService {
   }
 
   /**
-   * Anthropic-specific options. Models with an effort level think adaptively;
-   * Claude Haiku 4.5 gets neither option, since it would reject both. Never
-   * add `budgetTokens`, `temperature` or `topP`: the Claude 5 models answer
-   * those with a 400.
+   * Anthropic-specific options. `cacheControl` caches the whole prompt up to
+   * its last message, so each tool round reads the previous one's from the
+   * cache (system-prompt.ts marks the earlier breakpoints). Models with an
+   * effort level think adaptively; Claude Haiku 4.5 gets neither option,
+   * since it would reject both. Never add `budgetTokens`, `temperature` or
+   * `topP`: the Claude 5 models answer those with a 400.
    */
   private anthropicOptions(model: AssistantModel, effort: Effort | undefined) {
-    if (!effort) return {};
+    const caching = { cacheControl: { type: 'ephemeral' } } satisfies AnthropicLanguageModelOptions;
+    if (!effort) return caching;
     return {
+      ...caching,
       // "summarized" streams a readable summary of the thinking; the default streams it empty.
       thinking: { type: 'adaptive', display: this.config.get('AI_SEND_REASONING') ? 'summarized' : 'omitted' },
       effort,

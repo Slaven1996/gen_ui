@@ -71,9 +71,9 @@ flowchart TD
     MERGE["submit: append the message<br/>regenerate: drop a trailing answer<br/>max 200 messages"]
     VAL["safeValidateUIMessages against the tool schemas<br/>last message must be the user's"]
     SAVE1["save the conversation<br/>the question survives a failed model call"]
-    PROMPT["buildInstructions<br/>generic rules + app map + guardrails (English/Serbian only, off-topic)<br/>+ components or text-only section<br/>+ every asset and active person with ids (the dropdowns' choices)<br/>+ with components on: the forms section, the lists the offered forms take:<br/>for admins every device, tag and alarm rule, for everyone their own latest logbook entries, with ids<br/>+ with components off: the role's forms by title, and the switch that opens them<br/>+ the forms the role can't open, and which role can<br/>+ session: user, role, now in their time zone with its UTC offset"]
+    PROMPT["buildInstructions<br/>the standing instructions (an admin's from assistant_instructions, else DEFAULT_INSTRUCTIONS):<br/>generic rules + app map + guardrails (English/Serbian only, off-topic)<br/>+ components or text-only section<br/>+ every asset and active person with ids (the dropdowns' choices)<br/>+ with components on: the forms section, the lists the offered forms take:<br/>for admins every device, tag and alarm rule, for everyone their own latest logbook entries, with ids<br/>+ with components off: the role's forms by title, and the switch that opens them<br/>+ the forms the role can't open, and which role can<br/>+ session: user, role, now in their time zone with its UTC offset<br/>three system blocks: rules + format + forms (cached) · pick lists (cached) · session"]
     ROLES["AiTools.activeFor(user, generateUi)<br/>TOOL_ROLES · the chat's @Roles<br/>form tools only with components on"]
-    CALL["streamText<br/>chosen model · effort + adaptive thinking (not Haiku)<br/>instructions · history · tools<br/>activeTools · stopWhen AI_MAX_STEPS · abortSignal"]
+    CALL["streamText<br/>chosen model · effort + adaptive thinking (not Haiku)<br/>instructions · history · tools · cacheControl up to the last message<br/>activeTools · stopWhen AI_MAX_STEPS · abortSignal"]
     GUARD --> CTRL --> KEY
     KEY -- no --> E503
     KEY -- yes --> HIST --> MERGE --> VAL --> SAVE1
@@ -166,7 +166,8 @@ flowchart TD
 |---|---|---|
 | Which model and effort answer | the user (pickers) | `assistant-preferences.ts` → request body |
 | Which tools may be offered | code: role map (the audit tool and the form tools are admin-only, except the logbook forms; form tools need components on) | `TOOL_ROLES`, `activeFor` in `ai.tools.ts` |
-| Answer, refuse (off topic or not English/Serbian) or look something up | **Claude** | steered by `system-prompt.ts` |
+| The standing instructions at the head of the prompt | admins (Settings page) | `assistant_instructions`, else `DEFAULT_INSTRUCTIONS` in `system-prompt.ts` |
+| Answer, refuse (off topic or not English/Serbian) or look something up | **Claude** | steered by the system prompt (`system-prompt.ts`) |
 | Which tool, with which filters, how many in parallel | **Claude** | steered by the tool descriptions in `assistant.ts` |
 | Validating the tool input and running the query | code | AI SDK + `ListUsersQuerySchema` → `UsersService` |
 | The wording of the answer | **Claude** | from the tool results |
@@ -371,4 +372,5 @@ The system prompt changes only for a new pick list. TypeScript fails the build i
 | Model call, stream, save | `backend/src/features/ai/ai.service.ts` |
 | Saved conversations | `backend/src/features/ai/conversations.service.ts` |
 | Tools and role map | `backend/src/features/ai/ai.tools.ts` |
-| System prompt and guardrail | `backend/src/features/ai/system-prompt.ts` |
+| System prompt and guardrail, its cache blocks | `backend/src/features/ai/system-prompt.ts` |
+| Standing instructions (Settings page) | `backend/src/features/ai/ai-instructions.service.ts`, `ai-instructions.controller.ts` (`GET`/`PUT /api/ai/instructions`); `frontend/src/features/settings/`, `routes/_authenticated/settings.tsx` |

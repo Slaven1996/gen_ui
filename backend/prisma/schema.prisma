@@ -44,6 +44,7 @@ model User {
   dashboards         Dashboard[]       @relation("DashboardOwner")
   conversations      Conversation[]    @relation("ConversationOwner")
   notifications      Notification[]    @relation("NotificationRecipient")
+  assistantInstructions AssistantInstructions[] @relation("InstructionsUpdatedBy")
 
   // Supports the admin user listing: ORDER BY created_at DESC, filtered by
   // role/is_active. The `search` filter is an unanchored ILIKE and needs a
@@ -328,6 +329,7 @@ enum AuditEntityType {
   SHIFT_ASSIGNMENT
   DASHBOARD
   USER
+  ASSISTANT_INSTRUCTIONS
 }
 
 /// The operator logbook: notes people write and events the system records.
@@ -565,4 +567,17 @@ model Conversation {
 
   @@index([userId, updatedAt(sort: Desc)])
   @@map("conversations")
+}
+
+/// The assistant's standing instructions, edited by admins on the Settings
+/// page: a single row with a fixed id, updated in place. Until the first save
+/// there is no row and the API uses the text built into the code.
+model AssistantInstructions {
+  id          String   @id @db.Uuid
+  content     String
+  updatedById String?  @map("updated_by_id") @db.Uuid
+  updatedBy   User?    @relation("InstructionsUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("assistant_instructions")
 }
