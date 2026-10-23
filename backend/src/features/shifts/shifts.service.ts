@@ -25,6 +25,7 @@ import {
   type ShiftCalendar,
   type ShiftCalendarQuery,
   type ShiftChangeResult,
+  type ShiftClashes,
   type ShiftRemoveResult,
   type ShiftScope,
   type ShiftTemplate,
@@ -64,6 +65,19 @@ interface Period {
   startsAt: Date;
   endsAt: Date;
 }
+
+/** A period someone would be on shift. */
+interface PersonPeriod extends Period {
+  userId: string;
+}
+
+/** A planned shift in the way of a new or moved one: enough to name it. */
+const clashSelect = {
+  startsAt: true,
+  user: { select: { name: true } },
+  template: { select: { name: true } },
+} as const satisfies Prisma.ShiftAssignmentSelect;
+type Clash = Prisma.ShiftAssignmentGetPayload<{ select: typeof clashSelect }>;
 
 const DAY_MS = 86_400_000;
 
@@ -309,6 +323,29 @@ export class ShiftsService {
   }
 
   /**
+   * The days a schedule request puts someone on: `date`, or with `repeat`
+   * each chosen weekday from it up to `until`, within the series limit.
+   */
+  occurrences(date: string, repeat?: { until: string; weekdays: number[] }): string[] {
+    if (!repeat) return [date];
+    if (repeat.until < date) throw new BadRequestException('The repeat end must be on or after the first day');
+    const dates = datesBetween(date, repeat.until, repeat.weekdays);
+    if (dates.length === 0) throw new BadRequestException('No dates match the chosen weekdays');
+    if (dates.length > MAX_SHIFT_OCCURRENCES) {
+      throw new BadRequestException(`That would create ${dates.length} shifts; the limit is ${MAX_SHIFT_OCCURRENCES}`);
+    }
+    return dates;
+  }
+
+  /**
+   * The shifts already planned that these would overlap, each period for its
+   * own person: what the assistant warns about before a form is saved.
+   */
+  async clashesFor(periods: readonly PersonPeriod[]): Promise<ShiftClashes | null> {
+    return this.summarize(await this.findClashes(periods));
+  }
+
+  /**
    * Schedules one person on a shift for one date, or — with `repeat` — on the
    * chosen weekdays up to a date, as one series. All or nothing: if any
    * occurrence would overlap one of their existing shifts, nothing is created.
@@ -322,12 +359,7 @@ export class ShiftsService {
     if (!template.isActive) throw new BadRequestException('This shift template is inactive');
     if (!user?.isActive) throw new BadRequestException('User not found or deactivated');
 
-    const dates = dto.repeat ? datesBetween(dto.date, dto.repeat.until, dto.repeat.weekdays) : [dto.date];
-    if (dates.length === 0) throw new BadRequestException('No dates match the chosen weekdays');
-    if (dates.length > MAX_SHIFT_OCCURRENCES) {
-      throw new BadRequestException(`That would create ${dates.length} shifts; the limit is ${MAX_SHIFT_OCCURRENCES}`);
-    }
-
+    const dates = this.occurrences(dto.date, dto.repeat);
     const startTime = dto.startTime ?? template.startTime;
     const durationMinutes = dto.durationMinutes ?? template.durationMinutes;
     const custom = startTime !== template.startTime || durationMinutes !== template.durationMinutes;
@@ -384,47 +416,13 @@ export class ShiftsService {
     scope: ShiftScope,
     actor: AuthUser,
   ): Promise<ShiftChangeResult> {
-    const current = await this.prisma.shiftAssignment.findUnique({ where: { id }, select: assignmentSelect });
-    if (!current) throw new NotFoundException('Shift assignment not found');
-
-    const movesInTime = SHIFT_TIME_FIELDS.some((field) => dto[field] !== undefined);
-    if (movesInTime && scope !== 'one') {
-      throw new BadRequestException('Change the day, time or shift of one shift at a time (scope=one)');
-    }
-    const { rows, skipped } = await this.scopeRows(current, scope);
+    const current = await this.findAssignment(id);
+    const { rows, skipped, reassigns, template, period } = await this.planUpdate(current, dto, scope);
     if (rows.length === 0) return { items: [], skipped };
 
-    const reassigns = dto.userId !== undefined && dto.userId !== current.user.id;
-    if (reassigns) {
-      const user = await this.prisma.user.findUnique({ where: { id: dto.userId }, select: { isActive: true } });
-      if (!user?.isActive) throw new BadRequestException('User not found or deactivated');
-    }
-
-    let template = current.template;
-    let period: Period | undefined;
-    if (movesInTime) {
-      if (dto.templateId && dto.templateId !== current.template.id) {
-        const next = await this.prisma.shiftTemplate.findUnique({
-          where: { id: dto.templateId },
-          select: { id: true, name: true, color: true, startTime: true, durationMinutes: true, isActive: true },
-        });
-        if (!next) throw new BadRequestException('Shift template not found');
-        if (!next.isActive) throw new BadRequestException('This shift template is inactive');
-        template = next;
-      }
-      // Unchanged parts keep their current local values; a new template brings its own times.
-      const local = localPeriod(current.startsAt, current.endsAt, this.timeZone);
-      const newTemplate = template.id !== current.template.id;
-      period = shiftPeriod(
-        dto.date ?? local.date,
-        dto.startTime ?? (newTemplate ? template.startTime : local.startTime),
-        dto.durationMinutes ?? (newTemplate ? template.durationMinutes : local.durationMinutes),
-        this.timeZone,
-      );
-    }
-
+    // `period` is set exactly when the change moves the shift in time.
     const seriesId =
-      scope === 'one' && current.seriesId && (movesInTime || reassigns)
+      scope === 'one' && current.seriesId && (period || reassigns)
         ? null
         : scope === 'following' && current.seriesId && reassigns
           ? randomUUID()
@@ -480,10 +478,33 @@ export class ShiftsService {
     return { items: await this.getAssignments(ids), skipped };
   }
 
+  /**
+   * The shifts already planned that `updateAssignment` would find in the way,
+   * without changing anything: what the assistant warns about when it opens
+   * the edit form. Null when the change moves nobody in time or to anyone else.
+   */
+  async updateClashes(id: string, dto: UpdateShiftAssignmentDto, scope: ShiftScope): Promise<ShiftClashes | null> {
+    const current = await this.findAssignment(id);
+    const { rows, reassigns, period } = await this.planUpdate(current, dto, scope);
+    if (rows.length === 0 || !(reassigns || period)) return null;
+    // As `updateAssignment` checks: the new period, or the shifts handed over, for whoever ends up with them.
+    const userId = dto.userId ?? current.user.id;
+    const periods: Period[] = period ? [period] : rows;
+    const clashes = await this.findClashes(
+      periods.map(({ startsAt, endsAt }) => ({ userId, startsAt, endsAt })),
+      { excludeIds: rows.map((row) => row.id) },
+    );
+    return this.summarize(clashes);
+  }
+
+  /** How many shifts of a series are still planned from now on. */
+  countUpcomingInSeries(seriesId: string): Promise<number> {
+    return this.prisma.shiftAssignment.count({ where: { seriesId, startsAt: { gt: new Date() } } });
+  }
+
   /** Removes one shift, or the rest or all of its series that haven't started yet. */
   async removeAssignment(id: string, scope: ShiftScope, actor: AuthUser): Promise<ShiftRemoveResult> {
-    const current = await this.prisma.shiftAssignment.findUnique({ where: { id }, select: assignmentSelect });
-    if (!current) throw new NotFoundException('Shift assignment not found');
+    const current = await this.findAssignment(id);
 
     const { rows, skipped } = await this.scopeRows(current, scope);
     if (rows.length === 0) return { removed: 0, skipped };
@@ -525,45 +546,9 @@ export class ShiftsService {
    * planned for that person, nothing is created and the clashes are listed.
    */
   async copyWeek(dto: CopyShiftWeekDto, actor: AuthUser): Promise<ShiftChangeResult> {
-    const monday = startOfWeek(dto.week);
-    const sources = await this.prisma.shiftAssignment.findMany({
-      where: {
-        startsAt: { gte: zonedDay(monday, this.timeZone).start, lt: zonedDay(addDays(monday, 6), this.timeZone).end },
-        ...(dto.userId && { userId: { in: dto.userId } }),
-        ...(dto.templateId && { templateId: { in: dto.templateId } }),
-      },
-      select: {
-        templateId: true,
-        userId: true,
-        role: true,
-        notes: true,
-        startsAt: true,
-        endsAt: true,
-        user: { select: { isActive: true } },
-        template: { select: { isActive: true, name: true } },
-      },
-      orderBy: { startsAt: 'asc' },
-    });
-    const usable = sources.filter((source) => source.user.isActive && source.template.isActive);
-    if (usable.length === 0) throw new BadRequestException('There are no shifts to copy in that week');
-
-    const rows = usable.flatMap((source) => {
-      // Each shift's copies form a series, so "remove the following" works on them.
-      const seriesId = randomUUID();
-      return planCopy(source, dto.weeks, this.timeZone).map((period) => ({
-        id: randomUUID(),
-        seriesId,
-        templateId: source.templateId,
-        userId: source.userId,
-        role: source.role,
-        notes: source.notes,
-        ...period,
-        createdById: actor.id,
-      }));
-    });
-    if (rows.length > MAX_COPIED_SHIFTS) {
-      throw new BadRequestException(`That would create ${rows.length} shifts; the limit is ${MAX_COPIED_SHIFTS}`);
-    }
+    const plan = await this.planWeekCopy(dto);
+    const { monday, usable, skipped } = plan;
+    const rows = plan.rows.map((row) => ({ ...row, createdById: actor.id }));
 
     // One notice per person, about all the copies of their shifts.
     const templateNames = new Map(usable.map((source) => [source.templateId, source.template.name]));
@@ -587,11 +572,7 @@ export class ShiftsService {
     );
 
     const addressed = await this.uow.run(async (tx) => {
-      const clashes = await tx.shiftAssignment.findMany({
-        where: { OR: rows.map((row) => ({ userId: row.userId, startsAt: { lt: row.endsAt }, endsAt: { gt: row.startsAt } })) },
-        select: { startsAt: true, user: { select: { name: true } }, template: { select: { name: true } } },
-        orderBy: { startsAt: 'asc' },
-      });
+      const clashes = await this.findClashes(rows, { db: tx });
       if (clashes.length > 0) {
         const examples = clashes
           .slice(0, 3)
@@ -615,7 +596,16 @@ export class ShiftsService {
     });
     this.notifications.push(addressed);
 
-    return { items: await this.getAssignments(rows.map((row) => row.id)), skipped: sources.length - usable.length };
+    return { items: await this.getAssignments(rows.map((row) => row.id)), skipped };
+  }
+
+  /**
+   * What copying a week would do, without copying: how many shifts it makes,
+   * how many it leaves out, and the planned shifts the copies would overlap.
+   */
+  async previewCopy(dto: CopyShiftWeekDto): Promise<{ copies: number; skipped: number; clashes: ShiftClashes | null }> {
+    const { rows, skipped } = await this.planWeekCopy(dto);
+    return { copies: rows.length, skipped, clashes: this.summarize(await this.findClashes(rows)) };
   }
 
   // ─── On duty ──────────────────────────────────────────────────────────────
@@ -655,6 +645,149 @@ export class ShiftsService {
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
+
+  private async findAssignment(id: string): Promise<AssignmentRecord> {
+    const current = await this.prisma.shiftAssignment.findUnique({ where: { id }, select: assignmentSelect });
+    if (!current) throw new NotFoundException('Shift assignment not found');
+    return current;
+  }
+
+  /**
+   * What an update would do, checked but not written: the shifts it applies
+   * to (`skipped`: those that already started), whether it hands them to
+   * someone else, and for a move in time the template and new period.
+   */
+  private async planUpdate(
+    current: AssignmentRecord,
+    dto: UpdateShiftAssignmentDto,
+    scope: ShiftScope,
+  ): Promise<{
+    rows: AssignmentRecord[];
+    skipped: number;
+    reassigns: boolean;
+    template: { id: string; name: string };
+    period: Period | undefined;
+  }> {
+    const movesInTime = SHIFT_TIME_FIELDS.some((field) => dto[field] !== undefined);
+    if (movesInTime && scope !== 'one') {
+      throw new BadRequestException('Change the day, time or shift of one shift at a time (scope=one)');
+    }
+    const { rows, skipped } = await this.scopeRows(current, scope);
+    if (rows.length === 0) return { rows, skipped, reassigns: false, template: current.template, period: undefined };
+
+    const reassigns = dto.userId !== undefined && dto.userId !== current.user.id;
+    if (reassigns) {
+      const user = await this.prisma.user.findUnique({ where: { id: dto.userId }, select: { isActive: true } });
+      if (!user?.isActive) throw new BadRequestException('User not found or deactivated');
+    }
+
+    let template = current.template;
+    let period: Period | undefined;
+    if (movesInTime) {
+      if (dto.templateId && dto.templateId !== current.template.id) {
+        const next = await this.prisma.shiftTemplate.findUnique({
+          where: { id: dto.templateId },
+          select: { id: true, name: true, color: true, startTime: true, durationMinutes: true, isActive: true },
+        });
+        if (!next) throw new BadRequestException('Shift template not found');
+        if (!next.isActive) throw new BadRequestException('This shift template is inactive');
+        template = next;
+      }
+      // Unchanged parts keep their current local values; a new template brings its own times.
+      const local = localPeriod(current.startsAt, current.endsAt, this.timeZone);
+      const newTemplate = template.id !== current.template.id;
+      period = shiftPeriod(
+        dto.date ?? local.date,
+        dto.startTime ?? (newTemplate ? template.startTime : local.startTime),
+        dto.durationMinutes ?? (newTemplate ? template.durationMinutes : local.durationMinutes),
+        this.timeZone,
+      );
+    }
+    return { rows, skipped, reassigns, template, period };
+  }
+
+  /**
+   * The copies of a week, planned but not written (no `createdById` yet):
+   * the source shifts still usable, and how many were left out.
+   */
+  private async planWeekCopy(dto: CopyShiftWeekDto) {
+    const monday = startOfWeek(dto.week);
+    const sources = await this.prisma.shiftAssignment.findMany({
+      where: {
+        startsAt: { gte: zonedDay(monday, this.timeZone).start, lt: zonedDay(addDays(monday, 6), this.timeZone).end },
+        ...(dto.userId && { userId: { in: dto.userId } }),
+        ...(dto.templateId && { templateId: { in: dto.templateId } }),
+      },
+      select: {
+        templateId: true,
+        userId: true,
+        role: true,
+        notes: true,
+        startsAt: true,
+        endsAt: true,
+        user: { select: { isActive: true } },
+        template: { select: { isActive: true, name: true } },
+      },
+      orderBy: { startsAt: 'asc' },
+    });
+    const usable = sources.filter((source) => source.user.isActive && source.template.isActive);
+    if (usable.length === 0) throw new BadRequestException('There are no shifts to copy in that week');
+
+    const rows = usable.flatMap((source) => {
+      // Each shift's copies form a series, so "remove the following" works on them.
+      const seriesId = randomUUID();
+      return planCopy(source, dto.weeks, this.timeZone).map((period) => ({
+        id: randomUUID(),
+        seriesId,
+        templateId: source.templateId,
+        userId: source.userId,
+        role: source.role,
+        notes: source.notes,
+        ...period,
+      }));
+    });
+    if (rows.length > MAX_COPIED_SHIFTS) {
+      throw new BadRequestException(`That would create ${rows.length} shifts; the limit is ${MAX_COPIED_SHIFTS}`);
+    }
+    return { monday, usable, rows, skipped: sources.length - usable.length };
+  }
+
+  /**
+   * The planned shifts that `periods` overlap, each period for its own
+   * person, earliest first. `excludeIds` are the shifts being changed themselves.
+   */
+  private async findClashes(
+    periods: readonly PersonPeriod[],
+    { excludeIds = [], db = this.prisma }: { excludeIds?: readonly string[]; db?: Db } = {},
+  ): Promise<Clash[]> {
+    if (periods.length === 0) return [];
+    return db.shiftAssignment.findMany({
+      where: {
+        ...(excludeIds.length > 0 && { id: { notIn: [...excludeIds] } }),
+        OR: periods.map((period) => ({
+          userId: period.userId,
+          startsAt: { lt: period.endsAt },
+          endsAt: { gt: period.startsAt },
+        })),
+      },
+      select: clashSelect,
+      orderBy: { startsAt: 'asc' },
+    });
+  }
+
+  /** Clashes as the assistant reads them: how many, and the first three named. */
+  private summarize(clashes: readonly Clash[]): ShiftClashes | null {
+    if (clashes.length === 0) return null;
+    return {
+      count: clashes.length,
+      examples: clashes
+        .slice(0, 3)
+        .map(
+          (clash) =>
+            `${clash.user.name}, ${clash.template.name} on ${zonedDate(clash.startsAt, this.timeZone)} ${zonedTime(clash.startsAt, this.timeZone)}`,
+        ),
+    };
+  }
 
   private noticeContext(actor: AuthUser): ShiftNoticeContext {
     return { by: actor, timeZone: this.timeZone, now: new Date() };
@@ -741,15 +874,10 @@ export class ShiftsService {
     db: Db,
     excludeIds: readonly string[] = [],
   ): Promise<void> {
-    const clash = await db.shiftAssignment.findFirst({
-      where: {
-        userId,
-        ...(excludeIds.length > 0 && { id: { notIn: [...excludeIds] } }),
-        OR: periods.map((period) => ({ startsAt: { lt: period.endsAt }, endsAt: { gt: period.startsAt } })),
-      },
-      select: { startsAt: true, user: { select: { name: true } }, template: { select: { name: true } } },
-      orderBy: { startsAt: 'asc' },
-    });
+    const [clash] = await this.findClashes(
+      periods.map(({ startsAt, endsAt }) => ({ userId, startsAt, endsAt })),
+      { excludeIds, db },
+    );
     if (clash) {
       throw new ConflictException(
         `Overlaps ${clash.user.name}’s ${clash.template.name} shift on ${zonedDate(clash.startsAt, this.timeZone)} at ${zonedTime(clash.startsAt, this.timeZone)}`,

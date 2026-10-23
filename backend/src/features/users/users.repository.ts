@@ -73,9 +73,9 @@ export class UsersRepository {
     return { items, total };
   }
 
-  listOptions(): Promise<Array<{ id: string; name: string }>> {
+  listOptions(isActive = true): Promise<Array<{ id: string; name: string }>> {
     return this.prisma.user.findMany({
-      where: { isActive: true },
+      where: { isActive },
       select: { id: true, name: true },
       orderBy: { name: 'asc' },
     });

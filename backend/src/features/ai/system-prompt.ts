@@ -15,8 +15,9 @@ import type { FilterOptions, FormAccess } from './ai.tools.js';
  * for a new pick list. Besides the page map, it carries the pick lists the
  * tools share: the assets and the people the app's dropdowns offer, with
  * their ids, the shift templates, every device, tag and alarm rule (for the
- * details cards, charts and forms that take them), and the user's own latest
- * logbook entries.
+ * details cards, charts and forms that take them), the user's own latest
+ * logbook entries, and the deactivated people, whose planned shifts the shift
+ * tools still need to name.
  * Claude matches the user's words to these lists itself (typos, partial
  * names, Serbian); no code does. The session names two clocks: the user's,
  * and the plant's, which shift dates and times are on.
@@ -63,7 +64,7 @@ export const DEFAULT_INSTRUCTIONS = `You are the assistant inside this web app, 
 - If the request is about the app but none of your tools covers it, say you can't look that up yet and name the page where the user can find it.
 
 ## Pick lists
-Fields that name an asset, a person, a device, a tag, an alarm rule, a logbook entry or a shift template take ids. Use only the ids in the lists below (<assets>, <people>, and <devices>, <tags>, <alarm-rules>, <your-logbook-entries> and <shift-templates> when given): the same choices the app's dropdowns offer. <your-logbook-entries> holds only the user's own latest entries, with times in the session's time zone.
+Fields that name an asset, a person, a device, a tag, an alarm rule, a logbook entry or a shift template take ids. Use only the ids in the lists below (<assets>, <people>, and <devices>, <tags>, <alarm-rules>, <your-logbook-entries>, <shift-templates> and <former-people> when given): the same choices the app's dropdowns offer. <your-logbook-entries> holds only the user's own latest entries, with times in the session's time zone. <former-people> are deactivated accounts: use them only to find the shifts they still hold.
 - Match the user's words to a name or code there, allowing for typos and partial names. Words in Serbian, or a description ("visok nivo u mokrom bunaru"), match the entry they mean.
 - An asset covers everything indented under it, so a site brings all its equipment and a district all its sites.
 - One asset per lookup. For several assets, make one call for each.
@@ -152,10 +153,11 @@ function listed<T>(tag: string, items: T[], line: (item: T) => string): string {
  * and the user's own entries, at the user's local time ("2026-10-06 14:05 ·
  * maintenance · Pump 1 drive firmware updated · Pump 1 · <id>"). The shift
  * templates carry their plant-time hours ("Night · 22:00–06:00 · <id>"),
- * and a switched-off one says so.
+ * and a switched-off one says so. Deactivated people are listed only when
+ * there are any ("Liam Carter · deactivated · <id>").
  */
 function pickLists(
-  { assets, people, devices, tags, rules, entries, shiftTemplates }: FilterOptions,
+  { assets, people, formerPeople, devices, tags, rules, entries, shiftTemplates }: FilterOptions,
   timeZone: string,
 ): string {
   const lists = [
@@ -166,6 +168,9 @@ function pickLists(
     ),
     listed('people', people, (person) => `${person.name} · ${person.id}`),
   ];
+  if (formerPeople && formerPeople.length > 0) {
+    lists.push(listed('former-people', formerPeople, (person) => `${person.name} · deactivated · ${person.id}`));
+  }
   if (devices) {
     lists.push(
       listed('devices', devices, (device) => `${device.name} · ${device.serialNumber} · ${device.asset} · ${device.id}`),

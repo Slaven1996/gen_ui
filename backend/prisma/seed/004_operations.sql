@@ -6,7 +6,8 @@
 --
 -- Generated rows get deterministic ids from pg_temp.seed_uuid(key), so a
 -- re-run finds them and ON CONFLICT DO NOTHING skips them. Times are relative
--- to the first run; re-runs add the shift plan for new days.
+-- to the first run; re-runs add the shift plan for new days. The one fixed
+-- period is the shift plan's September to November 2026, fully staffed.
 --
 -- Shifts are planned in SHIFT_TIME_ZONE below (a "06:00" morning shift is
 -- 06:00 there). Change it to plan in another zone.
@@ -232,17 +233,24 @@ ON CONFLICT (id) DO NOTHING;
 -- ─── Shift plan ─────────────────────────────────────────────────────────────
 -- Three operators rotate weekly through morning, afternoon and night; Ava
 -- supervises weekday mornings; the admin covers weekend on-call.
--- From a week back to three weeks ahead of whenever the seed runs, in the
--- plant time zone (SHIFT_TIME_ZONE, which seed.ts hands over as a setting).
--- Each person's week on one shift is a series. The night operator nine days
--- ahead is left out, so the calendar has a staffing gap to show.
+-- From a week back to three weeks ahead of whenever the seed runs, and every
+-- day from 2026-09-01 to 2026-11-30, in the plant time zone (SHIFT_TIME_ZONE,
+-- which seed.ts hands over as a setting). Each person's week on one shift is
+-- a series. The night operator nine days ahead is left out, so the calendar
+-- has a staffing gap to show, unless that day falls in the fully staffed
+-- months: there every staffing target is met.
 
 WITH params AS (
-  SELECT COALESCE(NULLIF(current_setting('app.shift_time_zone', true), ''), 'Europe/Budapest') AS tz
+  SELECT COALESCE(NULLIF(current_setting('app.shift_time_zone', true), ''), 'Europe/Budapest') AS tz,
+         DATE '2026-09-01' AS staffed_from,
+         DATE '2026-11-30' AS staffed_to
 ),
 days AS (
   SELECT d::date AS day
   FROM params, generate_series((now() AT TIME ZONE tz)::date - 7, (now() AT TIME ZONE tz)::date + 21, INTERVAL '1 day') AS d
+  UNION
+  SELECT d::date
+  FROM params, generate_series(staffed_from, staffed_to, INTERVAL '1 day') AS d
 ),
 crew AS (
   SELECT id, row_number() OVER (ORDER BY email) - 1 AS k
@@ -288,7 +296,8 @@ FROM plan p
 JOIN shift_templates t ON t.id = p.template_id
 CROSS JOIN params
 WHERE NOT (p.template_id = '50000000-0000-4000-8000-000000000003' AND p.role = 'OPERATOR'
-           AND p.day = (now() AT TIME ZONE params.tz)::date + 9)
+           AND p.day = (now() AT TIME ZONE params.tz)::date + 9
+           AND p.day NOT BETWEEN params.staffed_from AND params.staffed_to)
 -- No conflict target: besides re-runs (same id), this also skips a seeded
 -- shift that would overlap one somebody scheduled by hand since.
 ON CONFLICT DO NOTHING;

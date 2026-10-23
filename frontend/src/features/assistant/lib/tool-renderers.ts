@@ -78,7 +78,8 @@ export const RENDERERS: { [N in ListToolName]: ToolRenderer<N> } = {
     link: (input) => ({ to: '/shifts', search: withoutTitle(input) }),
     Body: ShiftCalendarBody,
     found: (output) => {
-      const missing = output.gaps.reduce((sum, gap) => sum + gap.missing, 0);
+      // `short` counts every gap; answers saved before it existed have only the gaps listed.
+      const missing = output.short ?? output.gaps.reduce((sum, gap) => sum + gap.missing, 0);
       return plural(output.total, 'shift') + (missing > 0 ? ` · ${plural(missing, 'person', 'people')} short` : '');
     },
   },

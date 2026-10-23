@@ -41,6 +41,7 @@ import { EditLogbookEntryBody } from '../components/form-bodies/edit-logbook-ent
 import { EditShiftBody } from '../components/form-bodies/edit-shift-body';
 import { EditShiftTemplateBody } from '../components/form-bodies/edit-shift-template-body';
 import { EditTagBody } from '../components/form-bodies/edit-tag-body';
+import { RemoveShiftBody } from '../components/form-bodies/remove-shift-body';
 import { ScheduleShiftBody } from '../components/form-bodies/schedule-shift-body';
 import type { FormRenderer } from '../types';
 import { afterEdit, byLabel, describeChanges, savedEdit, shownValue, type ChangeLabels } from './form-changes';
@@ -229,6 +230,17 @@ export const FORM_RENDERERS: { [N in FormToolName]: FormRenderer<N> } = {
         : `Saved ${which} without changes`;
     },
     link: ({ changed }, { shift }) => ({ to: '/shifts', search: { date: afterEdit(changed, 'date', shift.date) } }),
+  },
+  removeShift: {
+    pending: 'Opening the shift…',
+    label: FORM_TITLES.removeShift,
+    Form: RemoveShiftBody,
+    saved: ({ removed }, { shift }) => {
+      const which = `${shift.person}’s ${shift.shift} shift on ${shift.date}`;
+      const head = removed.shift ? `Removed ${which}` : `Kept ${which}: it had already started`;
+      return removed.remaining === null ? head : `${head}; ${shiftCount(removed.remaining)} of its series still planned`;
+    },
+    link: (_, { shift }) => ({ to: '/shifts', search: { date: shift.date } }),
   },
   copyShiftWeek: {
     pending: 'Opening the Copy a week form…',

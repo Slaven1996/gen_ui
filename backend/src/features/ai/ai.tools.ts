@@ -2,6 +2,8 @@ import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/commo
 import { tool, type InferUITools } from 'ai';
 import {
   addDays,
+  addMonths,
+  coverageOverlap,
   FORM_TOOL_NAMES,
   genUiToolSchemas,
   GraphQuerySchema,
@@ -20,6 +22,7 @@ import {
   OPEN_ALARM_STATES,
   SHIFT_TIME_FIELDS,
   ShiftCalendarQuerySchema,
+  shiftPeriod,
   startOfWeek,
   zonedDate,
   zonedTime,
@@ -37,6 +40,7 @@ import {
   type Role,
   type RuleSnapshot,
   type ShiftAssignment,
+  type ShiftCoverageRule,
   type ShiftSnapshot,
   type ShiftTemplate,
   type ShiftTemplateSnapshot,
@@ -72,6 +76,12 @@ const OWN_ENTRIES_FOR_MODEL = 30;
 /** Shifts handed to the model per calendar: a busy week fits; the calendar in the chat shows the rest. */
 const SHIFTS_FOR_MODEL = 60;
 
+/** Staffing gaps handed to the model per calendar; `short` counts them all. An unplanned month has ~180. */
+const GAPS_FOR_MODEL = 40;
+
+/** Weekday names by `weekdayOf` number, 0 = Sunday, for messages Claude reads. */
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
 /**
  * The choices the pages' pickers offer: the asset tree (`AssetSelect`, from
  * `GET /assets/tree`) and the active people (`UserFilter`, from
@@ -83,14 +93,17 @@ const SHIFTS_FOR_MODEL = 60;
  * `tagIds`, `ruleId`: the choices the device and tag pickers offer, the tags
  * a chart or a dashboard draft's widgets show, the records a details card shows and those an admin can
  * open to edit), the user's own latest logbook entries (`entryId`: the ones
- * they may edit), and the shift templates (`templateId`: the Shifts page's
- * Shift dropdown). The details cards are offered to everyone, so devices,
- * tags and rules are in practice always listed.
+ * they may edit), the shift templates (`templateId`: the Shifts page's
+ * Shift dropdown), and the deactivated people (`formerPeople`: only to find
+ * shifts they still hold, which count as unfilled). The details cards and
+ * the shift calendar are offered to everyone, so devices, tags, rules and
+ * shift templates are in practice always listed.
  * `plantTimeZone` is the zone shift dates are in, for the prompt.
  */
 export interface FilterOptions {
   assets: AssetTreeNode[];
   people: UserRef[];
+  formerPeople?: UserRef[];
   devices?: DeviceOption[];
   tags?: TagOption[];
   rules?: AlarmRuleOption[];
@@ -112,9 +125,10 @@ export interface FormAccess {
  * quietly filter everything out, or open the wrong record in a form, so the
  * tool refuses it; Claude reads the error and tries again.
  */
-function idChecks({ assets, people, devices, tags, rules, entries, shiftTemplates }: FilterOptions) {
+function idChecks({ assets, people, formerPeople, devices, tags, rules, entries, shiftTemplates }: FilterOptions) {
   const assetsById = new Map(assets.map((asset) => [asset.id, asset]));
   const peopleById = new Map(people.map((person) => [person.id, person]));
+  const formerById = new Map(formerPeople?.map((person) => [person.id, person]));
   const templatesById = new Map(shiftTemplates?.map((template) => [template.id, template]));
   const devicesById = new Map(devices?.map((device) => [device.id, device]));
   const tagsById = new Map(tags?.map((tag) => [tag.id, tag]));
@@ -130,6 +144,15 @@ function idChecks({ assets, people, devices, tags, rules, entries, shiftTemplate
   const person = (id: string): UserRef => {
     const found = peopleById.get(id);
     if (!found) throw new Error(`Unknown person id ${id}: use an id from the people list.`);
+    return found;
+  };
+  const shiftOwner = (id: string): UserRef => {
+    const found = peopleById.get(id) ?? formerById.get(id);
+    if (!found) {
+      throw new Error(
+        `Unknown person id ${id}: use an id from the people list, or from the former-people list for someone deactivated.`,
+      );
+    }
     return found;
   };
   const template = (id: string): ShiftTemplate => {
@@ -152,7 +175,30 @@ function idChecks({ assets, people, devices, tags, rules, entries, shiftTemplate
     people(ids: string[] | undefined): void {
       for (const id of ids ?? []) person(id);
     },
+    shiftOwner,
+    shiftOwners(ids: string[] | undefined): void {
+      for (const id of ids ?? []) shiftOwner(id);
+    },
     template,
+    /**
+     * A shift template's new values the form could save: a name no other
+     * template has (names are unique), and one staffing rule per role and weekday.
+     */
+    templateValues(
+      { name, coverage }: { name?: string; coverage?: Pick<ShiftCoverageRule, 'role' | 'weekdays'>[] },
+      exceptId?: string,
+    ): void {
+      const taken = name && shiftTemplates?.find((other) => other.name === name.trim() && other.id !== exceptId);
+      if (taken) {
+        throw new Error(`There is already a shift named ${taken.name}: choose another name, or edit that one.`);
+      }
+      const overlap = coverage && coverageOverlap(coverage);
+      if (overlap) {
+        throw new Error(
+          `Two staffing rules give ${overlap.role} on ${WEEKDAYS[overlap.weekday]}: each role has one rule per weekday, so merge them.`,
+        );
+      }
+    },
     templates(ids: string[] | undefined): void {
       for (const id of ids ?? []) template(id);
     },
@@ -338,6 +384,7 @@ const TOOL_ROLES = {
   editLogbookEntry: ['ADMIN', 'USER'],
   scheduleShift: ['ADMIN'],
   editShift: ['ADMIN'],
+  removeShift: ['ADMIN'],
   copyShiftWeek: ['ADMIN'],
   createShiftTemplate: ['ADMIN'],
   editShiftTemplate: ['ADMIN'],
@@ -382,18 +429,37 @@ export class AiTools {
    */
   async filterOptions(user: AuthUser, active: GenUIToolName[]): Promise<FilterOptions> {
     const takenBy = (...names: GenUIToolName[]) => names.some((name) => active.includes(name));
-    const [assets, people, devices, tags, rules, entries, shiftTemplates] = await Promise.all([
+    const [assets, people, formerPeople, devices, tags, rules, entries, shiftTemplates] = await Promise.all([
       this.assets.tree(),
       this.users.options(),
+      takenBy('showShiftCalendar', 'editShift', 'removeShift') ? this.users.formerOptions() : undefined,
       takenBy('showDevice', 'editDevice', 'createTag') ? this.devices.options() : undefined,
       takenBy('showTag', 'createAlarmRule', 'editTag', 'plotTags', 'createDashboard') ? this.tags.options() : undefined,
       takenBy('showAlarmRule', 'editAlarmRule') ? this.alarmRules.options() : undefined,
       takenBy('editLogbookEntry') ? this.logbook.options(user.id, OWN_ENTRIES_FOR_MODEL) : undefined,
-      takenBy('showShiftCalendar', 'scheduleShift', 'editShift', 'copyShiftWeek', 'editShiftTemplate')
+      takenBy(
+        'showShiftCalendar',
+        'scheduleShift',
+        'editShift',
+        'removeShift',
+        'copyShiftWeek',
+        'createShiftTemplate',
+        'editShiftTemplate',
+      )
         ? this.shifts.listTemplates()
         : undefined,
     ]);
-    return { assets, people, devices, tags, rules, entries, shiftTemplates, plantTimeZone: this.shifts.timeZone };
+    return {
+      assets,
+      people,
+      formerPeople,
+      devices,
+      tags,
+      rules,
+      entries,
+      shiftTemplates,
+      plantTimeZone: this.shifts.timeZone,
+    };
   }
 
   /**
@@ -410,6 +476,30 @@ export class AiTools {
     // TOOL_ROLES already keeps admin-only tools from everyone else; this is the second lock.
     const adminOnly = (what: string) => {
       if (user.role !== 'ADMIN') throw new ForbiddenException(`${what} is for admins only.`);
+    };
+    /**
+     * The one shift `userId` has starting on plant day `date` (of
+     * `templateId`, if given), as the edit and remove forms name it. None or
+     * several: Claude hears what that person has that day.
+     */
+    const findShift = async ({ userId, date, templateId }: { userId: string; date: string; templateId?: string }) => {
+      const person = known.shiftOwner(userId);
+      if (templateId !== undefined) known.template(templateId);
+      const found = await this.shifts.findStarting({ userId, date, templateId });
+      if (found.length !== 1) {
+        const thatDay = templateId === undefined ? found : await this.shifts.findStarting({ userId, date });
+        const hours = (shift: ShiftAssignment) =>
+          `${zonedTime(shift.startsAt, plantZone)}–${zonedTime(shift.endsAt, plantZone)}`;
+        const listed = thatDay
+          .map((shift) => `${shift.template.name} ${hours(shift)} (template id ${shift.template.id})`)
+          .join('; ');
+        throw new Error(
+          found.length === 0
+            ? `${person.name} has no ${templateId === undefined ? '' : 'such '}shift starting on ${date}${listed ? `. That day they have: ${listed}` : ''}.`
+            : `${person.name} has ${found.length} shifts starting on ${date}: ${listed}. Call again with the templateId of the one meant.`,
+        );
+      }
+      return found[0];
     };
     return {
       listUsers: tool({
@@ -530,18 +620,26 @@ export class AiTools {
         ...genUiToolSchemas.showShiftCalendar,
         // `title` only labels the calendar and `group` only lays out its week; the rest is the `/shifts/calendar` query.
         execute: async ({ title: _title, group: _group, ...filters }) => {
-          known.people(filters.userId);
+          known.shiftOwners(filters.userId);
           known.templates(filters.templateId);
           const calendar = await this.shifts.calendar(ShiftCalendarQuerySchema.parse(filters));
           const zone = calendar.timeZone;
+          // A month's grid runs Monday to Sunday, so it starts and ends with days of the months
+          // around it: "in October" means October's own days.
+          const month = calendar.view === 'month';
+          const first = month ? `${calendar.date.slice(0, 7)}-01` : calendar.from;
+          const last = month ? addDays(addMonths(first, 1), -1) : calendar.to;
+          const inPeriod = (date: string) => date >= first && date <= last;
           // Each shift under the day it starts, as the calendar files it: not the night that began the evening before.
-          const shifts = calendar.items.filter((item) => item.date >= calendar.from && item.date <= calendar.to);
+          const shifts = calendar.items.filter((item) => inPeriod(item.date));
+          const gaps = calendar.coverage.filter((entry) => inPeriod(entry.date) && entry.filled < entry.required);
           const templateNames = new Map(calendar.templates.map((template) => [template.id, template.name]));
+          const deactivated = [...new Set(shifts.filter((shift) => !shift.user.isActive).map((shift) => shift.user.name))];
           return {
             timeZone: zone,
             view: calendar.view,
-            from: calendar.from,
-            to: calendar.to,
+            from: first,
+            to: last,
             total: shifts.length,
             shifts: shifts.slice(0, SHIFTS_FOR_MODEL).map((shift) => ({
               date: shift.date,
@@ -552,14 +650,14 @@ export class AiTools {
               role: shift.role,
               notes: clip(shift.notes),
             })),
-            gaps: calendar.coverage
-              .filter((entry) => entry.filled < entry.required)
-              .map((entry) => ({
-                date: entry.date,
-                shift: templateNames.get(entry.templateId) ?? entry.templateId,
-                role: entry.role,
-                missing: entry.required - entry.filled,
-              })),
+            gaps: gaps.slice(0, GAPS_FOR_MODEL).map((entry) => ({
+              date: entry.date,
+              shift: templateNames.get(entry.templateId) ?? entry.templateId,
+              role: entry.role,
+              missing: entry.required - entry.filled,
+            })),
+            short: gaps.reduce((sum, entry) => sum + entry.required - entry.filled, 0),
+            ...(deactivated.length > 0 && { deactivated }),
           };
         },
       }),
@@ -891,13 +989,41 @@ export class AiTools {
 
       scheduleShift: tool({
         ...genUiToolSchemas.scheduleShift,
-        execute: async ({ userId, templateId }): Promise<FormOutput<'scheduleShift'>> => {
+        execute: async ({
+          userId,
+          templateId,
+          date,
+          startTime,
+          durationMinutes,
+          repeat,
+        }): Promise<FormOutput<'scheduleShift'>> => {
           adminOnly('Scheduling shifts');
+          const person = userId === undefined ? undefined : known.person(userId);
+          const template = templateId === undefined ? undefined : known.activeTemplate(templateId);
+          // The days the form would schedule (today on the plant's calendar, as the form starts):
+          // a repeat it could never save is refused now, not on Save.
+          const dates = this.shifts.occurrences(date ?? zonedDate(new Date(), plantZone), repeat);
+          // With both a person and a shift, the hours are known: the shifts of theirs it would overlap.
+          const clashes =
+            person && template
+              ? await this.shifts.clashesFor(
+                  dates.map((day) => ({
+                    userId: person.id,
+                    ...shiftPeriod(
+                      day,
+                      startTime ?? template.startTime,
+                      durationMinutes ?? template.durationMinutes,
+                      plantZone,
+                    ),
+                  })),
+                )
+              : null;
           return {
             status: 'opened' as const,
-            person: userId === undefined ? null : known.person(userId).name,
-            shift: templateId === undefined ? null : known.activeTemplate(templateId).name,
+            person: person?.name ?? null,
+            shift: template?.name ?? null,
             timeZone: plantZone,
+            ...(clashes && { clashes }),
           };
         },
       }),
@@ -906,27 +1032,9 @@ export class AiTools {
         ...genUiToolSchemas.editShift,
         execute: async ({ userId, date, templateId, scope = 'one', changes }): Promise<FormOutput<'editShift'>> => {
           adminOnly('Editing shifts');
-          const person = known.person(userId);
-          if (templateId !== undefined) known.template(templateId);
           if (changes?.userId !== undefined) known.person(changes.userId);
           if (changes?.templateId !== undefined) known.activeTemplate(changes.templateId);
-
-          // The shift is named by whose it is and the day it starts: one match, or Claude hears what there is.
-          const found = await this.shifts.findStarting({ userId, date, templateId });
-          if (found.length !== 1) {
-            const thatDay = templateId === undefined ? found : await this.shifts.findStarting({ userId, date });
-            const hours = (shift: ShiftAssignment) =>
-              `${zonedTime(shift.startsAt, plantZone)}–${zonedTime(shift.endsAt, plantZone)}`;
-            const listed = thatDay
-              .map((shift) => `${shift.template.name} ${hours(shift)} (template id ${shift.template.id})`)
-              .join('; ');
-            throw new Error(
-              found.length === 0
-                ? `${person.name} has no ${templateId === undefined ? '' : 'such '}shift starting on ${date}${listed ? `. That day they have: ${listed}` : ''}.`
-                : `${person.name} has ${found.length} shifts starting on ${date}: ${listed}. Call again with the templateId of the one meant.`,
-            );
-          }
-          const shift = found[0];
+          const shift = await findShift({ userId, date, templateId });
 
           // A shift outside a series is its own whole series; the service only moves one shift in time at once.
           const effectiveScope = shift.seriesId ? scope : 'one';
@@ -935,6 +1043,8 @@ export class AiTools {
               'A new day, shift or hours applies to one shift at a time: use scope one, or change only the person, role or notes.',
             );
           }
+          // The planned shifts the changes would run into, as Save would find them.
+          const clashes = changes ? await this.shifts.updateClashes(shift.id, changes, effectiveScope) : null;
           // The form loads the shift again itself; this copy is for Claude, and for the outcome's diff.
           return {
             status: 'opened' as const,
@@ -943,38 +1053,67 @@ export class AiTools {
             repeats: shift.seriesId !== null,
             scope: effectiveScope,
             shift: toShiftSnapshot(shift, plantZone),
+            ...(clashes && { clashes }),
+          };
+        },
+      }),
+
+      removeShift: tool({
+        ...genUiToolSchemas.removeShift,
+        execute: async ({ userId, date, templateId, scope = 'one' }): Promise<FormOutput<'removeShift'>> => {
+          adminOnly('Removing shifts');
+          const shift = await findShift({ userId, date, templateId });
+          // The form loads the shift again itself; `seriesId` lets the outcome count what is left of the series.
+          return {
+            status: 'opened' as const,
+            shiftId: shift.id,
+            timeZone: plantZone,
+            repeats: shift.seriesId !== null,
+            seriesId: shift.seriesId,
+            // A shift outside a series is its own whole series.
+            scope: shift.seriesId ? scope : 'one',
+            shift: toShiftSnapshot(shift, plantZone),
           };
         },
       }),
 
       copyShiftWeek: tool({
         ...genUiToolSchemas.copyShiftWeek,
-        execute: async ({ week, userId, templateId }): Promise<FormOutput<'copyShiftWeek'>> => {
+        execute: async ({ week, weeks, userId, templateId }): Promise<FormOutput<'copyShiftWeek'>> => {
           adminOnly('Copying shifts');
+          const people = userId?.map((id) => known.person(id).name) ?? null;
+          const shifts = templateId?.map((id) => known.template(id).name) ?? null;
           // Without a day, this week on the plant's calendar, as the page's Copy week button would copy.
           const monday = startOfWeek(week ?? zonedDate(new Date(), plantZone));
+          // What Copy would do with the weeks the form opens on: nothing to copy, or too much, is refused now.
+          const preview = await this.shifts.previewCopy({ week: monday, weeks: weeks ?? 1, userId, templateId });
           return {
             status: 'opened' as const,
             week: { from: monday, to: addDays(monday, 6) },
-            people: userId?.map((id) => known.person(id).name) ?? null,
-            shifts: templateId?.map((id) => known.template(id).name) ?? null,
+            people,
+            shifts,
+            copies: preview.copies,
+            ...(preview.clashes && { clashes: preview.clashes }),
           };
         },
       }),
 
       createShiftTemplate: tool({
         ...genUiToolSchemas.createShiftTemplate,
-        execute: async (): Promise<FormOutput<'createShiftTemplate'>> => {
+        execute: async (prefill): Promise<FormOutput<'createShiftTemplate'>> => {
           adminOnly('Adding shift templates');
+          // What the form could never save is refused now, for Claude to fix, not on Save.
+          known.templateValues(prefill);
           return { status: 'opened' as const };
         },
       }),
 
       editShiftTemplate: tool({
         ...genUiToolSchemas.editShiftTemplate,
-        execute: async ({ templateId }): Promise<FormOutput<'editShiftTemplate'>> => {
+        execute: async ({ templateId, changes }): Promise<FormOutput<'editShiftTemplate'>> => {
           adminOnly('Editing shift templates');
           known.template(templateId);
+          known.templateValues(changes ?? {}, templateId);
           // The form loads the template again itself; this copy is for Claude, and for the outcome's diff.
           return {
             status: 'opened' as const,

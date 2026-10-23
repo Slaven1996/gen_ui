@@ -461,7 +461,7 @@ export const ShowShiftCalendarToolInputSchema = z.object({
       "How a week's rows go: shift (the default: a row per shift, who works it each day) or person (a row per person, their shifts each day). 'by person', 'who works which days', 'Noah's week' → person. Omit for shift. Only a week uses it.",
     ),
   userId: peopleField(
-    "The ids of the people whose shifts to show, from the people list: 'Noah's shifts' → [the id of Noah Bennett]. Staffing gaps still show. Omit for everyone.",
+    "The ids of the people whose shifts to show, from the people list, or from the former-people list for someone deactivated: 'Noah's shifts' → [the id of Noah Bennett]. Staffing gaps still show. Omit for everyone.",
   ),
   templateId: templateIdsField(
     "The ids of the shifts to show, from the shift template list: 'night shifts' → [the id of Night]; 'weekend on-call' → [its id]. Omit for every shift.",
@@ -472,8 +472,8 @@ export const ShowShiftCalendarToolInputSchema = z.object({
 export const ShowShiftCalendarToolOutputSchema = z.object({
   timeZone: z.string().describe('The plant time zone every date and time here is in.'),
   view: z.enum(SHIFT_CALENDAR_VIEWS),
-  from: z.iso.date().describe('First day shown.'),
-  to: z.iso.date().describe('Last day shown, inclusive.'),
+  from: z.iso.date().describe("First day of the period; for a month, the month's first day."),
+  to: z.iso.date().describe("Last day of the period, inclusive; for a month, the month's last day."),
   total: z.int().describe('Every shift starting in the period that matches, not only the ones returned.'),
   shifts: z
     .array(
@@ -487,10 +487,24 @@ export const ShowShiftCalendarToolOutputSchema = z.object({
         notes: z.string().nullable(),
       }),
     )
-    .describe('The shifts, earliest first.'),
+    .describe(
+      "The first shifts, earliest first. When `total` is higher, the rest aren't here: for a later day, ask again for that week or day, or narrow by person, shift or role.",
+    ),
   gaps: z
     .array(z.object({ date: z.iso.date(), shift: z.string(), role: ShiftRoleSchema, missing: z.int() }))
-    .describe('Staffing targets not met: how many more people of a role a shift needs that day.'),
+    .describe(
+      'The first staffing targets not met, earliest first: how many more people of a role a shift needs that day. `short` counts them all.',
+    ),
+  short: z
+    .int()
+    .optional()
+    .describe('How many people are missing across every staffing target not met in the period, not only the gaps returned.'),
+  deactivated: z
+    .array(z.string())
+    .optional()
+    .describe(
+      'People with shifts here whose accounts are deactivated: their shifts stay planned but leave the post unfilled, so they count in the gaps too. Absent when there are none.',
+    ),
 });
 
 export const ON_DUTY_WHEN = ['now', 'next'] as const;
@@ -736,6 +750,7 @@ export const FORM_TOOL_NAMES = [
   'editLogbookEntry',
   'scheduleShift',
   'editShift',
+  'removeShift',
   'copyShiftWeek',
   'createShiftTemplate',
   'editShiftTemplate',
@@ -763,6 +778,7 @@ export const FORM_TITLES = {
   editLogbookEntry: 'Edit logbook entry',
   scheduleShift: 'Schedule a shift',
   editShift: 'Edit a shift',
+  removeShift: 'Remove a shift',
   copyShiftWeek: 'Copy a week',
   createShiftTemplate: 'New shift template',
   editShiftTemplate: 'Edit shift template',
@@ -1259,6 +1275,17 @@ const weekdaysField = z
   .max(7)
   .describe('Weekdays, 0 = Sunday, 1 = Monday … 6 = Saturday: weekdays → [1, 2, 3, 4, 5]; weekends → [0, 6].');
 
+/** Shifts already planned that a form's save would overlap, found when it opens. */
+const ShiftClashesSchema = z
+  .object({
+    count: z.int(),
+    examples: z.array(z.string()).describe('Up to three, earliest first: "Noah Bennett, Night on 2026-11-07 22:00".'),
+  })
+  .optional()
+  .describe(
+    "Shifts already planned that saving the form as it opened would overlap: nobody can be on two shifts at once, so the save fails until the user changes the form or those shifts. Tell the user. Absent when there are none.",
+  );
+
 /** What the Schedule a shift form opens with, each optional: only what the user said. */
 const ShiftSchedulePrefillSchema = z
   .object({
@@ -1304,6 +1331,7 @@ export const ScheduleShiftToolOutputSchema = z.object({
   person: z.string().nullable().describe('The person chosen in the form; null when the user picks them there.'),
   shift: z.string().nullable().describe('The shift chosen in the form; null when the user picks it there.'),
   timeZone: z.string().describe(PLANT_ZONE_DESCRIPTION),
+  clashes: ShiftClashesSchema,
   outcome: z
     .discriminatedUnion('status', [
       z.object({
@@ -1345,10 +1373,13 @@ const ShiftChangesSchema = z
   .partial();
 export type ShiftChanges = z.infer<typeof ShiftChangesSchema>;
 
-export const EditShiftToolInputSchema = z.object({
+/** How the edit and remove forms name one scheduled shift: whose it is, and the plant day it starts. */
+const shiftLookupFields = {
   userId: z
     .guid()
-    .describe("The id of the person whose shift it is, from the people list: 'Noah's Saturday night' → the id of Noah Bennett."),
+    .describe(
+      "The id of the person whose shift it is, from the people list, or from the former-people list for someone deactivated: 'Noah's Saturday night' → the id of Noah Bennett.",
+    ),
   date: z.iso
     .date()
     .describe(
@@ -1360,6 +1391,10 @@ export const EditShiftToolInputSchema = z.object({
     .describe(
       "The id of the shift, from the shift template list, when the user names it: 'Noah's Saturday night' → the id of Night. Needed only if they have two shifts that day.",
     ),
+};
+
+export const EditShiftToolInputSchema = z.object({
+  ...shiftLookupFields,
   scope: z
     .enum(SHIFT_SCOPES)
     .optional()
@@ -1390,9 +1425,48 @@ export const EditShiftToolOutputSchema = z.object({
   repeats: z.boolean().describe('Whether it is one of a series (a repeat, or a copied week).'),
   scope: z.enum(SHIFT_SCOPES).describe("Which shifts the form changes; always one for a shift that doesn't repeat."),
   shift: ShiftSnapshotSchema.describe('The shift as it was when the form opened.'),
+  clashes: ShiftClashesSchema,
   outcome: z
     .discriminatedUnion('status', [
       EditSavedSchema.extend({ shifts: z.int().describe('How many shifts the save changed.') }),
+      FormClosedSchema,
+    ])
+    .optional()
+    .describe(OUTCOME_DESCRIPTION),
+});
+
+export const RemoveShiftToolInputSchema = z.object({
+  ...shiftLookupFields,
+  scope: z
+    .enum(SHIFT_SCOPES)
+    .optional()
+    .describe(
+      "For a shift that repeats: one (the default, just this shift), following (this one and the later ones: 'from now on', 'every Saturday after this') or series (all of them). Shifts that already started are kept.",
+    ),
+});
+
+export const RemoveShiftToolOutputSchema = z.object({
+  status: z.literal('opened').describe(OPENED_DESCRIPTION),
+  shiftId: z.guid().describe('The shift the form opened on.'),
+  timeZone: z.string().describe(PLANT_ZONE_DESCRIPTION),
+  repeats: z.boolean().describe('Whether it is one of a series (a repeat, or a copied week).'),
+  seriesId: z.guid().nullable().describe("The series it belongs to; null when it doesn't repeat."),
+  scope: z.enum(SHIFT_SCOPES).describe("Which shifts the form removes; always one for a shift that doesn't repeat."),
+  shift: ShiftSnapshotSchema.describe('The shift the form opened on.'),
+  outcome: z
+    .discriminatedUnion('status', [
+      z.object({
+        status: z.literal('saved'),
+        removed: z.object({
+          shift: z
+            .boolean()
+            .describe('Whether the shift the form opened on is gone; false when it had already started and only later ones were removed.'),
+          remaining: z
+            .int()
+            .nullable()
+            .describe("How many shifts of its series are still planned from now on; null when it didn't repeat."),
+        }),
+      }),
       FormClosedSchema,
     ])
     .optional()
@@ -1421,6 +1495,11 @@ export const CopyShiftWeekToolOutputSchema = z.object({
   week: z.object({ from: z.iso.date(), to: z.iso.date() }).describe('The week being copied, Monday to Sunday.'),
   people: z.array(z.string()).nullable().describe("Whose shifts are copied; null for everyone's."),
   shifts: z.array(z.string()).nullable().describe('Which shifts are copied; null for all of them.'),
+  copies: z
+    .int()
+    .optional()
+    .describe('How many shifts the copy creates into the number of weeks the form opens with.'),
+  clashes: ShiftClashesSchema,
   outcome: z
     .discriminatedUnion('status', [
       z.object({
@@ -1546,6 +1625,7 @@ export const FormToolOutputSchema = z
     EditLogbookEntryToolOutputSchema,
     ScheduleShiftToolOutputSchema,
     EditShiftToolOutputSchema,
+    RemoveShiftToolOutputSchema,
     CopyShiftWeekToolOutputSchema,
     CreateShiftTemplateToolOutputSchema,
     EditShiftTemplateToolOutputSchema,
@@ -1978,31 +2058,37 @@ export const genUiToolSchemas = {
   },
   scheduleShift: {
     description:
-      "Open the Schedule a shift form in the chat, pre-filled from the request, so the admin can check it and put someone on a shift: on one day, or weekly on chosen weekdays until a date. Call it whenever the user wants to schedule or roster someone, even with no details ('I want to schedule a shift'): every field is optional, and the form opens with the same defaults as on the Shifts page. Don't ask for the person, shift or day first. Nobody can be on two shifts at once; the form says so when saving. It doesn't schedule anyone itself.",
+      "Open the Schedule a shift form in the chat, pre-filled from the request, so the admin can check it and put someone on a shift: on one day, or weekly on chosen weekdays until a date. Call it whenever the user wants to schedule or roster someone, even with no details ('I want to schedule a shift'): every field is optional, and the form opens with the same defaults as on the Shifts page. Don't ask for the person, shift or day first. Nobody can be on two shifts at once: with a person and a shift given, the result lists the shifts of theirs it would overlap. A repeat with no matching day, or too many, is refused. It doesn't schedule anyone itself.",
     inputSchema: ScheduleShiftToolInputSchema,
     outputSchema: ScheduleShiftToolOutputSchema,
   },
   editShift: {
     description:
-      "Open the edit form of one scheduled shift in the chat: its current values, with the changes the user asked for already applied, so the admin can check them and save. Use it to hand a shift to someone else, change its role or notes, move it to another day or shift, or change its hours; for a repeating shift, also the rest of its series. It finds the shift by whose it is and the day it starts on (and which shift, if they work two that day); if none or several match, the error lists that person's shifts that day. The changes are optional ('edit Noah's Saturday night' just opens it). It doesn't change the shift itself.",
+      "Open the edit form of one scheduled shift in the chat: its current values, with the changes the user asked for already applied, so the admin can check them and save. Use it to hand a shift to someone else, change its role or notes, move it to another day or shift, or change its hours; for a repeating shift, also the rest of its series. It finds the shift by whose it is and the day it starts on (and which shift, if they work two that day); if none or several match, the error lists that person's shifts that day. The changes are optional ('edit Noah's Saturday night' just opens it); the result lists any shift the changes would overlap. To take someone off a shift without handing it to anyone, open the remove confirmation instead. It doesn't change the shift itself.",
     inputSchema: EditShiftToolInputSchema,
     outputSchema: EditShiftToolOutputSchema,
   },
+  removeShift: {
+    description:
+      "Open the Remove shift confirmation of one scheduled shift in the chat, so the admin can check it and remove it: just this shift or, for a repeating one, also the later ones or the whole series. Use it to take someone off a shift without handing it to anyone ('cancel Noah's Saturday night', 'take Liam off nights from Monday'); to give it to someone else, open its edit form instead. It finds the shift by whose it is and the day it starts on (and which shift, if they work two that day); if none or several match, the error lists that person's shifts that day. The slot is left unfilled. It doesn't remove anything itself.",
+    inputSchema: RemoveShiftToolInputSchema,
+    outputSchema: RemoveShiftToolOutputSchema,
+  },
   copyShiftWeek: {
     description:
-      "Open the Copy a week form in the chat, pre-filled from the request, so the admin can copy one week's shifts (Monday–Sunday) into the 1 to 8 weeks after it, on the same days and hours: everyone's, or only some people's or some shifts'. Call it whenever the user wants to copy, repeat or roll over a week's schedule ('copy this week to the next two weeks'). Shifts of deactivated people or switched-off shifts are left out, and if any copy would overlap a shift already planned, nothing is copied. It doesn't copy anything itself.",
+      "Open the Copy a week form in the chat, pre-filled from the request, so the admin can copy one week's shifts (Monday–Sunday) into the 1 to 8 weeks after it, on the same days and hours: everyone's, or only some people's or some shifts'. Call it whenever the user wants to copy, repeat or roll over a week's schedule ('copy this week to the next two weeks'). Shifts of deactivated people or switched-off shifts are left out, and if any copy would overlap a shift already planned, nothing is copied: the result says how many shifts the copy makes and lists the overlaps. A week with nothing to copy is refused. It doesn't copy anything itself.",
     inputSchema: CopyShiftWeekToolInputSchema,
     outputSchema: CopyShiftWeekToolOutputSchema,
   },
   createShiftTemplate: {
     description:
-      "Open the New shift template form in the chat, pre-filled from the request, so the admin can check it and add a kind of shift people can be scheduled on: its name, start, length, colour and staffing targets. Call it whenever the user wants a new shift, even with no details ('add a new shift'): every field is optional, and the form opens with the same defaults as on the Shifts page. Don't ask for anything first. It doesn't add the template itself.",
+      "Open the New shift template form in the chat, pre-filled from the request, so the admin can check it and add a kind of shift people can be scheduled on: its name, start, length, colour and staffing targets. Call it whenever the user wants a new shift, even with no details ('add a new shift'): every field is optional, and the form opens with the same defaults as on the Shifts page. Don't ask for anything first. A name another template has, or two staffing rules for one role on the same weekday, is refused. It doesn't add the template itself.",
     inputSchema: CreateShiftTemplateToolInputSchema,
     outputSchema: CreateShiftTemplateToolOutputSchema,
   },
   editShiftTemplate: {
     description:
-      "Open the edit form of one shift template in the chat: its current values, with the changes the user asked for already applied, so the admin can check them and save. Use it to rename a shift, change its hours, colour or staffing targets, or switch it off or back on. New hours apply to shifts scheduled from then on; scheduled ones keep theirs. All it needs is which template; the changes are optional ('edit the night shift' just opens it). It doesn't change the template itself.",
+      "Open the edit form of one shift template in the chat: its current values, with the changes the user asked for already applied, so the admin can check them and save. Use it to rename a shift, change its hours, colour or staffing targets, or switch it off or back on. New hours apply to shifts scheduled from then on; scheduled ones keep theirs. All it needs is which template; the changes are optional ('edit the night shift' just opens it). A name another template has, or two staffing rules for one role on the same weekday, is refused. It doesn't change the template itself.",
     inputSchema: EditShiftTemplateToolInputSchema,
     outputSchema: EditShiftTemplateToolOutputSchema,
   },

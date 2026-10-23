@@ -41,20 +41,31 @@ export const ShiftCoverageRuleSchema = z
   .meta({ id: 'ShiftCoverageRule' });
 export type ShiftCoverageRule = z.infer<typeof ShiftCoverageRuleSchema>;
 
+/**
+ * The first role and weekday two rules both cover, with the later rule's
+ * index, or null: each role has one rule per weekday.
+ */
+export function coverageOverlap(
+  rules: readonly Pick<ShiftCoverageRule, 'role' | 'weekdays'>[],
+): { index: number; role: ShiftRole; weekday: number } | null {
+  const seen = new Set<string>();
+  for (const [index, rule] of rules.entries()) {
+    for (const weekday of rule.weekdays) {
+      const key = `${rule.role}:${weekday}`;
+      if (seen.has(key)) return { index, role: rule.role, weekday };
+      seen.add(key);
+    }
+  }
+  return null;
+}
+
 const coverageInput = z
   .array(ShiftCoverageRuleSchema)
   .max(12)
   .superRefine((rules, ctx) => {
-    const seen = new Set<string>();
-    for (const [index, rule] of rules.entries()) {
-      for (const day of rule.weekdays) {
-        const key = `${rule.role}:${day}`;
-        if (seen.has(key)) {
-          ctx.addIssue({ code: 'custom', path: [index, 'weekdays'], message: 'Each role can have one rule per weekday' });
-          return;
-        }
-        seen.add(key);
-      }
+    const overlap = coverageOverlap(rules);
+    if (overlap) {
+      ctx.addIssue({ code: 'custom', path: [overlap.index, 'weekdays'], message: 'Each role can have one rule per weekday' });
     }
   })
   .describe('Staffing targets. Empty: the shift runs every day with no target.');
@@ -225,6 +236,13 @@ export const UpdateShiftAssignmentSchema = z
   .meta({ id: 'UpdateShiftAssignment' });
 export type UpdateShiftAssignmentInput = z.input<typeof UpdateShiftAssignmentSchema>;
 export type UpdateShiftAssignmentDto = z.output<typeof UpdateShiftAssignmentSchema>;
+
+/** Shifts already planned that new or moved ones would overlap: how many, and a few named. */
+export interface ShiftClashes {
+  count: number;
+  /** Up to three, earliest first: "Noah Bennett, Night on 2026-11-07 22:00". */
+  examples: string[];
+}
 
 /** What a change to one or more shifts did. */
 export const ShiftChangeResultSchema = z

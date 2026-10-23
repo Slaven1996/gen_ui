@@ -15,7 +15,14 @@ export function RemoveShiftDialog({
   return (
     <Dialog open={shift !== null} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
-        {shift && timeZone && <RemoveShiftForm shift={shift} timeZone={timeZone} onDone={() => onOpenChange(false)} />}
+        {shift && timeZone && (
+          <RemoveShiftForm
+            shift={shift}
+            timeZone={timeZone}
+            onRemoved={() => onOpenChange(false)}
+            onCancel={() => onOpenChange(false)}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );

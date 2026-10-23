@@ -36,9 +36,9 @@ type Output<N extends FormToolName> = GenUITools[N]['output'];
 type Saved<N extends FormToolName> = Extract<NonNullable<Output<N>['outcome']>, { status: 'saved' }>;
 
 /**
- * For each form tool: the outcome of a save, read from the record it saved.
- * A form that saves several records (a repeating shift, a copied week) also
- * gets `entityIds`, every one of them.
+ * For each form tool: the outcome of a save, read from the record it saved
+ * (for a removal, from what is left). A form that saves several records (a
+ * repeating shift, a copied week) also gets `entityIds`, every one of them.
  */
 type SavedOutcomes = {
   [N in FormToolName]: (call: {
@@ -176,6 +176,12 @@ export class AiFormsService {
         changed: diff({ person, role, notes }, { person: other.user.name, role: other.role, notes: other.notes }),
         shifts: ids.length,
       };
+    },
+    removeShift: async ({ output, entityId }) => {
+      if (entityId !== output.shiftId) throw new BadRequestException('That is not the shift this form removes.');
+      const still = await this.shifts.getAssignments([output.shiftId]);
+      const remaining = output.seriesId ? await this.shifts.countUpcomingInSeries(output.seriesId) : null;
+      return { status: 'saved', removed: { shift: still.length === 0, remaining } };
     },
     copyShiftWeek: async ({ entityId, entityIds }) => {
       const shifts = await this.shifts.getAssignments(entityIds ?? [entityId]);

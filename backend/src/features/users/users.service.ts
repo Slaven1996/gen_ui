@@ -38,6 +38,11 @@ export class UsersService {
     return this.users.listOptions();
   }
 
+  /** The deactivated accounts, by name: people whose planned shifts may still need someone else. */
+  formerOptions(): Promise<UserRef[]> {
+    return this.users.listOptions(false);
+  }
+
   async get(id: string): Promise<PublicUser> {
     const user = await this.users.findById(id);
     if (!user) throw new NotFoundException('User not found');
