@@ -115,7 +115,7 @@ flowchart TD
   subgraph BE3["5 · Backend: stream and save"]
     UIS["toUIMessageStream<br/>message ids · metadata: model, effort, createdAt, generateUi, finishReason"]
     SSE["pipeUIMessageStreamToResponse<br/>Server-Sent Events"]
-    ONEND["onEnd: save the full conversation<br/>also after Stop"]
+    ONEND["onEnd: save the full conversation<br/>also after Stop or a closed tab<br/>a tool call cut off mid-run is saved as stopped"]
     UIS --> SSE
     UIS --> ONEND
   end

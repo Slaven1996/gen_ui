@@ -4,6 +4,7 @@ import {
   convertToModelMessages,
   createIdGenerator,
   isStepCount,
+  isToolUIPart,
   pipeUIMessageStreamToResponse,
   safeValidateUIMessages,
   streamText,
@@ -61,7 +62,8 @@ import { buildInstructions } from './system-prompt.js';
  *          AI_MAX_STEPS rounds).
  *  8 [app] Each part (text, reasoning, tool input and output) streams to the
  *          browser as it is produced, over Server-Sent Events.
- *  9 [app] When the stream ends (also after Stop), save the conversation.
+ *  9 [app] When the stream ends (also after Stop or a closed tab), save the
+ *          conversation; a tool call cut off mid-run is saved as stopped.
  *
  *  Form tools (add a user; create or edit an alarm rule, a device, a tag, an
  *  asset, a logbook entry or a shift template; schedule, edit or copy shifts)
@@ -156,7 +158,7 @@ export class AiService {
     const result = streamText({
       model: this.anthropic(request.model),
       instructions: buildInstructions({ base, user, timeZone, generateUi: request.generateUi, forms, options }),
-      messages: await convertToModelMessages(forClaude, { tools }),
+      messages: await convertToModelMessages(forClaude, { tools, ignoreIncompleteToolCalls: true }),
       tools,
       activeTools,
       stopWhen: isStepCount(this.config.get('AI_MAX_STEPS')),
@@ -184,10 +186,10 @@ export class AiService {
         if (part.type === 'finish') return { finishReason: part.finishReason };
         return undefined;
       },
-      // Also runs when the user presses Stop, so a partial answer is kept.
+      // Also runs when the user presses Stop or the tab closes, so a partial answer is kept.
       onEnd: async ({ messages: updated }) => {
         try {
-          await this.conversations.save(request.id, user.id, withoutEmptyAnswer(updated));
+          await this.conversations.save(request.id, user.id, withoutEmptyAnswer(withStoppedToolCalls(updated)));
         } catch (error) {
           this.logger.error('Saving the conversation failed', error instanceof Error ? error.stack : String(error));
         }
@@ -282,6 +284,30 @@ function forModel(messages: GenUIMessage[], model: AssistantModel): GenUIMessage
       ? { ...message, parts: message.parts.filter((part) => part.type !== 'reasoning') }
       : message,
   );
+}
+
+const STOPPED_TOOL_CALL = 'Stopped before it finished.';
+
+/**
+ * An answer cut off mid tool call (Stop, a closed or reloaded tab) ends with
+ * calls that have no result. A call Claude was still writing is dropped (it
+ * never ran, and its input is incomplete); one that was running is saved as
+ * stopped, so the chat shows that instead of a skeleton and Claude reads it as
+ * a call that didn't finish.
+ */
+function withStoppedToolCalls(messages: GenUIMessage[]): GenUIMessage[] {
+  const last = messages.at(-1);
+  if (last?.role !== 'assistant') return messages;
+  const unfinished = (part: GenUIMessage['parts'][number]) =>
+    isToolUIPart(part) && (part.state === 'input-streaming' || part.state === 'input-available');
+  if (!last.parts.some(unfinished)) return messages;
+
+  const parts = last.parts.flatMap((part): GenUIMessage['parts'] => {
+    if (!isToolUIPart(part) || !unfinished(part)) return [part];
+    if (part.state === 'input-streaming') return [];
+    return [{ ...part, state: 'output-error', errorText: STOPPED_TOOL_CALL } as GenUIMessage['parts'][number]];
+  });
+  return [...messages.slice(0, -1), { ...last, parts }];
 }
 
 /** A call that failed before producing anything leaves an empty answer; don't save it. */
