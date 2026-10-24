@@ -492,13 +492,7 @@ export const ShowShiftCalendarToolOutputSchema = z.object({
     ),
   gaps: z
     .array(z.object({ date: z.iso.date(), shift: z.string(), role: ShiftRoleSchema, missing: z.int() }))
-    .describe(
-      'The first staffing targets not met, earliest first: how many more people of a role a shift needs that day. `short` counts them all.',
-    ),
-  short: z
-    .int()
-    .optional()
-    .describe('How many people are missing across every staffing target not met in the period, not only the gaps returned.'),
+    .describe('Staffing targets not met: how many more people of a role a shift needs that day.'),
   deactivated: z
     .array(z.string())
     .optional()

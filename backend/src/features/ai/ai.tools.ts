@@ -76,9 +76,6 @@ const OWN_ENTRIES_FOR_MODEL = 30;
 /** Shifts handed to the model per calendar: a busy week fits; the calendar in the chat shows the rest. */
 const SHIFTS_FOR_MODEL = 60;
 
-/** Staffing gaps handed to the model per calendar; `short` counts them all. An unplanned month has ~180. */
-const GAPS_FOR_MODEL = 40;
-
 /** Weekday names by `weekdayOf` number, 0 = Sunday, for messages Claude reads. */
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -650,13 +647,12 @@ export class AiTools {
               role: shift.role,
               notes: clip(shift.notes),
             })),
-            gaps: gaps.slice(0, GAPS_FOR_MODEL).map((entry) => ({
+            gaps: gaps.map((entry) => ({
               date: entry.date,
               shift: templateNames.get(entry.templateId) ?? entry.templateId,
               role: entry.role,
               missing: entry.required - entry.filled,
             })),
-            short: gaps.reduce((sum, entry) => sum + entry.required - entry.filled, 0),
             ...(deactivated.length > 0 && { deactivated }),
           };
         },
