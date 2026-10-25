@@ -1,16 +1,26 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { isFormToolPart, type Conversation, type FormOutcome, type GenUIMessage } from '@gen-ui/shared';
+import {
+  isFormToolPart,
+  type Conversation,
+  type ConversationList,
+  type ConversationSummary,
+  type FormOutcome,
+  type GenUIMessage,
+  type ListConversationsQuery,
+} from '@gen-ui/shared';
 import type { Prisma } from '../../generated/prisma/client.js';
+import { pageArgs, toPaginated } from '../../common/list-query.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import type { Db } from '../../prisma/transaction.js';
 import { UnitOfWork } from '../../prisma/unit-of-work.service.js';
-
-const TITLE_LENGTH = 80;
+import { provisionalTitle } from './conversation-title.js';
+import { conversationSummarySelect, toConversationSummary } from './conversation.mapper.js';
 
 /**
- * Saved assistant conversations: one row each, with the AI SDK's UI messages
- * (parts included) in a JSONB column. Every query is scoped to the caller, so
- * nobody can read or overwrite someone else's conversation.
+ * Saved assistant conversations (the chats): one row each, with the AI SDK's
+ * UI messages (parts included) in a JSONB column. A user has any number of
+ * them. Every query is scoped to the caller, so nobody can read or overwrite
+ * someone else's conversation.
  */
 @Injectable()
 export class ConversationsService {
@@ -19,14 +29,29 @@ export class ConversationsService {
     private readonly uow: UnitOfWork,
   ) {}
 
-  /** The user's most recently active conversation, if they have one. */
-  async latest(userId: string): Promise<Conversation | null> {
+  /** The user's chats, latest activity first, without their messages. */
+  async list(userId: string, query: ListConversationsQuery): Promise<ConversationList> {
+    const where = { userId } satisfies Prisma.ConversationWhereInput;
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.conversation.findMany({
+        where,
+        select: conversationSummarySelect,
+        orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+        ...pageArgs(query),
+      }),
+      this.prisma.conversation.count({ where }),
+    ]);
+    return toPaginated(rows.map(toConversationSummary), total, query);
+  }
+
+  /** One of the user's chats with every message. Unknown or someone else's is a 404. */
+  async get(id: string, userId: string): Promise<Conversation> {
     const row = await this.prisma.conversation.findFirst({
-      where: { userId },
-      orderBy: { updatedAt: 'desc' },
-      select: { id: true, messages: true },
+      where: { id, userId },
+      select: { id: true, title: true, messages: true },
     });
-    return row && { id: row.id, messages: row.messages as unknown as GenUIMessage[] };
+    if (!row) throw new NotFoundException('Conversation not found');
+    return { id: row.id, title: row.title, messages: row.messages as unknown as GenUIMessage[] };
   }
 
   /**
@@ -44,17 +69,32 @@ export class ConversationsService {
   }
 
   /**
-   * Saves the whole conversation. A form's outcome recorded since `messages`
-   * was read is kept: the chat saves its copy when an answer ends, and that
-   * copy may predate the user saving or closing a form in the meantime.
+   * Saves the conversation as a turn starts, creating it on its first
+   * message (titled with that question). A form's outcome recorded since
+   * `messages` was read is kept.
    */
-  async save(id: string, userId: string, messages: GenUIMessage[]): Promise<void> {
+  async start(id: string, userId: string, messages: GenUIMessage[]): Promise<void> {
     await this.uow.run(async (tx) => {
       const stored = await lockedMessages(tx, id, userId);
       if (stored === null) {
-        await tx.conversation.create({ data: { id, userId, title: titleOf(messages), messages: toJson(messages) } });
+        await tx.conversation.create({ data: { id, userId, title: provisionalTitle(messages), messages: toJson(messages) } });
         return;
       }
+      await tx.conversation.update({ where: { id }, data: { messages: toJson(keepOutcomes(stored, messages)) } });
+    });
+  }
+
+  /**
+   * Saves the conversation as a turn ends. A form's outcome recorded since
+   * `messages` was read is kept: the chat saves its copy when an answer ends,
+   * and that copy may predate the user saving or closing a form in the
+   * meantime. Never creates the row: a chat deleted while it was answering
+   * stays deleted.
+   */
+  async finish(id: string, userId: string, messages: GenUIMessage[]): Promise<void> {
+    await this.uow.run(async (tx) => {
+      const stored = await lockedMessages(tx, id, userId);
+      if (stored === null) return;
       await tx.conversation.update({ where: { id }, data: { messages: toJson(keepOutcomes(stored, messages)) } });
     });
   }
@@ -79,7 +119,30 @@ export class ConversationsService {
     });
   }
 
-  /** Deletes for good. An unknown id is not an error: there is simply nothing to clear. */
+  /**
+   * Renames one of the user's chats. Its `updatedAt` stays, so renaming
+   * doesn't move it to the top of the list. Unknown or someone else's is a 404.
+   */
+  async rename(id: string, userId: string, title: string): Promise<ConversationSummary> {
+    const row = await this.prisma.conversation.findFirst({ where: { id, userId }, select: { updatedAt: true } });
+    if (!row) throw new NotFoundException('Conversation not found');
+    const renamed = await this.prisma.conversation.update({
+      where: { id },
+      data: { title, updatedAt: row.updatedAt },
+      select: conversationSummarySelect,
+    });
+    return toConversationSummary(renamed);
+  }
+
+  /**
+   * Replaces the title the chat was saved with (`from`) by Claude's. A chat
+   * the user renamed in the meantime, or deleted, is left alone.
+   */
+  async retitle(id: string, userId: string, from: string, to: string): Promise<void> {
+    await this.prisma.conversation.updateMany({ where: { id, userId, title: from }, data: { title: to } });
+  }
+
+  /** Deletes for good. An unknown id is not an error: there is simply nothing to delete. */
   async remove(id: string, userId: string): Promise<void> {
     await this.prisma.conversation.deleteMany({ where: { id, userId } });
   }
@@ -121,15 +184,4 @@ function keepOutcomes(stored: GenUIMessage[], next: GenUIMessage[]): GenUIMessag
     const parts = message.parts.map(withOutcome);
     return parts.every((part, index) => part === message.parts[index]) ? message : { ...message, parts };
   });
-}
-
-/** The first question, for a future list of conversations. */
-function titleOf(messages: GenUIMessage[]): string {
-  const first = messages.find((message) => message.role === 'user');
-  const text = (first?.parts ?? [])
-    .map((part) => (part.type === 'text' ? part.text : ''))
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return text.length > TITLE_LENGTH ? `${text.slice(0, TITLE_LENGTH - 1)}…` : text;
 }

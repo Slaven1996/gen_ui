@@ -4,7 +4,7 @@ import { DashboardsService } from '../dashboards/dashboards.service.js';
 import type { AuthUser } from '../users/user.mapper.js';
 import { ConversationsService } from './conversations.service.js';
 
-const UNAVAILABLE = 'This draft is no longer available: the chat it came from was cleared.';
+const UNAVAILABLE = 'This draft is no longer available: the chat it came from was deleted.';
 
 /**
  * The assistant's dashboard drafts. A `createDashboard` call only puts a

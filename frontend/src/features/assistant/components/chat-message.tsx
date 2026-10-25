@@ -10,8 +10,17 @@ import { ToolStatusLine } from './tool-status-line';
  * looks as it did. The parts come from the model [AI]: its text, its
  * reasoning summary, and its tool calls. How each part looks is fixed [app].
  * `streaming`: this is the answer still arriving (a form in it waits for it).
+ * `conversationId`: the chat it belongs to, which its tool calls link and report to.
  */
-export function ChatMessage({ message, streaming = false }: { message: GenUIMessage; streaming?: boolean }) {
+export function ChatMessage({
+  conversationId,
+  message,
+  streaming = false,
+}: {
+  conversationId: string;
+  message: GenUIMessage;
+  streaming?: boolean;
+}) {
   if (message.role === 'user') {
     const text = message.parts
       .filter(isTextUIPart)
@@ -39,9 +48,9 @@ export function ChatMessage({ message, streaming = false }: { message: GenUIMess
         }
         if (isStaticToolUIPart(part)) {
           return generateUi ? (
-            <ToolPartView key={part.toolCallId} part={part} streaming={streaming} />
+            <ToolPartView key={part.toolCallId} conversationId={conversationId} part={part} streaming={streaming} />
           ) : (
-            <ToolStatusLine key={part.toolCallId} part={part} streaming={streaming} />
+            <ToolStatusLine key={part.toolCallId} conversationId={conversationId} part={part} streaming={streaming} />
           );
         }
         return null;

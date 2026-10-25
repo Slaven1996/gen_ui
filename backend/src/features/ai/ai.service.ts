@@ -3,6 +3,7 @@ import { createAnthropic, type AnthropicLanguageModelOptions, type AnthropicProv
 import {
   convertToModelMessages,
   createIdGenerator,
+  generateText,
   isStepCount,
   isToolUIPart,
   pipeUIMessageStreamToResponse,
@@ -24,6 +25,14 @@ import { AppConfigService } from '../../config/app-config.service.js';
 import type { AuthUser } from '../users/user.mapper.js';
 import { AiInstructionsService } from './ai-instructions.service.js';
 import { AiTools, type AiToolSet } from './ai.tools.js';
+import {
+  cleanTitle,
+  firstQuestion,
+  provisionalTitle,
+  TITLE_INSTRUCTIONS,
+  TITLE_MODEL,
+  TITLE_QUESTION_LENGTH,
+} from './conversation-title.js';
 import { ConversationsService } from './conversations.service.js';
 import { DashboardDraftsService } from './dashboard-drafts.service.js';
 import { buildInstructions } from './system-prompt.js';
@@ -36,9 +45,13 @@ import { buildInstructions } from './system-prompt.js';
  *  [app] our code: deterministic, same input → same result
  *  [AI]  decided by Claude while the request runs
  *
- *  1 [app] Load the saved conversation and add the new question.
+ *  1 [app] Load the saved conversation (none yet for a new chat: its id
+ *          comes from the browser) and add the new question.
  *  2 [app] Validate all of it against the tool contracts.
- *  3 [app] Save it, so the question survives a failed model call.
+ *  3 [app] Save it, so the question survives a failed model call. A new
+ *          chat's row is created here, titled with the question.
+ *     [AI] For a new chat, Claude Haiku writes a short title meanwhile
+ *          (conversation-title.ts); step 9 saves it.
  *  4 [app] Call the chosen model with the system prompt (system-prompt.ts),
  *          the history, and the tools this user's role may use (ai.tools.ts).
  *          The prompt starts with the standing instructions admins edit on
@@ -64,6 +77,8 @@ import { buildInstructions } from './system-prompt.js';
  *          browser as it is produced, over Server-Sent Events.
  *  9 [app] When the stream ends (also after Stop or a closed tab), save the
  *          conversation; a tool call cut off mid-run is saved as stopped.
+ *          A new chat gets its title now, before the response ends, so the
+ *          browser's list shows it as soon as the answer is done.
  *
  *  Form tools (add a user; create or edit an alarm rule, a device, a tag, an
  *  asset, a logbook entry or a shift template; schedule, edit or copy shifts)
@@ -146,7 +161,10 @@ export class AiService {
     // 1–3 [app] The conversation this turn continues: extended, validated, saved.
     const stored = await this.conversations.messages(request.id, user.id);
     const messages = await validate(nextHistory(stored, request), tools);
-    await this.conversations.save(request.id, user.id, messages);
+    await this.conversations.start(request.id, user.id, messages);
+
+    // [AI] A new chat's title, written while the answer streams; saved in step 9.
+    const title = stored.length === 0 ? this.writeTitle(firstQuestion(messages)) : undefined;
 
     // Claude's copy of the history says which dashboard drafts were saved since, and as
     // what; the copy that is streamed and saved stays as it was.
@@ -187,9 +205,12 @@ export class AiService {
         return undefined;
       },
       // Also runs when the user presses Stop or the tab closes, so a partial answer is kept.
+      // The response ends only once this has run, so the browser reads the saved chat after it.
       onEnd: async ({ messages: updated }) => {
         try {
-          await this.conversations.save(request.id, user.id, withoutEmptyAnswer(withStoppedToolCalls(updated)));
+          await this.conversations.finish(request.id, user.id, withoutEmptyAnswer(withStoppedToolCalls(updated)));
+          const written = await title;
+          if (written) await this.conversations.retitle(request.id, user.id, provisionalTitle(messages), written);
         } catch (error) {
           this.logger.error('Saving the conversation failed', error instanceof Error ? error.stack : String(error));
         }
@@ -206,6 +227,28 @@ export class AiService {
     console.log("================");
 
     await pipeUIMessageStreamToResponse({ response, stream });
+  }
+
+  /**
+   * A short title for a chat that starts with `question`, from the cheapest
+   * model whichever one answers. `null` when it fails or says nothing usable:
+   * the chat keeps its first question as the title. Never rejects.
+   */
+  private async writeTitle(question: string): Promise<string | null> {
+    if (!this.anthropic || !question) return null;
+    try {
+      const { text } = await generateText({
+        model: this.anthropic(TITLE_MODEL),
+        instructions: TITLE_INSTRUCTIONS,
+        prompt: question.slice(0, TITLE_QUESTION_LENGTH),
+        maxOutputTokens: 32,
+        abortSignal: AbortSignal.timeout(10_000),
+      });
+      return cleanTitle(text);
+    } catch (error) {
+      this.logger.warn(`Writing a chat title failed: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
   }
 
   /**
@@ -255,12 +298,12 @@ function nextHistory(stored: GenUIMessage[], request: ChatRequest): unknown[] {
 /** Deep-checks the whole conversation against the tool schemas and the house rules. */
 async function validate(messages: unknown[], tools: AiToolSet): Promise<GenUIMessage[]> {
   if (messages.length > MAX_CONVERSATION_MESSAGES) {
-    throw new BadRequestException('This conversation is full. Clear the chat to start a new one.');
+    throw new BadRequestException('This conversation is full. Start a new chat to go on.');
   }
   const validated = await safeValidateUIMessages<GenUIMessage>({ messages, tools });
   if (!validated.success) {
     throw new BadRequestException(
-      `This conversation can't be continued (${validated.error.message}). Clear the chat to start a new one.`,
+      `This conversation can't be continued (${validated.error.message}). Start a new chat to go on.`,
     );
   }
   const result = validated.data;

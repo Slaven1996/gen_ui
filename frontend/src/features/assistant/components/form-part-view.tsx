@@ -12,11 +12,19 @@ import { ToolSkeleton } from './tool-skeleton';
  * the answer, then, once saved or closed, a one-line result.
  * `streaming`: the answer that holds the call is still arriving.
  */
-export function FormPartView({ part, streaming }: { part: FormToolUIPart; streaming: boolean }) {
+export function FormPartView({
+  conversationId,
+  part,
+  streaming,
+}: {
+  conversationId: string;
+  part: FormToolUIPart;
+  streaming: boolean;
+}) {
   const renderer = formRendererFor(part);
   // What the user just did, shown until the recorded outcome arrives.
   const [done, setDone] = useState<'saved' | 'closed'>();
-  const record = useRecordFormOutcome(part.toolCallId);
+  const record = useRecordFormOutcome(conversationId, part.toolCallId);
 
   switch (part.state) {
     case 'input-streaming':

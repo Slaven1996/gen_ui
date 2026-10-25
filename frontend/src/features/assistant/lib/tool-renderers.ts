@@ -157,7 +157,7 @@ export const RENDERERS: { [N in ListToolName]: ToolRenderer<N> } = {
     pending: 'Putting the dashboard together…',
     title: (input) => input.name?.trim() || 'New dashboard',
     link: (_input, call) =>
-      call.conversationId && call.done
+      call.done
         ? draftLink({ conversationId: call.conversationId, toolCallId: call.toolCallId })
         : { to: '/dashboard', search: {} },
     Body: DashboardDraftBody,

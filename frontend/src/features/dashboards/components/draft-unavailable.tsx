@@ -8,7 +8,7 @@ export function DraftUnavailable({ onOpenDashboards, onNew }: { onOpenDashboards
       <CardHeader>
         <CardTitle>This draft is no longer available</CardTitle>
         <CardDescription>
-          The chat it came from was cleared, or the answer that held it was generated again. Ask the assistant for the
+          The chat it came from was deleted, or the answer that held it was generated again. Ask the assistant for the
           dashboard again, or build it here.
         </CardDescription>
       </CardHeader>

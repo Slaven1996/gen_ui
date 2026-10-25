@@ -19,7 +19,7 @@ import {
   TagSchema,
 } from './assets.js';
 import { PublicUserSchema, RoleSchema } from './auth.js';
-import { RelativeRangeSchema, timeZoneParam } from './common/query.js';
+import { pageParams, paginatedSchema, RelativeRangeSchema, timeZoneParam } from './common/query.js';
 import {
   WidgetHeightSchema,
   WidgetTypeSchema,
@@ -84,7 +84,7 @@ export const DEFAULT_EFFORT: Effort = 'high';
 
 // ─── Requests ───────────────────────────────────────────────────────────────
 
-/** A saved conversation holds at most this many messages; clearing it starts over. */
+/** A saved conversation holds at most this many messages; then the user starts a new chat. */
 export const MAX_CONVERSATION_MESSAGES = 200;
 
 /**
@@ -118,26 +118,65 @@ export const ChatRequestSchema = z
   .meta({ id: 'ChatRequest' });
 export type ChatRequest = z.infer<typeof ChatRequestSchema>;
 
+// ─── Conversations ──────────────────────────────────────────────────────────
+
+/*
+ * Each user has any number of saved chats. A chat is created by its first
+ * message (its id comes from the browser), so there are no empty ones.
+ */
+
+/** A chat title's length: the first question clipped, the AI's title, or the user's own. */
+export const CONVERSATION_TITLE_MAX = 80;
+
+const ConversationTitleSchema = z
+  .string()
+  .describe('The first question until the first answer ends, then a short title written by Claude, or one the user gave.');
+
+/** One chat in the list: no messages. */
+export const ConversationSummarySchema = z
+  .object({
+    id: z.uuid(),
+    title: ConversationTitleSchema,
+    createdAt: z.iso.datetime().describe('When its first message was sent.'),
+    updatedAt: z.iso.datetime().describe('Its last activity (a question, an answer, a form saved in it). Renaming leaves it.'),
+  })
+  .meta({ id: 'ConversationSummary' });
+export type ConversationSummary = z.infer<typeof ConversationSummarySchema>;
+
+export const ListConversationsQuerySchema = z.object({ ...pageParams(30, 100) });
+export type ListConversationsQueryInput = z.input<typeof ListConversationsQuerySchema>;
+export type ListConversationsQuery = z.output<typeof ListConversationsQuerySchema>;
+
+/** The caller's chats, latest activity first. */
+export const ConversationListSchema = paginatedSchema(ConversationSummarySchema).meta({ id: 'ConversationList' });
+export type ConversationList = z.infer<typeof ConversationListSchema>;
+
 export const ConversationSchema = z
   .object({
     id: z.uuid(),
+    title: ConversationTitleSchema,
     messages: z.array(z.unknown()).describe('AI SDK UI messages, oldest first, parts included.'),
   })
   .meta({ id: 'Conversation' });
 
-export const LatestConversationSchema = z
-  .object({ conversation: ConversationSchema.nullable() })
-  .meta({ id: 'LatestConversation' });
-
 /** A saved conversation. The server only stores messages it has validated. */
 export interface Conversation {
   id: string;
+  title: string;
   messages: GenUIMessage[];
 }
 
-export interface LatestConversation {
-  conversation: Conversation | null;
-}
+export const RenameConversationSchema = z
+  .object({
+    title: z
+      .string()
+      .trim()
+      .min(1)
+      .max(CONVERSATION_TITLE_MAX)
+      .describe(`The chat's new title, at most ${CONVERSATION_TITLE_MAX} characters.`),
+  })
+  .meta({ id: 'RenameConversation' });
+export type RenameConversationDto = z.output<typeof RenameConversationSchema>;
 
 // ─── Generative UI tools ────────────────────────────────────────────────────
 

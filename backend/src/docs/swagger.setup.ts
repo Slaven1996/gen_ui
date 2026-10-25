@@ -73,7 +73,7 @@ export function setupSwagger(app: INestApplication): void {
       .addTag('Analytics', 'KPIs, alarm trends and frequent alarms')
       .addTag('Dashboards', 'Customizable dashboards and their widgets')
       .addTag('Notifications', 'Your notification inbox: alarms as they are raised')
-      .addTag('Assistant', 'The Generative UI chat and your saved conversation')
+      .addTag('Assistant', 'The Generative UI chat and your saved chats')
       .addTag('Health', 'Liveness and readiness probes')
       .build(),
   );

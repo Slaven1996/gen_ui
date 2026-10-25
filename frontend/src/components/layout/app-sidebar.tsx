@@ -11,7 +11,6 @@ import {
   NotebookPen,
   Settings,
   Settings2,
-  Sparkles,
   Tags,
   Users,
   type LucideIcon,
@@ -32,6 +31,7 @@ import {
   SidebarRail,
 } from '@/components/ui/sidebar';
 import { summaryQueryOptions } from '@/features/analytics/api/queries';
+import { ChatNav } from '@/features/assistant/components/chat-nav';
 import { useAuth } from '@/lib/auth/auth-store';
 import type { FileRouteTypes } from '@/routeTree.gen';
 
@@ -75,10 +75,6 @@ const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
       { to: '/audit', label: 'Audit log', icon: History, roles: ['ADMIN'] },
       { to: '/users', label: 'Users', icon: Users },
     ],
-  },
-  {
-    label: 'Assistant',
-    items: [{ to: '/assistant', label: 'Assistant', icon: Sparkles }],
   },
 ];
 
@@ -141,6 +137,7 @@ export function AppSidebar() {
             </SidebarGroup>
           );
         })}
+        <ChatNav />
       </SidebarContent>
 
       {footerItems.length > 0 && (

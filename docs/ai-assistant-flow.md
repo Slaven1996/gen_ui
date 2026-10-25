@@ -71,7 +71,7 @@ flowchart TD
     HIST["ConversationsService.messages(id, user)<br/>another user's id → 404"]
     MERGE["submit: append the message<br/>regenerate: drop a trailing answer<br/>max 200 messages"]
     VAL["safeValidateUIMessages against the tool schemas<br/>last message must be the user's"]
-    SAVE1["save the conversation<br/>the question survives a failed model call"]
+    SAVE1["ConversationsService.start: save the conversation<br/>the question survives a failed model call<br/>a new chat: its row is created, titled with the question,<br/>and Claude Haiku writes it a short title meanwhile"]
     PROMPT["buildInstructions<br/>the standing instructions (an admin's from assistant_instructions, else DEFAULT_INSTRUCTIONS):<br/>generic rules + app map + guardrails (English/Serbian only, off-topic)<br/>+ components or text-only section<br/>+ every asset and active person with ids (the dropdowns' choices)<br/>+ with components on: the forms section, the lists the offered forms take:<br/>for admins every device, tag and alarm rule, for everyone their own latest logbook entries, with ids<br/>+ with components off: the role's forms by title, and the switch that opens them<br/>+ the forms the role can't open, and which role can<br/>+ session: user, role, now in their time zone with its UTC offset<br/>three system blocks: rules + format + forms (cached) · pick lists (cached) · session"]
     ROLES["AiTools.activeFor(user, generateUi)<br/>TOOL_ROLES · the chat's @Roles<br/>form tools only with components on"]
     CALL["streamText<br/>chosen model · effort + adaptive thinking (not Haiku)<br/>instructions · history · tools · cacheControl up to the last message<br/>activeTools · stopWhen AI_MAX_STEPS · abortSignal"]
@@ -115,7 +115,7 @@ flowchart TD
   subgraph BE3["5 · Backend: stream and save"]
     UIS["toUIMessageStream<br/>message ids · metadata: model, effort, createdAt, generateUi, finishReason"]
     SSE["pipeUIMessageStreamToResponse<br/>Server-Sent Events"]
-    ONEND["onEnd: save the full conversation<br/>also after Stop or a closed tab<br/>a tool call cut off mid-run is saved as stopped"]
+    ONEND["onEnd: save the full conversation (finish: never re-creates a deleted chat)<br/>also after Stop or a closed tab<br/>a tool call cut off mid-run is saved as stopped<br/>a new chat: its title, unless the user renamed it<br/>the response ends after this"]
     UIS --> SSE
     UIS --> ONEND
   end
@@ -182,25 +182,34 @@ flowchart TD
 | Completing and saving that dashboard | **the user**, on the Dashboard page | `POST /api/dashboards` with the draft as `source` |
 | Whether a draft was saved, and as what | code: read from the dashboards | `dashboard-drafts.service.ts`, `DashboardsService.createdFrom` |
 
-## 2. Conversation lifecycle: open, restore, clear, sign out
+## 2. Chats: new, open, switch, rename, delete, sign out
+
+Every user has any number of chats. The sidebar's *Assistant* group lists them (`components/chat-nav.tsx`: *New chat*, then the chats, latest activity first, a page of 30 at a time as the list scrolls; `GET /api/ai/conversations`). The open chat is in the URL: `/assistant` is a new chat, `/assistant?chat=<id>` a saved one.
 
 ```mermaid
 flowchart TD
-  OPEN(["Open /assistant"]) --> LOADED{"Chat already loaded<br/>in this tab?"}
-  LOADED -- yes --> SHOW["Show the thread"]
-  LOADED -- no --> GET["GET /api/ai/conversations/latest"]
-  GET --> HAS{"Saved conversation?"}
-  HAS -- yes --> RESTORE["new Chat with its id and messages<br/>every part re-renders: text, reasoning,<br/>tables rebuilt from their stored query"]
-  HAS -- no --> FRESH["new Chat with a random UUID<br/>the row is created on the first message"]
-  RESTORE --> SHOW
-  FRESH --> SHOW
-  SHOW --> CLEAR(["Clear chat"])
-  CLEAR --> CONFIRM{"Confirm?"}
-  CONFIRM -- yes --> DEL["DELETE /api/ai/conversations/:id"]
-  DEL --> FRESH
-  CONFIRM -- no --> SHOW
-  SIGNOUT(["Sign out"]) --> DROP["Stop any stream and forget the chat<br/>the next user loads their own"]
+  NEW(["New chat · /assistant"]) --> DRAFT["the draft: new Chat with a random UUID<br/>nothing saved, not in the list"]
+  DRAFT --> SEND(["First message"])
+  SEND --> URL["URL → ?chat=id (replace)<br/>the same Chat stays on screen"]
+  SEND --> ROW["POST /api/ai/chat · start() creates the row,<br/>titled with the question"]
+  ROW --> LIST1["the response arrives → the list refetches<br/>the chat is at the top"]
+  ROW --> TITLE["Claude Haiku writes a short title meanwhile<br/>saved in onEnd, before the response ends"]
+  TITLE --> LIST2["the answer ends → the list refetches<br/>the chat has its title"]
+  PICK(["A chat in the sidebar · ?chat=id"]) --> MEM{"In this tab's memory?"}
+  MEM -- yes --> SHOW["Show it, still answering if it was"]
+  MEM -- no --> GET["GET /api/ai/conversations/:id<br/>every part re-renders: text, reasoning,<br/>tables rebuilt from their stored query"]
+  GET --> SHOW
+  GET -- 404 --> GONE["This chat doesn't exist, or it was deleted"]
+  SHOW --> REN(["Rename"]) --> PATCH["PATCH /api/ai/conversations/:id<br/>it keeps its place in the list"]
+  SHOW --> DEL(["Delete"]) --> STOP["stop its answer · DELETE /api/ai/conversations/:id<br/>the open chat → a new chat"]
+  SIGNOUT(["Sign out"]) --> DROP["Stop every answer and forget the chats<br/>the next user loads their own"]
 ```
+
+**Switching doesn't stop an answer.** `store/chat-store.ts` keeps each chat it has shown as an AI SDK `Chat` (up to 10; then the oldest idle ones are forgotten and load again when shown), so an answer keeps arriving while the user is in another chat or on another page.
+
+**Titles.** A chat is saved with its first question as the title (`provisionalTitle` in `conversation-title.ts`). While the first answer streams, Claude Haiku writes a title of a few words in the question's language (one small call per new chat, whatever model answers). `onEnd` saves it with `retitle`, which only replaces that first-question title, so a chat the user renamed meanwhile keeps their name. The UI message stream runs `onEnd` before it closes, so the list's refetch at the end of the answer already gets the title. If the call fails, the question stays the title.
+
+**Why a deleted chat stays deleted:** the save at the start of a turn creates the row (`ConversationsService.start`), and the one at its end (`finish`) only updates it. A chat deleted while it was still answering isn't brought back when its answer is saved.
 
 **Why components come back by themselves:** a message is saved with its `parts`: text, reasoning, and each tool call with its input and output. The chat renders purely from parts, so a restored conversation looks as it did. Tables rebuild from their stored *query*, so they show current data, while the text above them says what was true then.
 
@@ -321,7 +330,7 @@ sequenceDiagram
 - **Once created, the card shows the dashboard, not the draft:** its name, sharing and widgets as saved (`GET /dashboards/:id`), so the widgets the user completed on the page show their views, and a later rename or edit shows too. Until it loads, and after a delete, the card draws the draft.
 - **Two tabs from the same answer:** the second save is a 409 ("already created, open it").
 - **An old draft link** (an old tab, the browser history) redirects to the dashboard saved from it.
-- **Clear the chat** and the dashboard stays, its source cleared (`ON DELETE SET NULL`); the draft link then says the draft is no longer available.
+- **Delete the chat** and the dashboard stays, its source cleared (`ON DELETE SET NULL`); the draft link then says the draft is no longer available.
 
 The chat's status and saved-dashboard queries refetch when its window gets focus back, so switching back from the page's tab shows the change without a reload. Claude still knows only its draft and `created.name`, not the edits made on the page.
 
@@ -355,7 +364,8 @@ The system prompt changes only for a new pick list. TypeScript fails the build i
 | Step | File |
 |---|---|
 | Model, effort, components toggle | `frontend/src/features/assistant/store/assistant-preferences.ts` |
-| Load, send, clear, auth | `frontend/src/features/assistant/store/chat-store.ts` |
+| Open, send, delete, auth: every chat shown in this tab | `frontend/src/features/assistant/store/chat-store.ts` |
+| The chats in the sidebar: list, rename, delete | `frontend/src/features/assistant/components/chat-nav.tsx`, `chat-nav-item.tsx`, `rename-chat-dialog.tsx`, `hooks/use-chat-actions.tsx`, `api/` |
 | Thread, model/effort pickers, toolbar, composer | `frontend/src/features/assistant/components/chat-thread.tsx`, `chat-thread-view.tsx`, `model-settings.tsx` |
 | Render parts, Markdown | `frontend/src/features/assistant/components/chat-message.tsx`, `message-markdown.tsx`, `message-reasoning.tsx` |
 | Tool → component registry | `frontend/src/features/assistant/lib/tool-renderers.ts`, the bodies in `components/tool-bodies/`, drawn by `components/tool-part-view.tsx`; shared types in `types.ts` |
@@ -372,6 +382,7 @@ The system prompt changes only for a new pick list. TypeScript fails the build i
 | Endpoints | `backend/src/features/ai/ai.controller.ts` |
 | Model call, stream, save | `backend/src/features/ai/ai.service.ts` |
 | Saved conversations | `backend/src/features/ai/conversations.service.ts` |
+| Chat titles | `backend/src/features/ai/conversation-title.ts` |
 | Tools and role map | `backend/src/features/ai/ai.tools.ts` |
 | System prompt and guardrail, its cache blocks | `backend/src/features/ai/system-prompt.ts` |
 | Standing instructions (Settings page) | `backend/src/features/ai/ai-instructions.service.ts`, `ai-instructions.controller.ts` (`GET`/`PUT /api/ai/instructions`); `frontend/src/features/settings/`, `routes/_authenticated/settings.tsx` |

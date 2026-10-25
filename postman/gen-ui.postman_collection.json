@@ -3163,7 +3163,7 @@
     },
     {
       "name": "Assistant",
-      "description": "**Asking spends provider tokens on every call.** Needs `ANTHROPIC_API_KEY`; without it the chat answers 503. Conversations are saved per user: the requests below share one conversation id.",
+      "description": "**Asking spends provider tokens on every call.** Needs `ANTHROPIC_API_KEY`; without it the chat answers 503. Each user has any number of chats (conversations). The requests below share one conversation id, which \"Ask the assistant\" creates with its first message.",
       "item": [
         {
           "name": "Ask the assistant",
@@ -3189,7 +3189,7 @@
                 "chat"
               ]
             },
-            "description": "Replies as an AI SDK UI message stream over SSE, so Postman shows `data:` frames arriving rather than one JSON body. Some frames are tool calls that the web app renders as React components (set `generateUi` to false for a Markdown-only answer).\n\nThe server keeps the conversation: send only the new `message` (its id is a fresh `{{$guid}}` on every send) and keep `id` the same across turns. `\"trigger\": \"regenerate-message\"` without a message answers the last question again.\n\n`model` is one of `claude-opus-5`, `claude-sonnet-5` or `claude-haiku-4-5` (the default and cheapest, used here). Add `\"effort\": \"low\"` … `\"max\"` for Opus and Sonnet; Haiku ignores it.\n\n`timeZone` (IANA, default `UTC`) is where \"today\" and the dates in the question are read. Ask in English or Serbian; other languages get a short refusal.",
+            "description": "Replies as an AI SDK UI message stream over SSE, so Postman shows `data:` frames arriving rather than one JSON body. Some frames are tool calls that the web app renders as React components (set `generateUi` to false for a Markdown-only answer).\n\nThe server keeps the conversation: send only the new `message` (its id is a fresh `{{$guid}}` on every send) and keep `id` the same across turns. A new `id` starts a new chat; its first answer also has Claude Haiku write the chat a short title. `\"trigger\": \"regenerate-message\"` without a message answers the last question again.\n\n`model` is one of `claude-opus-5`, `claude-sonnet-5` or `claude-haiku-4-5` (the default and cheapest, used here). Add `\"effort\": \"low\"` … `\"max\"` for Opus and Sonnet; Haiku ignores it.\n\n`timeZone` (IANA, default `UTC`) is where \"today\" and the dates in the question are read. Ask in English or Serbian; other languages get a short refusal.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"id\": \"5b0c8f3e-2d4a-4c1b-9e6f-7a8b9c0d1e2f\",\n  \"trigger\": \"submit-message\",\n  \"message\": {\n    \"id\": \"{{$guid}}\",\n    \"role\": \"user\",\n    \"parts\": [\n      {\n        \"type\": \"text\",\n        \"text\": \"Get me all admins, and also users named John.\"\n      }\n    ]\n  },\n  \"timeZone\": \"Europe/Zagreb\",\n  \"generateUi\": true,\n  \"model\": \"claude-haiku-4-5\"\n}",
@@ -3203,22 +3203,31 @@
           "response": []
         },
         {
-          "name": "Saved conversation",
+          "name": "Your chats",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/ai/conversations/latest",
+              "raw": "{{baseUrl}}/ai/conversations?page=1&pageSize=30",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "ai",
-                "conversations",
-                "latest"
+                "conversations"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "30"
+                }
               ]
             },
-            "description": "Your most recent conversation, every message with its parts, as the web app restores it. `conversation` is null when there is none. Free: no model call."
+            "description": "Your conversations, latest activity first (a question, an answer, a form saved in it; renaming doesn't count), without their messages: what the sidebar lists. A chat exists once its first message is sent. `title` is that question until the first answer ends, then a short title Claude Haiku wrote, or the one you gave it. Free: no model call."
           },
           "response": [],
           "event": [
@@ -3228,7 +3237,85 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('200 OK', () => pm.response.to.have.status(200));",
-                  "pm.test('has a conversation field', () => pm.expect(pm.response.json()).to.have.property('conversation'));"
+                  "pm.test('is a page of chats', () => pm.expect(pm.response.json()).to.have.property('items').that.is.an('array'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Open a chat",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/ai/conversations/5b0c8f3e-2d4a-4c1b-9e6f-7a8b9c0d1e2f",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ai",
+                "conversations",
+                "5b0c8f3e-2d4a-4c1b-9e6f-7a8b9c0d1e2f"
+              ]
+            },
+            "description": "The conversation used by \"Ask the assistant\", every message with its parts, as the web app restores it. 404 until its first message is sent, once it is deleted, or for someone else's. Free: no model call."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('has its messages', () => pm.expect(pm.response.json()).to.have.property('messages').that.is.an('array'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Rename a chat",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ai/conversations/5b0c8f3e-2d4a-4c1b-9e6f-7a8b9c0d1e2f",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ai",
+                "conversations",
+                "5b0c8f3e-2d4a-4c1b-9e6f-7a8b9c0d1e2f"
+              ]
+            },
+            "description": "Gives the conversation used by \"Ask the assistant\" a title of your own (1 to 80 characters). It keeps its place in the list. Free: no model call.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Who is on duty\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('has the new title', () => pm.expect(pm.response.json().title).to.eql('Who is on duty'));"
                 ]
               }
             }
@@ -3257,7 +3344,7 @@
                 "toolu_01ABCDEFGHIJKLMNOPQRSTUV"
               ]
             },
-            "description": "For the roles of the form's tool: admins, except the logbook forms, which everyone has. When the assistant opens a form in an answer (`createUser`, `createAlarmRule`, `editAlarmRule`, `createDevice`, `editDevice`, `createTag`, `editTag`, `createAsset`, `editAsset`, `createLogbookEntry`, `editLogbookEntry`, `scheduleShift`, `editShift`, `removeShift`, `copyShiftWeek`, `createShiftTemplate`, `editShiftTemplate`), the tool call ends there; the user saves through the page's own endpoint (`POST /users`; `POST` or `PATCH` on `/alarm-definitions`, `/devices`, `/tags`, `/assets`, `/logbook` or `/shifts/templates`; `POST /shifts/assignments`, `POST /shifts/assignments/copy-week`, `PATCH /shifts/assignments/:id` or `DELETE /shifts/assignments/:id`). The web app then calls this with `saved` and the saved record's id (for `removeShift`, the removed shift's), or with `{ \"status\": \"closed\" }` when the form was closed unsaved. A form that saves several shifts (a weekly repeat, a copied week, a change to the rest of a series) also sends `entityIds`, every one of them, with `entityId` the first (for `editShift`, the shift the form opened on). The server reads the records and adds `outcome` to that tool call's output in the saved conversation, so a reload shows the result and Claude knows on its next turn. Returns the output with its outcome.\n\nReplace the last path segment with a form call's `toolCallId` from \"Saved conversation\" (a part of type `tool-<form tool name>`, e.g. `tool-createUser` or `tool-editDevice`). For an edit form, `entityId` must be the record the form edits. Once per form: a second call is a 409. Free: no model call.",
+            "description": "For the roles of the form's tool: admins, except the logbook forms, which everyone has. When the assistant opens a form in an answer (`createUser`, `createAlarmRule`, `editAlarmRule`, `createDevice`, `editDevice`, `createTag`, `editTag`, `createAsset`, `editAsset`, `createLogbookEntry`, `editLogbookEntry`, `scheduleShift`, `editShift`, `removeShift`, `copyShiftWeek`, `createShiftTemplate`, `editShiftTemplate`), the tool call ends there; the user saves through the page's own endpoint (`POST /users`; `POST` or `PATCH` on `/alarm-definitions`, `/devices`, `/tags`, `/assets`, `/logbook` or `/shifts/templates`; `POST /shifts/assignments`, `POST /shifts/assignments/copy-week`, `PATCH /shifts/assignments/:id` or `DELETE /shifts/assignments/:id`). The web app then calls this with `saved` and the saved record's id (for `removeShift`, the removed shift's), or with `{ \"status\": \"closed\" }` when the form was closed unsaved. A form that saves several shifts (a weekly repeat, a copied week, a change to the rest of a series) also sends `entityIds`, every one of them, with `entityId` the first (for `editShift`, the shift the form opened on). The server reads the records and adds `outcome` to that tool call's output in the saved conversation, so a reload shows the result and Claude knows on its next turn. Returns the output with its outcome.\n\nReplace the last path segment with a form call's `toolCallId` from \"Open a chat\" (a part of type `tool-<form tool name>`, e.g. `tool-createUser` or `tool-editDevice`). For an edit form, `entityId` must be the record the form edits. Once per form: a second call is a 409. Free: no model call.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"status\": \"saved\",\n  \"entityId\": \"40000000-0000-4000-8000-000000000001\"\n}",
@@ -3288,12 +3375,12 @@
                 "toolu_01ABCDEFGHIJKLMNOPQRSTUV"
               ]
             },
-            "description": "A dashboard the assistant put together (`createDashboard`), as the Dashboard page opens it: `draft` is the call's input (name, sharing, widgets with their configs, some possibly incomplete), and `dashboard` the one saved from it (`POST /dashboards` with `source`), under its current name, or null while none is. Deleting that dashboard makes it null again. Only for your own conversation; 404 once it is cleared.\n\nReplace the last path segment with a `toolCallId` from \"Saved conversation\" (a part of type `tool-createDashboard`). Free: no model call."
+            "description": "A dashboard the assistant put together (`createDashboard`), as the Dashboard page opens it: `draft` is the call's input (name, sharing, widgets with their configs, some possibly incomplete), and `dashboard` the one saved from it (`POST /dashboards` with `source`), under its current name, or null while none is. Deleting that dashboard makes it null again. Only for your own conversation; 404 once it is deleted.\n\nReplace the last path segment with a `toolCallId` from \"Open a chat\" (a part of type `tool-createDashboard`). Free: no model call."
           },
           "response": []
         },
         {
-          "name": "Clear the conversation",
+          "name": "Delete a chat",
           "request": {
             "method": "DELETE",
             "header": [],

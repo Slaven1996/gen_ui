@@ -1,7 +1,7 @@
 import type { ComponentType, ReactNode } from 'react';
 import type { LinkProps } from '@tanstack/react-router';
 import type { ToolUIPart } from 'ai';
-import type { FormToolName, GenUIToolName, GenUITools } from '@gen-ui/shared';
+import type { ConversationSummary, FormToolName, GenUIToolName, GenUITools } from '@gen-ui/shared';
 
 export type GenUIToolPart = ToolUIPart<GenUITools>;
 
@@ -15,13 +15,19 @@ export type SavedOutcome<N extends FormToolName> = Extract<NonNullable<ToolOutpu
 
 export type ToolLink = Pick<LinkProps, 'to' | 'search'>;
 
+/** What can be done to a chat; `useChatActions` brings the dialogs. */
+export interface ChatActions {
+  onRename: (chat: ConversationSummary) => void;
+  onDelete: (id: string) => void;
+}
+
 /**
  * Which call a part is. Most views need only its input; a dashboard draft
  * also links back to the call (the page reads it from the saved conversation).
  */
 export interface ToolCall {
-  /** The conversation holding the call; `undefined` while the chat is loading. */
-  conversationId: string | undefined;
+  /** The conversation holding the call. */
+  conversationId: string;
   toolCallId: string;
   /** The call has its output and the answer holding it has ended, so the conversation is saved with it. */
   done: boolean;

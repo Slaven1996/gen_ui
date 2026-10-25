@@ -1,27 +1,24 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { useChat, type Chat } from '@ai-sdk/react';
 import { ArrowUp, Square, Trash2 } from 'lucide-react';
-import { toast } from 'sonner';
 import type { GenUIMessage } from '@gen-ui/shared';
-import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { getErrorMessage } from '@/lib/api/errors';
+import { useChatActions } from '../hooks/use-chat-actions';
 import { describeChatError } from '../lib/chat-errors';
 import { setGenerateUi, useGenerateUi } from '../store/assistant-preferences';
-import { clearChat } from '../store/chat-store';
 import { ChatMessage } from './chat-message';
 import { ModelSettings } from './model-settings';
 
-export function ChatThreadView({ chat }: { chat: Chat<GenUIMessage> }) {
+/** A chat on screen. `onSent`: called after a message is sent (a new chat then takes its URL). */
+export function ChatThreadView({ chat, onSent }: { chat: Chat<GenUIMessage>; onSent?: () => void }) {
   const { messages, sendMessage, status, stop, error, regenerate, clearError } = useChat({ chat });
   const generateUi = useGenerateUi();
   const toggleId = useId();
   const [input, setInput] = useState('');
-  const [confirmingClear, setConfirmingClear] = useState(false);
-  const [clearing, setClearing] = useState(false);
+  const { actions, dialogs } = useChatActions(chat.id);
   const scrollRef = useRef<HTMLDivElement>(null);
   const busy = status === 'submitted' || status === 'streaming';
 
@@ -35,6 +32,7 @@ export function ChatThreadView({ chat }: { chat: Chat<GenUIMessage> }) {
     if (!trimmed || busy) return;
     void sendMessage({ text: trimmed });
     setInput('');
+    onSent?.();
   };
 
   const onSubmit = (event: FormEvent) => {
@@ -49,15 +47,6 @@ export function ChatThreadView({ chat }: { chat: Chat<GenUIMessage> }) {
     }
   };
 
-  const onClear = () => {
-    setClearing(true);
-    // On success the thread remounts on the new, empty conversation.
-    clearChat().catch((failure: unknown) => {
-      toast.error(getErrorMessage(failure));
-      setClearing(false);
-    });
-  };
-
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div ref={scrollRef} className="flex-1 space-y-5 overflow-y-auto px-4 py-4" aria-live="polite">
@@ -67,7 +56,12 @@ export function ChatThreadView({ chat }: { chat: Chat<GenUIMessage> }) {
           </p>
         ) : (
           messages.map((message, index) => (
-            <ChatMessage key={message.id} message={message} streaming={busy && index === messages.length - 1} />
+            <ChatMessage
+              key={message.id}
+              conversationId={chat.id}
+              message={message}
+              streaming={busy && index === messages.length - 1}
+            />
           ))
         )}
 
@@ -105,10 +99,10 @@ export function ChatThreadView({ chat }: { chat: Chat<GenUIMessage> }) {
             size="sm"
             className="h-7 px-2 text-xs text-muted-foreground"
             disabled={busy || messages.length === 0}
-            onClick={() => setConfirmingClear(true)}
+            onClick={() => actions.onDelete(chat.id)}
           >
             <Trash2 />
-            Clear chat
+            Delete chat
           </Button>
         </div>
 
@@ -134,15 +128,7 @@ export function ChatThreadView({ chat }: { chat: Chat<GenUIMessage> }) {
         </form>
       </div>
 
-      <ConfirmDialog
-        open={confirmingClear}
-        onOpenChange={setConfirmingClear}
-        title="Clear this chat?"
-        description="The whole conversation is deleted for good, on every device."
-        confirmLabel="Clear chat"
-        pending={clearing}
-        onConfirm={onClear}
-      />
+      {dialogs}
     </div>
   );
 }

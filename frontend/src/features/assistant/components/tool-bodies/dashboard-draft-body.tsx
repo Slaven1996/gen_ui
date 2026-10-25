@@ -24,7 +24,7 @@ import type { ToolCall, ToolInput } from '../../types';
  */
 export function DashboardDraftBody({ input, call }: { input: ToolInput<'createDashboard'>; call: ToolCall }) {
   // The page reads the draft from the saved conversation, which has it once the answer has ended.
-  const source = call.conversationId && call.done ? { conversationId: call.conversationId, toolCallId: call.toolCallId } : undefined;
+  const source = call.done ? { conversationId: call.conversationId, toolCallId: call.toolCallId } : undefined;
   const status = useQuery({ ...dashboardDraftQueryOptions(source?.conversationId ?? '', call.toolCallId), enabled: Boolean(source) });
   const created = status.data?.dashboard ?? undefined;
   // Always stale here too, like the status, so an edit in another tab shows on focus.

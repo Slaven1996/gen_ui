@@ -1,6 +1,5 @@
 import { isFormToolPart } from '@gen-ui/shared';
 import { rendererFor } from '../lib/tool-renderers';
-import { useChatInstance } from '../store/chat-store';
 import type { GenUIToolPart } from '../types';
 import { FormPartView } from './form-part-view';
 import { ListToolCard } from './list-tool-card';
@@ -11,9 +10,16 @@ import { ToolSkeleton } from './tool-skeleton';
  * A tool call as a component: a skeleton while it is written, then its view
  * and "Open in new tab". `streaming`: the answer holding it is still arriving.
  */
-export function ToolPartView({ part, streaming = false }: { part: GenUIToolPart; streaming?: boolean }) {
-  const chat = useChatInstance();
-  if (isFormToolPart(part)) return <FormPartView part={part} streaming={streaming} />;
+export function ToolPartView({
+  conversationId,
+  part,
+  streaming = false,
+}: {
+  conversationId: string;
+  part: GenUIToolPart;
+  streaming?: boolean;
+}) {
+  if (isFormToolPart(part)) return <FormPartView conversationId={conversationId} part={part} streaming={streaming} />;
   const renderer = rendererFor(part);
   switch (part.state) {
     case 'input-streaming':
@@ -22,7 +28,7 @@ export function ToolPartView({ part, streaming = false }: { part: GenUIToolPart;
       return <ToolError message={part.errorText} />;
     default: {
       const call = {
-        conversationId: chat?.id,
+        conversationId,
         toolCallId: part.toolCallId,
         done: part.state === 'output-available' && !streaming,
       };

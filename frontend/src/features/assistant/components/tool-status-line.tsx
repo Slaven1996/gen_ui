@@ -1,13 +1,19 @@
 import { isFormToolPart } from '@gen-ui/shared';
 import { ViewFullPageLink } from '@/components/view-full-page-link';
 import { rendererFor } from '../lib/tool-renderers';
-import { useChatInstance } from '../store/chat-store';
 import type { GenUIToolPart } from '../types';
 import { FormStatusLine } from './form-status-line';
 
 /** A tool call in a text-only answer: one muted line, with the same link. */
-export function ToolStatusLine({ part, streaming = false }: { part: GenUIToolPart; streaming?: boolean }) {
-  const chat = useChatInstance();
+export function ToolStatusLine({
+  conversationId,
+  part,
+  streaming = false,
+}: {
+  conversationId: string;
+  part: GenUIToolPart;
+  streaming?: boolean;
+}) {
   if (isFormToolPart(part)) return <FormStatusLine part={part} />;
   const renderer = rendererFor(part);
   switch (part.state) {
@@ -17,7 +23,7 @@ export function ToolStatusLine({ part, streaming = false }: { part: GenUIToolPar
       return <p className="text-xs text-destructive">{part.errorText}</p>;
     default: {
       const call = {
-        conversationId: chat?.id,
+        conversationId,
         toolCallId: part.toolCallId,
         done: part.state === 'output-available' && !streaming,
       };

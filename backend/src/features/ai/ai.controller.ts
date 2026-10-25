@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Put, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Put, Query, Res } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiNoContentResponse,
@@ -11,15 +11,23 @@ import {
 import type { Response } from 'express';
 import {
   ChatRequestSchema,
+  ConversationListSchema,
+  ConversationSchema,
+  ConversationSummarySchema,
   DashboardDraftResponseSchema,
   FormOutcomeRequestSchema,
   FormToolOutputSchema,
-  LatestConversationSchema,
+  ListConversationsQuerySchema,
+  RenameConversationSchema,
   type ChatRequest,
+  type Conversation,
+  type ConversationList,
+  type ConversationSummary,
   type DashboardDraftResponse,
   type FormOutcomeRequest,
   type FormToolOutput,
-  type LatestConversation,
+  type ListConversationsQuery,
+  type RenameConversationDto,
 } from '@gen-ui/shared';
 import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
 import { ApiErrorResponse, AUTH_REQUIRED } from '../../docs/api-error.js';
@@ -49,7 +57,7 @@ export class AiController {
   @ApiOperation({
     summary: 'Ask the assistant',
     description:
-      'Continues your saved conversation `id` (a new id starts one): send only the new `message`, or `trigger: "regenerate-message"` to answer the last question again. `model` picks the Claude model (default Claude Haiku 4.5) and `effort` its effort level (ignored by Haiku). `timeZone` is where "today" and the dates you mention are read. Streams an AI SDK UI message stream over SSE, so the reply arrives as `data:` frames rather than one JSON body — Swagger UI shows it as raw text. Parts of the answer are tool calls the web app renders as React components unless `generateUi` is false. Every call spends provider tokens.',
+      'Continues your conversation `id` (a new id starts a new chat, created by this first message): send only the new `message`, or `trigger: "regenerate-message"` to answer the last question again. `model` picks the Claude model (default Claude Haiku 4.5) and `effort` its effort level (ignored by Haiku). `timeZone` is where "today" and the dates you mention are read. Streams an AI SDK UI message stream over SSE, so the reply arrives as `data:` frames rather than one JSON body — Swagger UI shows it as raw text. Parts of the answer are tool calls the web app renders as React components unless `generateUi` is false. The first answer of a new chat also has Claude Haiku write the chat a short title, saved before the stream ends. Every call spends provider tokens.',
   })
   @ApiResponse({
     status: 201,
@@ -77,15 +85,49 @@ export class AiController {
     await this.ai.streamChat({ user, request: body, response: res, abortSignal: abort.signal });
   }
 
-  @Get('conversations/latest')
+  @Get('conversations')
   @ApiOperation({
-    summary: 'Your saved conversation',
+    summary: 'Your chats',
     description:
-      'Your most recent conversation with every message, parts included, so the web app can render it again. `conversation` is null when there is none.',
+      "Your conversations, latest activity first (a question, an answer, a form saved in it; renaming doesn't count), without their messages. A chat exists once its first message is sent. Its `title` is that question until the first answer ends, then a short title Claude wrote, or the one you gave it.",
   })
-  @ApiOkResponse({ standardSchema: LatestConversationSchema })
-  async latest(@CurrentUser() user: AuthUser): Promise<LatestConversation> {
-    return { conversation: await this.conversations.latest(user.id) };
+  @ApiOkResponse({ standardSchema: ConversationListSchema })
+  @ApiErrorResponse(400, 'A query parameter is invalid.')
+  list(
+    @Query({ schema: ListConversationsQuerySchema }) query: ListConversationsQuery,
+    @CurrentUser() user: AuthUser,
+  ): Promise<ConversationList> {
+    return this.conversations.list(user.id, query);
+  }
+
+  @Get('conversations/:id')
+  @ApiOperation({
+    summary: 'One of your chats',
+    description: 'A conversation of yours with every message, parts included, so the web app can render it again.',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ standardSchema: ConversationSchema })
+  @ApiErrorResponse(400, '`id` is not a UUID.')
+  @ApiErrorResponse(404, 'No such conversation of yours (it may have been deleted).')
+  get(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser): Promise<Conversation> {
+    return this.conversations.get(id, user.id);
+  }
+
+  @Patch('conversations/:id')
+  @ApiOperation({
+    summary: 'Rename a chat',
+    description: 'Gives one of your conversations a title of your own. It keeps its place in your list. No model call.',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ standardSchema: ConversationSummarySchema })
+  @ApiErrorResponse(400, '`id` is not a UUID, or `title` is empty or too long.')
+  @ApiErrorResponse(404, 'No such conversation of yours.')
+  rename(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body({ schema: RenameConversationSchema }) body: RenameConversationDto,
+    @CurrentUser() user: AuthUser,
+  ): Promise<ConversationSummary> {
+    return this.conversations.rename(id, user.id, body.title);
   }
 
   @Put('conversations/:id/forms/:toolCallId')
@@ -120,7 +162,7 @@ export class AiController {
   @ApiParam({ name: 'toolCallId', description: "The `createDashboard` call's id, from its part in the conversation." })
   @ApiOkResponse({ standardSchema: DashboardDraftResponseSchema })
   @ApiErrorResponse(400, '`id` is not a UUID.')
-  @ApiErrorResponse(404, 'No such conversation of yours (it may have been cleared), or no dashboard draft with that id in it.')
+  @ApiErrorResponse(404, 'No such conversation of yours (it may have been deleted), or no dashboard draft with that id in it.')
   dashboardDraft(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('toolCallId') toolCallId: string,
@@ -132,8 +174,9 @@ export class AiController {
   @Delete('conversations/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({
-    summary: 'Clear a conversation',
-    description: 'Deletes one of your conversations for good. An unknown id is not an error.',
+    summary: 'Delete a chat',
+    description:
+      'Deletes one of your conversations for good. Dashboards saved from its drafts stay; their draft links stop working. An unknown id is not an error.',
   })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiNoContentResponse({ description: 'Deleted, or there was nothing to delete.' })
