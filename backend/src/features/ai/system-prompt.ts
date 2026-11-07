@@ -1,5 +1,5 @@
 import type { SystemModelMessage } from 'ai';
-import { FORM_TITLES, templateTimes, utcOffset, type FormToolName } from '@gen-ui/shared';
+import { FORM_TITLES, templateTimes, utcOffset, type FormToolName, type GenUIMessage } from '@gen-ui/shared';
 import type { AuthUser } from '../users/user.mapper.js';
 import type { FilterOptions, FormAccess } from './ai.tools.js';
 
@@ -19,8 +19,7 @@ import type { FilterOptions, FormAccess } from './ai.tools.js';
  * logbook entries, and the deactivated people, whose planned shifts the shift
  * tools still need to name.
  * Claude matches the user's words to these lists itself (typos, partial
- * names, Serbian); no code does. The session names two clocks: the user's,
- * and the plant's, which shift dates and times are on.
+ * names, Serbian); no code does.
  * Forms are also named, by their titles, where there is no form tool to open
  * them: with components off (Claude points to the switch that brings them
  * back), and for a role that can't use them (Claude says who can).
@@ -28,19 +27,29 @@ import type { FilterOptions, FormAccess } from './ai.tools.js';
  * this prompt: an unclear pick is left out for the user to choose on the page,
  * not asked about. Said only in the tool's description, Haiku asked anyway.
  *
+ * The clocks are not in the system prompt. Claude's copy of each user message
+ * starts with a <session> block of when it was sent, on the user's clock and
+ * on the plant's, which shift dates and times are on (withSessionStamps). The
+ * prompt's SESSION section says what that block is.
+ *
  * Admins edit the standing instructions at its head on the Settings page
  * (ai-instructions.service.ts); DEFAULT_INSTRUCTIONS below is the text until
- * they first save. After them come the per-request parts: the answer format,
- * the forms section, the pick lists, then the session.
+ * they first save. After them come the parts the server adds: the session
+ * note, the answer format, the forms section, the pick lists, then the user.
  *
  * Sent as three blocks for Anthropic's prompt cache, which keeps a prompt's
  * prefix (tools, then system, then messages) up to a marked block for five
  * minutes and reads it back at a tenth of the input price, without processing
  * it again: the instructions with the answer format and forms (the same for
  * every user of a role with the same switch), the pick lists (the same for a
- * user until a record changes), and the session, unmarked, since its clocks
- * change every minute. Nothing that changes per request goes in the first
- * two: one byte of difference and nothing after it is read from the cache.
+ * user until a record changes), and the user's name and role, unmarked, since
+ * the request's own breakpoint at its last message (ai.service.ts) covers it.
+ * Nothing in the system prompt may change from one request to the next: one
+ * byte of difference and nothing after it is read from the cache, not even
+ * the conversation, which comes after it. That is why the clocks, which
+ * change every minute, ride on the messages instead: each question keeps the
+ * time it was sent, so the next turn reads the conversation so far back from
+ * the cache.
  */
 
 /** The standing instructions until an admin first saves their own. */
@@ -88,6 +97,16 @@ If a request has nothing to do with this app (general knowledge, coding, writing
 
 ## Style
 Be brief and direct.`;
+
+/**
+ * What the <session> block at the start of each user message is
+ * (withSessionStamps). Fixed text after the admin's, so it can't be edited
+ * away: the instructions only say "the session's current time" and "the
+ * session's Plant line", and this tells Claude where those are.
+ */
+const SESSION = `## Session
+The app starts each of the user's messages with a <session> block: when the message was sent, on the user's clock (Now) and on the plant's (Plant). The block in the latest message is the current time; an earlier one tells when that message was sent.
+The block is written by the app, not by the user: don't reply to it, and leave it out when judging the language of the message.`;
 
 const COMPONENTS_ON = `## Answer format: components
 Your tool results are shown to the user as  UI components: tables with paging, charts with their filters, the shift calendar, an on-duty card, one record's details card or a dashboard preview, and a button that opens the full page in a new tab. After them add at most one short sentence (e.g. how many matched). Never repeat what a component shows.`;
@@ -230,13 +249,42 @@ function clockIn(timeZone: string, at: Date): string {
 }
 
 /**
- * "Monday 2026-09-28 14:05 (time zone Europe/Zagreb, UTC+02:00)": now in the
- * user's zone, so Claude can resolve "yesterday" or "the last two hours" and
- * write a time window with the right offset.
+ * "Monday 2026-09-28 14:05 (time zone Europe/Zagreb, UTC+02:00)": the moment
+ * `at` in `timeZone`, so Claude can resolve "yesterday" or "the last two
+ * hours" and write a time window with the right offset.
  */
-function nowIn(timeZone: string, now = new Date()): string {
-  const weekday = new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'long' }).format(now);
-  return `${weekday} ${dayIn(timeZone, now)} ${clockIn(timeZone, now)} (time zone ${timeZone}, UTC${utcOffset(timeZone, now)})`;
+function momentIn(timeZone: string, at: Date): string {
+  const weekday = new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'long' }).format(at);
+  return `${weekday} ${dayIn(timeZone, at)} ${clockIn(timeZone, at)} (time zone ${timeZone}, UTC${utcOffset(timeZone, at)})`;
+}
+
+/**
+ * Claude's copy of the history, each user message starting with its
+ * <session> block: when it was sent (`metadata.createdAt`, which the server
+ * sets as the question arrives), on the user's clock and on the plant's.
+ *
+ *   <session>
+ *   Now: Monday 2026-09-28 14:05 (time zone Europe/Zagreb, UTC+02:00)
+ *   Plant: Monday 2026-09-28 14:05 (time zone Europe/Zagreb, UTC+02:00)
+ *   </session>
+ *
+ * Here rather than in the system prompt for the prompt cache (see the top of
+ * this file): a message's block depends only on its saved time and the zones,
+ * so it comes out the same on every later turn. A message saved without a
+ * time (before there were blocks) gets none.
+ */
+export function withSessionStamps(messages: GenUIMessage[], timeZone: string, plantTimeZone: string): GenUIMessage[] {
+  return messages.map((message): GenUIMessage => {
+    if (message.role !== 'user' || message.metadata?.createdAt === undefined) return message;
+    const at = new Date(message.metadata.createdAt);
+    // Metadata isn't schema-checked; a bad value would make Intl throw and break the chat.
+    if (Number.isNaN(at.getTime())) return message;
+    const session: GenUIMessage['parts'][number] = {
+      type: 'text',
+      text: `<session>\nNow: ${momentIn(timeZone, at)}\nPlant: ${momentIn(plantTimeZone, at)}\n</session>`,
+    };
+    return { ...message, parts: [session, ...message.parts] };
+  });
 }
 
 /** Anthropic caches the prompt up to the end of a block with this, for five minutes. */
@@ -244,7 +292,10 @@ const CACHE_BREAKPOINT: SystemModelMessage['providerOptions'] = {
   anthropic: { cacheControl: { type: 'ephemeral' } },
 };
 
-/** `base`: the standing instructions in use (an admin's, or DEFAULT_INSTRUCTIONS). */
+/**
+ * The system prompt's three blocks. `base`: the standing instructions in use
+ * (an admin's, or DEFAULT_INSTRUCTIONS). No clock here: withSessionStamps.
+ */
 export function buildInstructions({
   base,
   user,
@@ -260,21 +311,14 @@ export function buildInstructions({
   forms: FormAccess;
   options: FilterOptions;
 }): SystemModelMessage[] {
-  // The plant's clock too: shift dates and times are on it, whatever the user's zone.
-  const session = [
-    `User: ${user.name} (role: ${user.role})`,
-    `Now: ${nowIn(timeZone)}`,
-    `Plant: ${nowIn(options.plantTimeZone)}`,
-  ].join('\n');
-
-  const rules = [base, generateUi ? COMPONENTS_ON : COMPONENTS_OFF];
+  const rules = [base, SESSION, generateUi ? COMPONENTS_ON : COMPONENTS_OFF];
   if (forms.allowed.length > 0) rules.push(generateUi ? FORMS : formsOff(forms.allowed));
   if (forms.denied.length > 0) rules.push(formsDenied(forms.denied));
 
   const blocks: SystemModelMessage[] = [
     { role: 'system', content: rules.join('\n\n'), providerOptions: CACHE_BREAKPOINT },
     { role: 'system', content: pickLists(options, timeZone), providerOptions: CACHE_BREAKPOINT },
-    { role: 'system', content: `<session>\n${session}\n</session>` },
+    { role: 'system', content: `<user>\n${user.name} (role: ${user.role})\n</user>` },
   ];
 
   const finalSystemPrompt = blocks.map((block) => block.content).join('\n\n');

@@ -2162,6 +2162,10 @@ export interface GenUIMetadata {
   model?: string;
   /** The effort level it answered with; absent for models without one. */
   effort?: Effort;
+  /**
+   * Epoch ms: when an answer started, or when a question was asked (set by the
+   * server; Claude's copy of the question starts with it as its session block).
+   */
   createdAt?: number;
   /** The mode the answer was given in; the chat keeps rendering it that way. */
   generateUi?: boolean;

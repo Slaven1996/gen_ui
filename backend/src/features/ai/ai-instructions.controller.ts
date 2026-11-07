@@ -25,7 +25,7 @@ export class AiInstructionsController {
   @ApiOperation({
     summary: 'Get the assistant’s instructions',
     description:
-      'The standing instructions every chat starts its system prompt with (the Settings page). The server appends the answer format, the forms, the pick lists and the session after them. `isDefault` is true until an admin first saves; `defaultContent` is the text built into the app.',
+      'The standing instructions every chat starts its system prompt with (the Settings page). The server appends a note on the session block (each question\'s clocks), the answer format, the forms, the pick lists and the user after them. `isDefault` is true until an admin first saves; `defaultContent` is the text built into the app.',
   })
   @ApiOkResponse({ standardSchema: AssistantInstructionsSchema })
   get(): Promise<AssistantInstructions> {

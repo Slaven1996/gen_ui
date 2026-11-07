@@ -35,7 +35,7 @@ import {
 } from './conversation-title.js';
 import { ConversationsService } from './conversations.service.js';
 import { DashboardDraftsService } from './dashboard-drafts.service.js';
-import { buildInstructions } from './system-prompt.js';
+import { buildInstructions, withSessionStamps } from './system-prompt.js';
 
 /*
  * ════════════════════════════════════════════════════════════════════════════
@@ -46,7 +46,8 @@ import { buildInstructions } from './system-prompt.js';
  *  [AI]  decided by Claude while the request runs
  *
  *  1 [app] Load the saved conversation (none yet for a new chat: its id
- *          comes from the browser) and add the new question.
+ *          comes from the browser) and add the new question, with the time
+ *          it is asked.
  *  2 [app] Validate all of it against the tool contracts.
  *  3 [app] Save it, so the question survives a failed model call. A new
  *          chat's row is created here, titled with the question.
@@ -60,9 +61,12 @@ import { buildInstructions } from './system-prompt.js';
  *          again on the next request or tool round.
  *          The prompt lists the assets, people and shift templates the
  *          pages' pickers offer, so Claude can fill those filters with
- *          their ids, and the plant's clock that shift dates are on. Lists a
- *          tool on offer takes by id are added: devices, tags, alarm rules
- *          and the user's own latest logbook entries.
+ *          their ids. Lists a tool on offer takes by id are added: devices,
+ *          tags, alarm rules and the user's own latest logbook entries.
+ *          The clocks come with the history instead, so they don't undo the
+ *          cache: Claude's copy of each question starts with when it was
+ *          sent, on the user's clock and on the plant's, which shift dates
+ *          are on.
  *  5 [AI]  Claude decides what to do: answer, politely refuse an off-topic
  *          request, or call tools, choosing which tools, their filters, and
  *          how many to run at once.
@@ -160,15 +164,20 @@ export class AiService {
 
     // 1–3 [app] The conversation this turn continues: extended, validated, saved.
     const stored = await this.conversations.messages(request.id, user.id);
-    const messages = await validate(nextHistory(stored, request), tools);
+    const messages = askedNow(await validate(nextHistory(stored, request), tools));
     await this.conversations.start(request.id, user.id, messages);
 
     // [AI] A new chat's title, written while the answer streams; saved in step 9.
     const title = stored.length === 0 ? this.writeTitle(firstQuestion(messages)) : undefined;
 
     // Claude's copy of the history says which dashboard drafts were saved since, and as
-    // what; the copy that is streamed and saved stays as it was.
-    const forClaude = forModel(await this.drafts.withStatus(messages, request.id), request.model);
+    // what, and starts each question with when it was sent (its <session> block); the
+    // copy that is streamed and saved stays as it was.
+    const forClaude = withSessionStamps(
+      forModel(await this.drafts.withStatus(messages, request.id), request.model),
+      timeZone,
+      options.plantTimeZone,
+    );
 
     // 4 [app] One call to streamText. It runs steps 5–7 by itself: [AI] Claude
     // answers or calls tools, [app] the SDK runs their `execute`, [AI] Claude
@@ -253,8 +262,10 @@ export class AiService {
 
   /**
    * Anthropic-specific options. `cacheControl` caches the whole prompt up to
-   * its last message, so each tool round reads the previous one's from the
-   * cache (system-prompt.ts marks the earlier breakpoints). Models with an
+   * its last message, so each tool round, and the next question within five
+   * minutes, reads the conversation before it from the cache (system-prompt.ts
+   * marks the earlier breakpoints, and keeps the clocks out of the system
+   * prompt so nothing before the conversation changes). Models with an
    * effort level think adaptively; Claude Haiku 4.5 gets neither option,
    * since it would reject both. Never add `budgetTokens`, `temperature` or
    * `topP`: the Claude 5 models answer those with a 400.
@@ -315,6 +326,22 @@ async function validate(messages: unknown[], tools: AiToolSet): Promise<GenUIMes
     throw new BadRequestException('The last message must come from the user');
   }
   return result;
+}
+
+/**
+ * The history with the question this turn answers marked as asked now
+ * (`metadata.createdAt`): Claude reads that as the current time
+ * (withSessionStamps in system-prompt.ts). Also a re-sent question and one
+ * asked again with "Try again", so the answer is about the moment it's given.
+ * The server's time, not the browser's (the browser sends no metadata), and
+ * saved with the question, so Claude sees the same time for it on every later
+ * turn.
+ */
+function askedNow(messages: GenUIMessage[]): GenUIMessage[] {
+  const question = messages.at(-1);
+  // validate() already made sure the last message is the user's.
+  if (question?.role !== 'user') return messages;
+  return [...messages.slice(0, -1), { ...question, metadata: { createdAt: Date.now() } }];
 }
 
 /**

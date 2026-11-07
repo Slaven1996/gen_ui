@@ -3,8 +3,9 @@ import { UserRefSchema } from './common/query.js';
 
 /*
  * The assistant's standing instructions: the head of its system prompt, which
- * admins edit on the Settings page. The server appends the answer format, the
- * forms, the pick lists and the session after it on every request.
+ * admins edit on the Settings page. The server appends a note on the session
+ * block, the answer format, the forms, the pick lists and the user after it on
+ * every request.
  */
 
 /** The built-in text is about 5,500 characters. */
