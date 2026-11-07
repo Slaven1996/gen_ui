@@ -192,6 +192,9 @@ export class AiService {
       maxOutputTokens: Math.min(this.config.get('AI_MAX_OUTPUT_TOKENS'), MODEL_LIMITS[request.model].maxOutputTokens),
       providerOptions: { anthropic: this.anthropicOptions(request.model, effort) },
       abortSignal,
+      onStepEnd: ({ stepNumber, usage }) => {
+        console.log(`step ${stepNumber}`, usage.inputTokenDetails, 'total input:', usage.inputTokens);
+      },
     });
 
     console.log('RESULT');
