@@ -47,6 +47,8 @@ services:
       # which forces COOKIE_SECURE=true and therefore HTTPS.
       NODE_ENV: ${NODE_ENV:-development}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      # Empty: host-only cookies.
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
       # nginx is the only hop in front of the API.
       TRUST_PROXY: ${TRUST_PROXY:-1}
       # Empty: the browser reaches the API same-origin through nginx.
@@ -56,13 +58,32 @@ services:
       #   openssl rand -base64 48
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-only-insecure-secret-change-me-before-deploying-0000}
       JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-900}
+      JWT_ISSUER: ${JWT_ISSUER:-gen-ui-api}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-gen-ui-web}
+
+      # Refresh token: httpOnly cookie, rotated on every use.
+      REFRESH_TOKEN_TTL_DAYS: ${REFRESH_TOKEN_TTL_DAYS:-7}
+      # A rotated token shown again within this window is a multi-tab race, not theft.
+      REFRESH_TOKEN_REUSE_GRACE_SECONDS: ${REFRESH_TOKEN_REUSE_GRACE_SECONDS:-10}
+      # Expired refresh tokens are deleted this many days after expiry by a daily job.
+      REFRESH_TOKEN_PRUNE_AFTER_DAYS: ${REFRESH_TOKEN_PRUNE_AFTER_DAYS:-30}
+      REFRESH_COOKIE_NAME: ${REFRESH_COOKIE_NAME:-refresh_token}
 
       # Chat answers 503 until the Anthropic key is set; everything else works.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      AI_MAX_OUTPUT_TOKENS: ${AI_MAX_OUTPUT_TOKENS:-64000}
+      # Max model↔tool round-trips per chat request.
+      AI_MAX_STEPS: ${AI_MAX_STEPS:-15}
+      AI_SEND_REASONING: ${AI_SEND_REASONING:-true}
+      AI_REFUSAL_FALLBACK: ${AI_REFUSAL_FALLBACK:-true}
+      # Longest device, tag or alarm rule list put in the prompt; a longer one is looked up.
+      AI_PICK_LIST_INLINE_MAX: ${AI_PICK_LIST_INLINE_MAX:-100}
 
       # Simulated readings for ONLINE devices, so charts and alarms move in a demo.
       SIMULATOR_ENABLED: ${SIMULATOR_ENABLED:-true}
       SIMULATOR_INTERVAL_SECONDS: ${SIMULATOR_INTERVAL_SECONDS:-60}
+      # Measurements older than this are deleted by a daily job.
+      TELEMETRY_RETENTION_DAYS: ${TELEMETRY_RETENTION_DAYS:-180}
 
       # Demo: a made-up alarm notification every 60 s, 40% of the time, on top of the real ones.
       MOCK_ALARM_NOTIFICATIONS: ${MOCK_ALARM_NOTIFICATIONS:-true}

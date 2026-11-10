@@ -33,7 +33,7 @@ Every setting in `docker-compose.yml` has a development default, including `JWT_
 docker compose --env-file backend/.env up
 ```
 
-Only the variables listed under the `backend` service's `environment:` reach the API; the others keep their defaults. Every API setting, with its default, is in `backend/.env.example`.
+Only the variables listed under the `backend` service's `environment:` reach the API; `backend/.env` itself is never copied into the image. Every API setting is listed there, with the same default as in `backend/.env.example`.
 
 The API port is deliberately not published: the browser reaches it same-origin at `/api` through nginx, which leaves port 3000 free for `pnpm dev`. Uncomment the `ports:` block under `backend` to expose it.
 

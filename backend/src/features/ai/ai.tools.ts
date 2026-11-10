@@ -471,6 +471,7 @@ export class AiTools {
     ]);
     // Too long for the prompt: left out of it, and Claude looks up what it needs.
     const max = this.config.get('AI_PICK_LIST_INLINE_MAX');
+    console.log('AI pick-list inline max: ', max);
     const deferred: LookupList[] = [];
     if (devices && devices.length > max) deferred.push('devices');
     if (tags && tags.length > max) deferred.push('tags');
@@ -1175,7 +1176,10 @@ export class AiTools {
           return { list, scope, lines: await this.lookUp(list, assetId) };
         },
         // Claude reads the lines like the prompt's own list: <tags at="Riverside Pumping Station" …>.
-        toModelOutput: ({ output }) => ({ type: 'text', value: lookupText(output) }),
+        toModelOutput: ({ output }) => {
+          console.log("Claude's lookup output: ", output);
+          return { type: 'text', value: lookupText(output) };
+        },
       }),
     };
   }
