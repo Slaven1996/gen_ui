@@ -56,10 +56,12 @@ export class TagsService {
   /**
    * Every tag, grouped by where it is: the choices the assistant matches the
    * user's words against when a tool asks for a tag's id (the tag pickers'
-   * options, all at once).
+   * options, all at once). With `assetId`, only the tags at that asset and
+   * below it (the assistant's lookup).
    */
-  async options(): Promise<TagOption[]> {
+  async options(assetId?: string): Promise<TagOption[]> {
     const rows = await this.prisma.tag.findMany({
+      where: assetId ? { device: { asset: withinAsset(assetId) } } : undefined,
       select: { id: true, name: true, code: true, unit: true, device: { select: { asset: { select: { name: true } } } } },
       orderBy: [{ device: { asset: { name: 'asc' } } }, { name: 'asc' }, { id: 'asc' }],
     });

@@ -201,7 +201,9 @@ export type RenameConversationDto = z.output<typeof RenameConversationSchema>;
  * Shifts page's on-duty strip. A details card takes one record's id, which
  * its page carries without the `Id` (`deviceId` → `/devices?device=…`) to
  * open the same panel. A dashboard draft holds a whole dashboard: each
- * widget's config is the query of that widget's page.
+ * widget's config is the query of that widget's page. A helper tool
+ * (HELPER_TOOL_NAMES) has no page: Claude calls it for itself, and the chat
+ * never draws it.
  */
 
 const titleField = (examples: string) =>
@@ -1925,6 +1927,45 @@ export const DashboardDraftResponseSchema = z
   .meta({ id: 'DashboardDraft' });
 export type DashboardDraftResponse = z.infer<typeof DashboardDraftResponseSchema>;
 
+// ─── Helper tools ───────────────────────────────────────────────────────────
+
+/*
+ * Tools Claude calls for itself, to fill another tool's fields. Their calls
+ * are saved with the answer and read back by Claude on later turns, like any
+ * other, but the chat never draws them.
+ *
+ * The lookup stands in for a pick list too long for the system prompt
+ * (AI_PICK_LIST_INLINE_MAX): every tag, device or alarm rule, or only those
+ * at one asset, as the same lines the prompt's list would have, with their
+ * ids. Claude still matches the user's words to them itself.
+ */
+
+export const HELPER_TOOL_NAMES = ['lookup'] as const;
+export type HelperToolName = (typeof HELPER_TOOL_NAMES)[number];
+
+/** The pick lists a lookup can stand in for, named like their blocks in the system prompt (`<alarm-rules>`). */
+export const LOOKUP_LISTS = ['tags', 'devices', 'alarm-rules'] as const;
+export const LookupListSchema = z.enum(LOOKUP_LISTS);
+export type LookupList = z.infer<typeof LookupListSchema>;
+
+export const LookupToolInputSchema = z.object({
+  list: LookupListSchema.describe(
+    "Which list: 'tags' (the datapoints: for charts, current values, alarm rules and dashboards), 'devices' or 'alarm-rules'.",
+  ),
+  assetId: z
+    .guid()
+    .optional()
+    .describe(
+      "The id of the asset the user named, from the asset list: only the records at it and everything below it ('the wet well level at Riverside' → the id of Riverside Pumping Station). Omit when the user named no place.",
+    ),
+});
+
+export const LookupToolOutputSchema = z.object({
+  list: LookupListSchema,
+  scope: z.string().nullable().describe('The asset looked in; null for everywhere.'),
+  lines: z.array(z.string()).describe('One line per record, with its id.'),
+});
+
 // ─── The tool set ───────────────────────────────────────────────────────────
 
 export const genUiToolSchemas = {
@@ -2125,6 +2166,12 @@ export const genUiToolSchemas = {
     inputSchema: EditShiftTemplateToolInputSchema,
     outputSchema: EditShiftTemplateToolOutputSchema,
   },
+  lookup: {
+    description:
+      "Look up tags, devices or alarm rules with their ids, when that list isn't in your prompt, to fill another tool's id field. It is for you only: the user never sees it. You get every record of the list, as lines like the prompt's own lists, which count as listed. When the user named where, give assetId: you get only the records at that asset and everything below it. For several assets, make one lookup for each, in the same step. Ids an earlier lookup in this chat returned stay valid: reuse them instead of looking up again, and look up again only if a tool says an id is unknown.",
+    inputSchema: LookupToolInputSchema,
+    outputSchema: LookupToolOutputSchema,
+  },
 } as const;
 
 type ToolContract = { inputSchema: z.ZodType; outputSchema: z.ZodType };
@@ -2155,6 +2202,12 @@ export type DashboardDraftUIPart = ToolUIPart<Pick<GenUITools, 'createDashboard'
 
 export const isDashboardDraftPart = (part: { type: string }): part is DashboardDraftUIPart =>
   part.type === 'tool-createDashboard';
+
+/** A helper tool's call inside a message: saved and read back by Claude, never drawn. */
+export type HelperToolUIPart = ToolUIPart<Pick<GenUITools, HelperToolName>>;
+
+export const isHelperToolPart = (part: { type: string }): part is HelperToolUIPart =>
+  HELPER_TOOL_NAMES.some((name) => part.type === `tool-${name}`);
 
 /** Per-message metadata streamed on `start` / `finish`, and saved with the message. */
 export interface GenUIMetadata {

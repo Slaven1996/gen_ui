@@ -15,6 +15,7 @@ import type { ServerResponse } from 'node:http';
 import {
   ASSISTANT_MODELS,
   DEFAULT_EFFORT,
+  isHelperToolPart,
   MAX_CONVERSATION_MESSAGES,
   type AssistantModel,
   type ChatRequest,
@@ -62,7 +63,10 @@ import { buildInstructions, withSessionStamps } from './system-prompt.js';
  *          The prompt lists the assets, people and shift templates the
  *          pages' pickers offer, so Claude can fill those filters with
  *          their ids. Lists a tool on offer takes by id are added: devices,
- *          tags, alarm rules and the user's own latest logbook entries.
+ *          tags, alarm rules and the user's own latest logbook entries. A
+ *          device, tag or rule list longer than AI_PICK_LIST_INLINE_MAX is
+ *          left out, and Claude looks up what it needs with the `lookup`
+ *          helper tool (offered only then; the chat never draws it).
  *          The clocks come with the history instead, so they don't undo the
  *          cache: Claude's copy of each question starts with when it was
  *          sent, on the user's clock and on the plant's, which shift dates
@@ -159,6 +163,8 @@ export class AiService {
       this.tools.filterOptions(user, activeTools),
       this.instructions.current(),
     ]);
+    // The lookup stands in for the lists too long for the prompt: with none, it isn't offered.
+    const offered = options.deferred.length > 0 ? activeTools : activeTools.filter((name) => name !== 'lookup');
     const tools = this.tools.create({ user, timeZone, options });
     const effort = effortFor(request);
 
@@ -187,7 +193,7 @@ export class AiService {
       instructions: buildInstructions({ base, user, timeZone, generateUi: request.generateUi, forms, options }),
       messages: await convertToModelMessages(forClaude, { tools, ignoreIncompleteToolCalls: true }),
       tools,
-      activeTools,
+      activeTools: offered,
       stopWhen: isStepCount(this.config.get('AI_MAX_STEPS')),
       maxOutputTokens: Math.min(this.config.get('AI_MAX_OUTPUT_TOKENS'), MODEL_LIMITS[request.model].maxOutputTokens),
       providerOptions: { anthropic: this.anthropicOptions(request.model, effort) },
@@ -383,9 +389,14 @@ function withStoppedToolCalls(messages: GenUIMessage[]): GenUIMessage[] {
   return [...messages.slice(0, -1), { ...last, parts }];
 }
 
-/** A call that failed before producing anything leaves an empty answer; don't save it. */
+/**
+ * A call that failed before producing anything leaves an empty answer; don't
+ * save it. Neither one stopped after only a lookup, which the chat wouldn't
+ * draw: it would show as a blank answer.
+ */
 function withoutEmptyAnswer(messages: GenUIMessage[]): GenUIMessage[] {
   const last = messages.at(-1);
-  const empty = last?.role === 'assistant' && !last.parts.some((part) => part.type !== 'step-start');
+  const empty =
+    last?.role === 'assistant' && !last.parts.some((part) => part.type !== 'step-start' && !isHelperToolPart(part));
   return empty ? messages.slice(0, -1) : messages;
 }

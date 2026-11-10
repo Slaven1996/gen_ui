@@ -1,5 +1,12 @@
 import { isStaticToolUIPart, isTextUIPart } from 'ai';
-import { ASSISTANT_MODELS, AssistantModelSchema, type GenUIMessage, type GenUIMetadata } from '@gen-ui/shared';
+import {
+  ASSISTANT_MODELS,
+  AssistantModelSchema,
+  isHelperToolPart,
+  type GenUIMessage,
+  type GenUIMetadata,
+} from '@gen-ui/shared';
+import { isVisiblePart } from '../lib/visible-parts';
 import { MessageMarkdown } from './message-markdown';
 import { MessageReasoning } from './message-reasoning';
 import { ToolPartView } from './tool-part-view';
@@ -35,6 +42,9 @@ export function ChatMessage({
     );
   }
 
+  // Nothing to show yet (or only lookups Claude made for itself): the thread says it is thinking.
+  if (streaming && !message.parts.some(isVisiblePart)) return null;
+
   // An answer keeps the mode it was given in, whatever the toggle says now.
   const generateUi = message.metadata?.generateUi !== false;
   const model = answeredBy(message.metadata);
@@ -46,6 +56,8 @@ export function ChatMessage({
         if (part.type === 'reasoning') {
           return part.text.trim() ? <MessageReasoning key={index} text={part.text} /> : null;
         }
+        // Saved with the answer and read again by Claude, but never drawn.
+        if (isHelperToolPart(part)) return null;
         if (isStaticToolUIPart(part)) {
           return generateUi ? (
             <ToolPartView key={part.toolCallId} conversationId={conversationId} part={part} streaming={streaming} />

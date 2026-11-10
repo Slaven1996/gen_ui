@@ -1,12 +1,15 @@
 import type { ComponentType, ReactNode } from 'react';
 import type { LinkProps } from '@tanstack/react-router';
 import type { ToolUIPart } from 'ai';
-import type { ConversationSummary, FormToolName, GenUIToolName, GenUITools } from '@gen-ui/shared';
+import type { ConversationSummary, FormToolName, GenUIToolName, GenUITools, HelperToolName } from '@gen-ui/shared';
 
 export type GenUIToolPart = ToolUIPart<GenUITools>;
 
-/** The tools that show things (a list, a chart, a calendar, a details card), each with its page's own component. */
-export type ListToolName = Exclude<GenUIToolName, FormToolName>;
+/**
+ * The tools that show things (a list, a chart, a calendar, a details card), each with its page's own component.
+ * Not the forms (FORM_RENDERERS), nor the helper tools Claude calls for itself, which the chat never draws.
+ */
+export type ListToolName = Exclude<GenUIToolName, FormToolName | HelperToolName>;
 
 export type ToolInput<N extends GenUIToolName> = GenUITools[N]['input'];
 export type ToolOutput<N extends GenUIToolName> = GenUITools[N]['output'];

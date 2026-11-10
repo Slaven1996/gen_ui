@@ -37,6 +37,7 @@ import {
   type GenUIToolName,
   type GenUITools,
   type LogbookEntry,
+  type LookupList,
   type Role,
   type RuleSnapshot,
   type ShiftAssignment,
@@ -48,6 +49,7 @@ import {
   type TagSnapshot,
   type UserRef,
 } from '@gen-ui/shared';
+import { AppConfigService } from '../../config/app-config.service.js';
 import { AlarmDefinitionsService, type AlarmRuleOption } from '../alarms/alarm-definitions.service.js';
 import { AlarmsService } from '../alarms/alarms.service.js';
 import { AssetsService } from '../assets/assets.service.js';
@@ -60,6 +62,7 @@ import { TelemetryService } from '../telemetry/telemetry.service.js';
 import type { AuthUser } from '../users/user.mapper.js';
 import { UsersService } from '../users/users.service.js';
 import { summarizeDashboardDraft } from './dashboard-draft-summary.js';
+import { deviceLines, lookupText, ruleLines, tagLines } from './pick-list-lines.js';
 
 /** Rows handed to the model per list; the table in the chat pages through the rest itself. */
 const ROWS_FOR_MODEL = 20;
@@ -95,6 +98,9 @@ const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frida
  * shifts they still hold, which count as unfilled). The details cards and
  * the shift calendar are offered to everyone, so devices, tags, rules and
  * shift templates are in practice always listed.
+ * `deferred` names the device, tag or rule lists longer than
+ * AI_PICK_LIST_INLINE_MAX. They are still loaded here, to check the ids
+ * Claude sends, but left out of the prompt: Claude looks up what it needs.
  * `plantTimeZone` is the zone shift dates are in, for the prompt.
  */
 export interface FilterOptions {
@@ -106,6 +112,7 @@ export interface FilterOptions {
   rules?: AlarmRuleOption[];
   entries?: EntryOption[];
   shiftTemplates?: ShiftTemplate[];
+  deferred: LookupList[];
   plantTimeZone: string;
 }
 
@@ -118,11 +125,22 @@ export interface FormAccess {
 }
 
 /**
- * Claude copies ids from the lists in its prompt. A miscopied id would
- * quietly filter everything out, or open the wrong record in a form, so the
- * tool refuses it; Claude reads the error and tries again.
+ * Claude copies ids from the lists in its prompt, or from a lookup's result
+ * for a list left out of it. A miscopied id would quietly filter everything
+ * out, or open the wrong record in a form, so the tool refuses it; Claude
+ * reads the error and tries again.
  */
-function idChecks({ assets, people, formerPeople, devices, tags, rules, entries, shiftTemplates }: FilterOptions) {
+function idChecks({
+  assets,
+  people,
+  formerPeople,
+  devices,
+  tags,
+  rules,
+  entries,
+  shiftTemplates,
+  deferred,
+}: FilterOptions) {
   const assetsById = new Map(assets.map((asset) => [asset.id, asset]));
   const peopleById = new Map(people.map((person) => [person.id, person]));
   const formerById = new Map(formerPeople?.map((person) => [person.id, person]));
@@ -131,6 +149,8 @@ function idChecks({ assets, people, formerPeople, devices, tags, rules, entries,
   const tagsById = new Map(tags?.map((tag) => [tag.id, tag]));
   const rulesById = new Map(rules?.map((rule) => [rule.id, rule]));
   const entriesById = new Map(entries?.map((entry) => [entry.id, entry]));
+  // Where a valid id is: in the prompt's list, or, for a list left out of it, in a fresh lookup.
+  const idSource = (list: LookupList, name: string) => (deferred.includes(list) ? 'a new lookup' : `the ${name} list`);
   // `null` is a form's "none" (no parent, no asset): nothing to check.
   const asset = (id: string | null | undefined): AssetTreeNode | undefined => {
     if (id === undefined || id === null) return undefined;
@@ -209,17 +229,17 @@ function idChecks({ assets, people, formerPeople, devices, tags, rules, entries,
     },
     rule(id: string): AlarmRuleOption {
       const rule = rulesById.get(id);
-      if (!rule) throw new Error(`Unknown alarm rule id ${id}: use an id from the alarm rule list.`);
+      if (!rule) throw new Error(`Unknown alarm rule id ${id}: use an id from ${idSource('alarm-rules', 'alarm rule')}.`);
       return rule;
     },
     tag(id: string): TagOption {
       const tag = tagsById.get(id);
-      if (!tag) throw new Error(`Unknown tag id ${id}: use an id from the tag list.`);
+      if (!tag) throw new Error(`Unknown tag id ${id}: use an id from ${idSource('tags', 'tag')}.`);
       return tag;
     },
     device(id: string): DeviceOption {
       const device = devicesById.get(id);
-      if (!device) throw new Error(`Unknown device id ${id}: use an id from the device list.`);
+      if (!device) throw new Error(`Unknown device id ${id}: use an id from ${idSource('devices', 'device')}.`);
       return device;
     },
     entry(id: string): EntryOption {
@@ -385,6 +405,7 @@ const TOOL_ROLES = {
   copyShiftWeek: ['ADMIN'],
   createShiftTemplate: ['ADMIN'],
   editShiftTemplate: ['ADMIN'],
+  lookup: ['ADMIN', 'USER'],
 } as const satisfies Record<GenUIToolName, readonly Role[]>;
 
 /** Whether this user's role may use the tool (also checked when a form's outcome is recorded). */
@@ -417,12 +438,14 @@ export class AiTools {
     private readonly assets: AssetsService,
     private readonly telemetry: TelemetryService,
     private readonly shifts: ShiftsService,
+    private readonly config: AppConfigService,
   ) {}
 
   /**
    * The pickers' options, for the system prompt and for `create`. A list
    * beyond assets and people is loaded only when one of the `active` tools
-   * takes it; `user`'s own entries are the ones they may edit.
+   * takes it; `user`'s own entries are the ones they may edit. A device, tag
+   * or rule list longer than AI_PICK_LIST_INLINE_MAX goes into `deferred`.
    */
   async filterOptions(user: AuthUser, active: GenUIToolName[]): Promise<FilterOptions> {
     const takenBy = (...names: GenUIToolName[]) => names.some((name) => active.includes(name));
@@ -446,6 +469,12 @@ export class AiTools {
         ? this.shifts.listTemplates()
         : undefined,
     ]);
+    // Too long for the prompt: left out of it, and Claude looks up what it needs.
+    const max = this.config.get('AI_PICK_LIST_INLINE_MAX');
+    const deferred: LookupList[] = [];
+    if (devices && devices.length > max) deferred.push('devices');
+    if (tags && tags.length > max) deferred.push('tags');
+    if (rules && rules.length > max) deferred.push('alarm-rules');
     return {
       assets,
       people,
@@ -455,16 +484,32 @@ export class AiTools {
       rules,
       entries,
       shiftTemplates,
+      deferred,
       plantTimeZone: this.shifts.timeZone,
     };
+  }
+
+  /**
+   * A lookup: every tag, device or rule, or only those at `assetId` and below
+   * it, as the lines Claude reads (pick-list-lines.ts).
+   */
+  private async lookUp(list: LookupList, assetId: string | undefined): Promise<string[]> {
+    switch (list) {
+      case 'tags':
+        return tagLines(await this.tags.options(assetId));
+      case 'devices':
+        return deviceLines(await this.devices.options(assetId));
+      case 'alarm-rules':
+        return ruleLines(await this.alarmRules.options(assetId));
+    }
   }
 
   /**
    * A fresh tool set per request; `execute` is what the AI SDK runs for each
    * call. `user` is who is asking. `timeZone` is theirs, so a date Claude
    * takes from their words ("signed in yesterday") means the same day the
-   * web app's table shows. `options` are the asset and people lists Claude
-   * was given; ids it writes must come from them.
+   * web app's table shows. `options` are the lists Claude was given (or
+   * looks up); ids it writes must come from them.
    */
   create({ user, timeZone, options }: { user: AuthUser; timeZone: string; options: FilterOptions }) {
     const known = idChecks(options);
@@ -1116,6 +1161,21 @@ export class AiTools {
             template: toShiftTemplateSnapshot(await this.shifts.getTemplate(templateId)),
           };
         },
+      }),
+
+      // ─── Helpers ─────────────────────────────────────────────────────────
+      // For Claude only: never drawn in the chat, but saved with the answer,
+      // so Claude reads the result again on later turns instead of looking up again.
+
+      lookup: tool({
+        ...genUiToolSchemas.lookup,
+        // Offered only when a list was left out of the prompt (AiService).
+        execute: async ({ list, assetId }) => {
+          const scope = known.asset(assetId)?.name ?? null;
+          return { list, scope, lines: await this.lookUp(list, assetId) };
+        },
+        // Claude reads the lines like the prompt's own list: <tags at="Riverside Pumping Station" …>.
+        toModelOutput: ({ output }) => ({ type: 'text', value: lookupText(output) }),
       }),
     };
   }

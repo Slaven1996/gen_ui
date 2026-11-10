@@ -8,6 +8,7 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { useChatActions } from '../hooks/use-chat-actions';
 import { describeChatError } from '../lib/chat-errors';
+import { isVisiblePart } from '../lib/visible-parts';
 import { setGenerateUi, useGenerateUi } from '../store/assistant-preferences';
 import { ChatMessage } from './chat-message';
 import { ModelSettings } from './model-settings';
@@ -21,6 +22,11 @@ export function ChatThreadView({ chat, onSent }: { chat: Chat<GenUIMessage>; onS
   const { actions, dialogs } = useChatActions(chat.id);
   const scrollRef = useRef<HTMLDivElement>(null);
   const busy = status === 'submitted' || status === 'streaming';
+  // Until the answer shows something: also while Claude only looks things up for itself.
+  const last = messages.at(-1);
+  const thinking =
+    status === 'submitted' ||
+    (status === 'streaming' && !(last?.role === 'assistant' && last.parts.some(isVisiblePart)));
 
   useEffect(() => {
     const element = scrollRef.current;
@@ -65,7 +71,7 @@ export function ChatThreadView({ chat, onSent }: { chat: Chat<GenUIMessage>; onS
           ))
         )}
 
-        {status === 'submitted' && <p className="text-xs text-muted-foreground">Thinking…</p>}
+        {thinking && <p className="text-xs text-muted-foreground">Thinking…</p>}
 
         {error && (
           <div className="space-y-2 rounded-md border border-destructive/40 px-3 py-2 text-sm" role="alert">

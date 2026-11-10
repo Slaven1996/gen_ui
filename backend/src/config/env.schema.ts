@@ -61,6 +61,11 @@ export const EnvSchema = z
     AI_MAX_STEPS: int(10, 1, 20),
     AI_SEND_REASONING: booleanFlag(true),
     AI_REFUSAL_FALLBACK: booleanFlag(true),
+    /**
+     * The longest device, tag or alarm rule list the assistant's prompt carries; a longer one
+     * is left out, and the assistant looks up what it needs. 0 leaves all three out.
+     */
+    AI_PICK_LIST_INLINE_MAX: int(100, 0, 2000),
 
     /** Writes plausible readings for every tag of an ONLINE device, so charts and alarms move in a demo. */
     SIMULATOR_ENABLED: booleanFlag(true),

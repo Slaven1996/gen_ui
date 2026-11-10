@@ -76,10 +76,12 @@ export class DevicesService {
   /**
    * Every device, grouped by where it is installed: the choices the assistant
    * matches the user's words against when a tool asks for a device's id (the
-   * tag form's device picker, all at once).
+   * tag form's device picker, all at once). With `assetId`, only the devices
+   * at that asset and below it (the assistant's lookup).
    */
-  async options(): Promise<DeviceOption[]> {
+  async options(assetId?: string): Promise<DeviceOption[]> {
     const rows = await this.prisma.device.findMany({
+      where: assetId ? { asset: withinAsset(assetId) } : undefined,
       select: { id: true, name: true, serialNumber: true, asset: { select: { name: true } } },
       orderBy: [{ asset: { name: 'asc' } }, { name: 'asc' }, { id: 'asc' }],
     });

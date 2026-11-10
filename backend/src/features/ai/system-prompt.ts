@@ -2,6 +2,7 @@ import type { SystemModelMessage } from 'ai';
 import { FORM_TITLES, templateTimes, utcOffset, type FormToolName, type GenUIMessage } from '@gen-ui/shared';
 import type { AuthUser } from '../users/user.mapper.js';
 import type { FilterOptions, FormAccess } from './ai.tools.js';
+import { deviceLines, ruleLines, tagLines } from './pick-list-lines.js';
 
 /*
  * The system prompt: Claude's standing instructions. Together with the tool
@@ -17,7 +18,9 @@ import type { FilterOptions, FormAccess } from './ai.tools.js';
  * their ids, the shift templates, every device, tag and alarm rule (for the
  * details cards, charts and forms that take them), the user's own latest
  * logbook entries, and the deactivated people, whose planned shifts the shift
- * tools still need to name.
+ * tools still need to name. The device, tag and rule lists grow with the
+ * plant: once one is longer than AI_PICK_LIST_INLINE_MAX, a note stands in
+ * for it, and Claude looks up what it needs (the `lookup` helper tool).
  * Claude matches the user's words to these lists itself (typos, partial
  * names, Serbian); no code does.
  * Forms are also named, by their titles, where there is no form tool to open
@@ -73,7 +76,7 @@ export const DEFAULT_INSTRUCTIONS = `You are the assistant inside this web app, 
 - If the request is about the app but none of your tools covers it, say you can't look that up yet and name the page where the user can find it.
 
 ## Pick lists
-Fields that name an asset, a person, a device, a tag, an alarm rule, a logbook entry or a shift template take ids. Use only the ids in the lists below (<assets>, <people>, and <devices>, <tags>, <alarm-rules>, <your-logbook-entries>, <shift-templates> and <former-people> when given): the same choices the app's dropdowns offer. <your-logbook-entries> holds only the user's own latest entries, with times in the session's time zone. <former-people> are deactivated accounts: use them only to find the shifts they still hold.
+Fields that name an asset, a person, a device, a tag, an alarm rule, a logbook entry or a shift template take ids. Use only the ids in the lists below (<assets>, <people>, and <devices>, <tags>, <alarm-rules>, <your-logbook-entries>, <shift-templates> and <former-people> when given) or in a lookup's result: the same choices the app's dropdowns offer. <your-logbook-entries> holds only the user's own latest entries, with times in the session's time zone. <former-people> are deactivated accounts: use them only to find the shifts they still hold.
 - Match the user's words to a name or code there, allowing for typos and partial names. Words in Serbian, or a description ("visok nivo u mokrom bunaru"), match the entry they mean.
 - An asset covers everything indented under it, so a site brings all its equipment and a district all its sites.
 - One asset per lookup. For several assets, make one call for each.
@@ -154,85 +157,73 @@ ${lines}
 When the user wants to add or change something one of these covers, say in one sentence that only that role can do it (e.g. "Only admins can add users."), so they need to ask someone who has it. Don't ask for the details, and don't send them to a page: it won't offer them the form either.`;
 }
 
-/** `<tag>` with every item on its own line: the tools accept only ids Claude was shown. */
-function listed<T>(tag: string, items: T[], line: (item: T) => string): string {
-  return `<${tag}>\n${items.map(line).join('\n') || '(none)'}\n</${tag}>`;
+/** `<tag>` with every line of the list: the tools accept only ids Claude was shown. */
+function listed(tag: string, lines: string[]): string {
+  return `<${tag}>\n${lines.join('\n') || '(none)'}\n</${tag}>`;
 }
 
 /**
  * The dropdowns' choices, one per line. Assets keep the tree's depth-first
  * order, indented by depth, so Claude sees what lies below what:
  * "  Hillcrest Reservoir · RES-01 · site · <id>". When a tool on offer
- * takes them, also every device ("PS-01 RTU · RTU-PS01-001 · Riverside Pumping
- * Station · <id>"), every tag ("Inlet pressure · PS01.INLET_PRESSURE · bar ·
- * Riverside Pumping Station · <id>"; a name other tags share adds where:
- * "Wet well level · … · Riverside Pumping Station · same name at Harbor
- * Pumping Station · <id>"), every rule ("Wet well high level · tag
- * Wet well level (PS01.WET_WELL_LEVEL) · Riverside Pumping Station · <id>")
+ * takes them, also every device, tag and rule (their lines: pick-list-lines.ts)
  * and the user's own entries, at the user's local time ("2026-10-06 14:05 ·
  * maintenance · Pump 1 drive firmware updated · Pump 1 · <id>"). The shift
  * templates carry their plant-time hours ("Night · 22:00–06:00 · <id>"),
  * and a switched-off one says so. Deactivated people are listed only when
- * there are any ("Liam Carter · deactivated · <id>").
+ * there are any ("Liam Carter · deactivated · <id>"). A device, tag or rule
+ * list in `deferred` is too long to include: a note says so instead, and
+ * Claude looks up what it needs.
  */
 function pickLists(
-  { assets, people, formerPeople, devices, tags, rules, entries, shiftTemplates }: FilterOptions,
+  { assets, people, formerPeople, devices, tags, rules, entries, shiftTemplates, deferred }: FilterOptions,
   timeZone: string,
 ): string {
   const lists = [
     listed(
       'assets',
-      assets,
-      (asset) => `${'  '.repeat(asset.depth)}${asset.name} · ${asset.code} · ${asset.type.toLowerCase()} · ${asset.id}`,
+      assets.map(
+        (asset) => `${'  '.repeat(asset.depth)}${asset.name} · ${asset.code} · ${asset.type.toLowerCase()} · ${asset.id}`,
+      ),
     ),
-    listed('people', people, (person) => `${person.name} · ${person.id}`),
+    listed('people', people.map((person) => `${person.name} · ${person.id}`)),
   ];
   if (formerPeople && formerPeople.length > 0) {
-    lists.push(listed('former-people', formerPeople, (person) => `${person.name} · deactivated · ${person.id}`));
+    lists.push(listed('former-people', formerPeople.map((person) => `${person.name} · deactivated · ${person.id}`)));
   }
-  if (devices) {
-    lists.push(
-      listed('devices', devices, (device) => `${device.name} · ${device.serialNumber} · ${device.asset} · ${device.id}`),
-    );
-  }
-  if (tags) {
-    // The list goes by asset, so two stations' "Wet well level" sit far apart and Claude took the
-    // first it read as the only one. Each line says where else its name is used.
-    const byName = new Map<string, NonNullable<FilterOptions['tags']>>();
-    for (const tag of tags) byName.set(tag.name, [...(byName.get(tag.name) ?? []), tag]);
-    lists.push(
-      listed('tags', tags, (tag) => {
-        const others = (byName.get(tag.name) ?? []).filter((other) => other.id !== tag.id);
-        const shared = others.length > 0 && `same name at ${others.map((other) => other.asset).join(', ')}`;
-        return [tag.name, tag.code, tag.unit, tag.asset, shared, tag.id].filter(Boolean).join(' · ');
-      }),
-    );
-  }
-  if (rules) {
-    lists.push(
-      listed(
-        'alarm-rules',
-        rules,
-        (rule) => `${rule.name} · tag ${rule.tag.name} (${rule.tag.code}) · ${rule.asset} · ${rule.id}`,
-      ),
-    );
-  }
+  if (devices && !deferred.includes('devices')) lists.push(listed('devices', deviceLines(devices)));
+  if (tags && !deferred.includes('tags')) lists.push(listed('tags', tagLines(tags)));
+  if (rules && !deferred.includes('alarm-rules')) lists.push(listed('alarm-rules', ruleLines(rules)));
   if (entries) {
     lists.push(
-      listed('your-logbook-entries', entries, (entry) => {
-        const at = new Date(entry.occurredAt);
-        const when = `${dayIn(timeZone, at)} ${clockIn(timeZone, at)}`;
-        return [when, entry.category.toLowerCase(), entry.title, entry.asset, entry.id].filter(Boolean).join(' · ');
-      }),
+      listed(
+        'your-logbook-entries',
+        entries.map((entry) => {
+          const at = new Date(entry.occurredAt);
+          const when = `${dayIn(timeZone, at)} ${clockIn(timeZone, at)}`;
+          return [when, entry.category.toLowerCase(), entry.title, entry.asset, entry.id].filter(Boolean).join(' · ');
+        }),
+      ),
     );
   }
   if (shiftTemplates) {
     lists.push(
-      listed('shift-templates', shiftTemplates, (template) =>
-        [template.name, templateTimes(template).label, !template.isActive && 'switched off', template.id]
-          .filter(Boolean)
-          .join(' · '),
+      listed(
+        'shift-templates',
+        shiftTemplates.map((template) =>
+          [template.name, templateTimes(template).label, !template.isActive && 'switched off', template.id]
+            .filter(Boolean)
+            .join(' · '),
+        ),
       ),
+    );
+  }
+  // In place of the lists left out. Fixed text after the admin's instructions, so it holds even
+  // where their saved text predates lookups. It never names the tool: the tool's description does.
+  if (deferred.length > 0) {
+    const names = deferred.map((list) => `<${list}>`).join(', ');
+    lists.push(
+      `Too long to list here: ${names}. Look up what you need, at the asset the user named when there is one. A lookup's lines count as listed, and its ids stay valid for the rest of the chat: reuse them instead of looking up again.`,
     );
   }
   return lists.join('\n\n');

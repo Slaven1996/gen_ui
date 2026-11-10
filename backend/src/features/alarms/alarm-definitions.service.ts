@@ -63,10 +63,13 @@ export class AlarmDefinitionsService {
 
   /**
    * Every rule, grouped by where its tag is: the choices the assistant
-   * matches the user's words against when a tool asks for a rule's id.
+   * matches the user's words against when a tool asks for a rule's id. With
+   * `assetId`, only the rules at that asset and below it (the assistant's
+   * lookup).
    */
-  async options(): Promise<AlarmRuleOption[]> {
+  async options(assetId?: string): Promise<AlarmRuleOption[]> {
     const rows = await this.prisma.alarmDefinition.findMany({
+      where: assetId ? { tag: { device: { asset: withinAsset(assetId) } } } : undefined,
       select: {
         id: true,
         name: true,
