@@ -233,22 +233,23 @@ const peopleField = (description: string) =>
 
 /**
  * A time window as the page's `range`, or `from` and `to`. Claude works out
- * calendar days from the session's current time and UTC offset.
+ * calendar days, and lengths no `range` value matches ('last 9 days'), from
+ * the session's current time and UTC offset.
  */
 const timeWindowFields = (things: string) => ({
   range: RelativeRangeSchema.optional().describe(
-    `Only ${things} in a window ending now: 'last hour' → 1h, 'last 24 hours' → 24h, 'this past week' or 'recently' → 7d, 'last 30 days' → 30d. For calendar days ('today', 'yesterday', 'since Monday') use from and to instead. Leave it out when you set from or to.`,
+    `Only ${things} in a window ending now, when its length is exactly one of these: 'last hour' → 1h, 'last 6 hours' → 6h, 'last 12 hours' → 12h, 'last 24 hours' → 24h, 'last 7 days' or 'this past week' → 7d, 'last 30 days' → 30d, 'last 90 days' → 90d; 'recently' → 7d. Any other length is not a range: never round it to the nearest one, set from instead ('last 9 days', 'last 3 hours', 'last 48 hours', 'past two weeks'). Calendar days ('today', 'yesterday', 'since Monday') also go in from and to. Leave it out when you set from or to.`,
   ),
   from: z.iso
     .datetime({ offset: true })
     .optional()
     .describe(
-      "Start of the window, inclusive, in ISO 8601 with the session's UTC offset. Calendar days are the user's: 'today' → today at 00:00, 'yesterday' → yesterday at 00:00 (with to = today at 00:00), 'since Monday' → Monday at 00:00. Example: 2026-09-28T00:00:00+02:00.",
+      "Start of the window, inclusive, in ISO 8601 with the session's UTC offset. A length that isn't a range value is the session's current time minus that length, without to: at Monday 2026-09-28 14:05 +02:00, 'last 9 days' → 2026-09-19T14:05:00+02:00, 'last 3 hours' → 2026-09-28T11:05:00+02:00, 'past two weeks' → 2026-09-14T14:05:00+02:00. Calendar days are the user's: 'today' → today at 00:00, 'yesterday' → yesterday at 00:00 (with to = today at 00:00), 'since Monday' → Monday at 00:00.",
     ),
   to: z.iso
     .datetime({ offset: true })
     .optional()
-    .describe("End of the window, exclusive, in the same format as from. Omit for 'until now'."),
+    .describe("End of the window, exclusive, in the same format as from. Omit for a window that runs until now, such as 'last 9 days'."),
 });
 
 // ─── Users ──────────────────────────────────────────────────────────────────
