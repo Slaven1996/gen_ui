@@ -77,7 +77,7 @@ flowchart TD
     SAVE1["ConversationsService.start: save the conversation<br/>the question survives a failed model call<br/>a new chat: its row is created, titled with the question,<br/>and Claude Haiku writes it a short title meanwhile"]
     PROMPT["buildInstructions<br/>the standing instructions (an admin's from assistant_instructions, else DEFAULT_INSTRUCTIONS):<br/>generic rules + app map + guardrails (English/Serbian only, off-topic)<br/>+ components or text-only section<br/>+ every asset and active person with ids (the dropdowns' choices)<br/>+ with components on: the forms section, the lists the offered forms take:<br/>for admins every device, tag and alarm rule, for everyone their own latest logbook entries, with ids<br/>+ with components off: the role's forms by title, and the switch that opens them<br/>+ the forms the role can't open, and which role can<br/>+ the user's name and role<br/>three system blocks: rules + session note + format + forms (cached) · pick lists (cached) · user<br/>no clock: that would change every minute and lose the cached history after it"]
     ROLES["AiTools.activeFor(user, generateUi)<br/>TOOL_ROLES · the chat's @Roles<br/>form tools only with components on"]
-    CALL["streamText<br/>chosen model · effort + adaptive thinking (not Haiku)<br/>instructions · tools · cacheControl up to the last message<br/>history: each question starts with its session block (withSessionStamps):<br/>when it was sent, on the user's clock and the plant's<br/>activeTools · stopWhen AI_MAX_STEPS<br/>cut off after SILENCE_TIMEOUT_MS without output · abortSignal"]
+    CALL["streamText<br/>chosen model · effort + adaptive thinking (effort off: no thinking, at low)<br/>earlier answers' thinking only back to Sonnet 5 (forModel)<br/>instructions · tools · cacheControl up to the last message<br/>history: each question starts with its session block (withSessionStamps):<br/>when it was sent, on the user's clock and the plant's<br/>activeTools · stopWhen AI_MAX_STEPS<br/>cut off after SILENCE_TIMEOUT_MS without output · abortSignal"]
     GUARD --> CTRL --> KEY
     KEY -- no --> E503
     KEY -- yes --> HIST --> MERGE --> VAL --> SAVE1
@@ -116,7 +116,7 @@ flowchart TD
   RES -- "next step: results go back to Claude" --> LLM
 
   subgraph BE3["5 · Backend: stream and save"]
-    UIS["toUIMessageStream<br/>message ids · metadata: model, effort, createdAt, generateUi, finishReason"]
+    UIS["toUIMessageStream<br/>message ids · metadata: model, effort, createdAt, generateUi, finishReason,<br/>contextTokens after each model call (the context meter)"]
     SSE["pipeUIMessageStreamToResponse<br/>Server-Sent Events"]
     ONEND["onEnd: save the full conversation (finish: never re-creates a deleted chat)<br/>also after Stop or a closed tab<br/>a tool call cut off mid-run is saved as stopped<br/>a new chat: its title, unless the user renamed it<br/>the response ends after this"]
     UIS --> SSE
@@ -347,7 +347,7 @@ The chat's status and saved-dashboard queries refetch when its window gets focus
 - What Claude got wrong is rejected, and Claude tries again: a field the widget's type doesn't take, a value its page doesn't accept, or an id that isn't on the lists.
 - The page checks the draft again when it opens it (the same `widgetIssues`, plus whether its tags and assets still exist), since one may have been deleted after the chat.
 
-**One flat config, for a small schema.** The default model is Haiku 4.5, and an array of nine per-type variants is a large schema to fill. So each widget's `config` is one object holding every widget type's fields, each optional and saying which types use it. `execute` checks it against the widget's own type. A compile-time check in `assistant.ts` fails if a widget type gains a field the tool doesn't have.
+**One flat config, for a small schema.** The default model is a Haiku, and an array of nine per-type variants is a large schema to fill. So each widget's `config` is one object holding every widget type's fields, each optional and saying which types use it. `execute` checks it against the widget's own type. A compile-time check in `assistant.ts` fails if a widget type gains a field the tool doesn't have.
 
 **Refining** ("make the chart wider", "add the logbook") is a new call with the whole layout: each call is its own preview and its own draft. Editing an existing dashboard from the chat is out of scope; Claude points to *Edit* on the Dashboard page.
 
@@ -371,7 +371,7 @@ The system prompt changes only for a new pick list. TypeScript fails the build i
 | Model, effort, components toggle | `frontend/src/features/assistant/store/assistant-preferences.ts` |
 | Open, send, delete, auth: every chat shown in this tab | `frontend/src/features/assistant/store/chat-store.ts` |
 | The chats in the sidebar: list, rename, delete | `frontend/src/features/assistant/components/chat-nav.tsx`, `chat-nav-item.tsx`, `rename-chat-dialog.tsx`, `hooks/use-chat-actions.tsx`, `api/` |
-| Thread, model/effort pickers, toolbar, composer | `frontend/src/features/assistant/components/chat-thread.tsx`, `chat-thread-view.tsx`, `model-settings.tsx` |
+| Thread, model/effort pickers, context meter, toolbar, composer | `frontend/src/features/assistant/components/chat-thread.tsx`, `chat-thread-view.tsx`, `model-settings.tsx`, `context-meter.tsx` |
 | Render parts, Markdown | `frontend/src/features/assistant/components/chat-message.tsx`, `message-markdown.tsx`, `message-reasoning.tsx` |
 | Tool → component registry | `frontend/src/features/assistant/lib/tool-renderers.ts`, the bodies in `components/tool-bodies/`, drawn by `components/tool-part-view.tsx`; shared types in `types.ts` |
 | Form tools: the form in the answer, its states, recording the outcome | `frontend/src/features/assistant/lib/form-renderers.ts`, the bodies in `components/form-bodies/`, `components/form-part-view.tsx`, `hooks/use-record-form-outcome.ts`, `frontend/src/components/inline-dialog.tsx` |

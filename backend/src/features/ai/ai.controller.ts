@@ -57,7 +57,7 @@ export class AiController {
   @ApiOperation({
     summary: 'Ask the assistant',
     description:
-      'Continues your conversation `id` (a new id starts a new chat, created by this first message): send only the new `message`, or `trigger: "regenerate-message"` to answer the last question again. `model` picks the Claude model (default Claude Haiku 4.5) and `effort` its effort level (ignored by Haiku). `timeZone` is where "today" and the dates you mention are read. Streams an AI SDK UI message stream over SSE, so the reply arrives as `data:` frames rather than one JSON body — Swagger UI shows it as raw text. Parts of the answer are tool calls the web app renders as React components unless `generateUi` is false. The first answer of a new chat also has Claude Haiku write the chat a short title, saved before the stream ends. Every call spends provider tokens.',
+      'Continues your conversation `id` (a new id starts a new chat, created by this first message): send only the new `message`, or `trigger: "regenerate-message"` to answer the last question again. `model` picks the Claude model (default Claude Haiku 5.5) and `effort` its effort level (default `low`; `off` turns thinking off). `timeZone` is where "today" and the dates you mention are read. Streams an AI SDK UI message stream over SSE, so the reply arrives as `data:` frames rather than one JSON body — Swagger UI shows it as raw text. Parts of the answer are tool calls the web app renders as React components unless `generateUi` is false. The first answer of a new chat also has Claude Haiku write the chat a short title, saved before the stream ends. Every call spends provider tokens.',
   })
   @ApiResponse({
     status: 201,

@@ -61,30 +61,33 @@ import { LastSignInFilterSchema, UserStatusSchema } from './users.js';
  * The Claude models the chat offers. The user picks one in the chat, and the
  * server accepts only these ids. Haiku answers most questions; Sonnet is there
  * for the harder ones, so there is no Opus. Models with `effort` think
- * adaptively and take an effort level; Claude Haiku 4.5 does neither, and the
- * server sends it neither option.
+ * adaptively and take an effort level; the server would send a model without
+ * it neither option. `contextWindow`: how many tokens one model call can hold,
+ * what it is sent plus what it writes (the chat's context meter).
  */
-export const AssistantModelSchema = z.enum(['claude-sonnet-5', 'claude-haiku-4-5']);
+export const AssistantModelSchema = z.enum(['claude-sonnet-5', 'claude-haiku-5-5']);
 export type AssistantModel = z.infer<typeof AssistantModelSchema>;
 
-export const ASSISTANT_MODELS: Record<AssistantModel, { label: string; effort: boolean }> = {
-  'claude-sonnet-5': { label: 'Claude Sonnet 5', effort: true },
-  'claude-haiku-4-5': { label: 'Claude Haiku 4.5', effort: false },
+export const ASSISTANT_MODELS: Record<AssistantModel, { label: string; effort: boolean; contextWindow: number }> = {
+  'claude-sonnet-5': { label: 'Claude Sonnet 5', effort: true, contextWindow: 1_000_000 },
+  'claude-haiku-5-5': { label: 'Claude Haiku 5.5', effort: true, contextWindow: 1_000_000 },
 };
 /**
  * The cheapest model: the one the picker starts on, and the one the server
  * uses when a request names none. Lookups like "all admins" don't need more.
  */
-export const DEFAULT_ASSISTANT_MODEL: AssistantModel = 'claude-haiku-4-5';
+export const DEFAULT_ASSISTANT_MODEL: AssistantModel = 'claude-haiku-5-5';
 
 /**
- * How hard the model works on an answer: lower is faster and cheaper. `high` is
- * Anthropic's default. Not `xhigh` or `max`: they cost far more and add nothing
- * for the chat's questions.
+ * How hard the model works on an answer: lower is faster and cheaper. `off`
+ * turns thinking off and runs at `low`, the fastest answer (Anthropic advises
+ * lowering the effort first: at `low` the model already skips thinking on
+ * simple questions). The default is `low`: the chat's questions are mostly
+ * lookups. Not `xhigh` or `max`: they cost far more and add nothing for them.
  */
-export const EffortSchema = z.enum(['low', 'medium', 'high']);
+export const EffortSchema = z.enum(['off', 'low', 'medium', 'high']);
 export type Effort = z.infer<typeof EffortSchema>;
-export const DEFAULT_EFFORT: Effort = 'high';
+export const DEFAULT_EFFORT: Effort = 'low';
 
 // ─── Requests ───────────────────────────────────────────────────────────────
 
@@ -116,7 +119,7 @@ export const ChatRequestSchema = z
       .describe('false: answer in Markdown only; tool results are not rendered as components.'),
     model: AssistantModelSchema.default(DEFAULT_ASSISTANT_MODEL).describe('The Claude model that answers.'),
     effort: EffortSchema.optional().describe(
-      `Effort level, default \`${DEFAULT_EFFORT}\`. Ignored by models without one (Claude Haiku 4.5).`,
+      `Effort level, default \`${DEFAULT_EFFORT}\`. \`off\`: no thinking, at low effort.`,
     ),
   })
   .meta({ id: 'ChatRequest' });
@@ -2229,6 +2232,12 @@ export interface GenUIMetadata {
   generateUi?: boolean;
   /** AI SDK finish reason; `content-filter` means the model refused. */
   finishReason?: 'stop' | 'length' | 'content-filter' | 'tool-calls' | 'error' | 'other';
+  /**
+   * How full the context was after the answer's latest model call: the tokens
+   * Claude was sent (system prompt, tools, the chat so far, tool results) plus
+   * those it wrote. Set after each tool round; older answers have none.
+   */
+  contextTokens?: number;
 }
 
 export type GenUIMessage = UIMessage<GenUIMetadata, Record<string, never>, GenUITools>;

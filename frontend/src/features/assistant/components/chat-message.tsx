@@ -83,5 +83,6 @@ function answeredBy(metadata: GenUIMetadata | undefined): string | undefined {
   if (!metadata?.model) return undefined;
   const known = AssistantModelSchema.safeParse(metadata.model);
   const name = known.success ? ASSISTANT_MODELS[known.data].label : metadata.model;
+  if (metadata.effort === 'off') return `${name} · no thinking`;
   return metadata.effort ? `${name} · ${metadata.effort} effort` : name;
 }

@@ -11,6 +11,7 @@ import { describeChatError } from '../lib/chat-errors';
 import { isVisiblePart } from '../lib/visible-parts';
 import { setGenerateUi, useGenerateUi } from '../store/assistant-preferences';
 import { ChatMessage } from './chat-message';
+import { ContextMeter } from './context-meter';
 import { ModelSettings } from './model-settings';
 
 /** A chat on screen. `onSent`: called after a message is sent (a new chat then takes its URL). */
@@ -91,7 +92,10 @@ export function ChatThreadView({ chat, onSent }: { chat: Chat<GenUIMessage>; onS
       </div>
 
       <div className="space-y-2 border-t p-3">
-        <ModelSettings />
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <ModelSettings />
+          <ContextMeter messages={messages} />
+        </div>
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Switch id={toggleId} checked={generateUi} onCheckedChange={setGenerateUi} />

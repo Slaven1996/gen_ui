@@ -108,7 +108,20 @@ import { buildInstructions, withSessionStamps } from './system-prompt.js';
 /** The most output tokens each model allows in one response. */
 const MAX_OUTPUT_TOKENS: Record<AssistantModel, number> = {
   'claude-sonnet-5': 128_000,
-  'claude-haiku-4-5': 64_000,
+  'claude-haiku-5-5': 128_000,
+};
+
+/**
+ * Whether a model gets its own earlier answers back with their thinking.
+ * Claude Haiku 5.5 rejects (400) a thinking block once anything sent before it
+ * has changed, and between questions something does: the pick lists follow the
+ * data, the tools follow the Generate UI switch, a saved dashboard draft gets
+ * its `created`, an admin edits the instructions. So its thinking goes back to
+ * it only within the answer it was written for (forModel).
+ */
+const REPLAYS_THINKING: Record<AssistantModel, boolean> = {
+  'claude-sonnet-5': true,
+  'claude-haiku-5-5': false,
 };
 
 /**
@@ -175,6 +188,7 @@ export class AiService {
     const offered = options.deferred.length > 0 ? activeTools : activeTools.filter((name) => name !== 'lookup');
     const tools = this.tools.create({ user, timeZone, options });
     const effort = effortFor(request);
+    const thinks = effort !== undefined && effort !== 'off';
 
     // 1–3 [app] The conversation this turn continues: extended, validated, saved.
     const stored = await this.conversations.messages(request.id, user.id);
@@ -188,7 +202,7 @@ export class AiService {
     // what, and starts each question with when it was sent (its <session> block); the
     // copy that is streamed and saved stays as it was.
     const forClaude = withSessionStamps(
-      forModel(await this.drafts.withStatus(messages, request.id), request.model),
+      forModel(await this.drafts.withStatus(messages, request.id), request.model, thinks),
       timeZone,
       options.plantTimeZone,
     );
@@ -235,6 +249,12 @@ export class AiService {
           return { model: request.model, effort, createdAt: Date.now(), generateUi: request.generateUi };
         }
         if (part.type === 'finish') return { finishReason: part.finishReason };
+        // After each model call, how full the context is: what it was sent (cached or not) plus
+        // what it wrote. Each call overrides the last, so the answer keeps its latest one.
+        if (part.type === 'finish-step') {
+          const { inputTokens, outputTokens } = part.usage;
+          return inputTokens === undefined ? undefined : { contextTokens: inputTokens + (outputTokens ?? 0) };
+        }
         return undefined;
       },
       // Also runs when the user presses Stop or the tab closes, so a partial answer is kept.
@@ -270,6 +290,8 @@ export class AiService {
         instructions: TITLE_INSTRUCTIONS,
         prompt: question.slice(0, TITLE_QUESTION_LENGTH),
         maxOutputTokens: 32,
+        // Claude Haiku 5.5 thinks unless told not to, and thinking would spend the title's tokens.
+        providerOptions: { anthropic: { thinking: { type: 'disabled' } } satisfies AnthropicLanguageModelOptions },
         abortSignal: AbortSignal.timeout(10_000),
       });
       return cleanTitle(text);
@@ -285,13 +307,20 @@ export class AiService {
    * minutes, reads the conversation before it from the cache (system-prompt.ts
    * marks the earlier breakpoints, and keeps the clocks out of the system
    * prompt so nothing before the conversation changes). Models with an
-   * effort level think adaptively; Claude Haiku 4.5 gets neither option,
-   * since it would reject both. Never add `budgetTokens`, `temperature` or
-   * `topP`: the Claude 5 models answer those with a 400.
+   * effort level think adaptively at that level, or not at all with `off`;
+   * one without would get neither option. Switching thinking on or off
+   * mid-chat makes Anthropic cache the conversation anew, once. Never add
+   * `budgetTokens`, `temperature` or `topP`: the Claude 5 models (Haiku 5.5
+   * too) answer those with a 400.
    */
   private anthropicOptions(effort: Effort | undefined) {
     const caching = { cacheControl: { type: 'ephemeral' } } satisfies AnthropicLanguageModelOptions;
     if (!effort) return caching;
+    // No thinking, at the lowest effort: the fastest answer. Haiku 5.5 accepts
+    // thinking off only up to `high` effort.
+    if (effort === 'off') {
+      return { ...caching, thinking: { type: 'disabled' }, effort: 'low' } satisfies AnthropicLanguageModelOptions;
+    }
     return {
       ...caching,
       // "summarized" streams a readable summary of the thinking; the default streams it empty.
@@ -363,11 +392,14 @@ function askedNow(messages: GenUIMessage[]): GenUIMessage[] {
 
 /**
  * Thinking belongs to the model that wrote it. After a switch of model,
- * earlier answers are sent without their reasoning (the saved copy keeps it).
+ * earlier answers are sent without their reasoning, and so is every earlier
+ * answer to a model that doesn't get its own back (REPLAYS_THINKING), or that
+ * answers this one without thinking. The saved copy keeps it.
  */
-function forModel(messages: GenUIMessage[], model: AssistantModel): GenUIMessage[] {
+function forModel(messages: GenUIMessage[], model: AssistantModel, thinking: boolean): GenUIMessage[] {
+  const replays = thinking && REPLAYS_THINKING[model];
   return messages.map((message) =>
-    message.role === 'assistant' && message.metadata?.model !== model
+    message.role === 'assistant' && (!replays || message.metadata?.model !== model)
       ? { ...message, parts: message.parts.filter((part) => part.type !== 'reasoning') }
       : message,
   );

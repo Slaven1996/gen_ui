@@ -7,7 +7,7 @@ import { CONVERSATION_TITLE_MAX, type AssistantModel, type GenUIMessage } from '
  */
 
 /** The title writer: the cheapest model, whichever one answers the chat. */
-export const TITLE_MODEL: AssistantModel = 'claude-haiku-4-5';
+export const TITLE_MODEL: AssistantModel = 'claude-haiku-5-5';
 
 /** The question is clipped to this before it goes to the title writer. */
 export const TITLE_QUESTION_LENGTH = 1_000;

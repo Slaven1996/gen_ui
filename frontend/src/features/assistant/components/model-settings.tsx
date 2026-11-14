@@ -3,6 +3,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { setAssistantEffort, setAssistantModel, useAssistantEffort, useAssistantModel } from '../store/assistant-preferences';
 
 const EFFORT_LABELS: Record<Effort, string> = {
+  off: 'No thinking',
   low: 'Low effort',
   medium: 'Medium effort',
   high: 'High effort',
@@ -11,7 +12,8 @@ const EFFORT_LABELS: Record<Effort, string> = {
 /**
  * Which Claude model answers the next message, and how hard it works. Both
  * are remembered in this browser and sent with every request. The effort
- * picker is hidden for a model without effort levels (Claude Haiku 4.5).
+ * picker (with "No thinking" as its lowest choice) is hidden for a model
+ * without effort levels.
  */
 export function ModelSettings() {
   const model = useAssistantModel();
