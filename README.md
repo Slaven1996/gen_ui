@@ -352,17 +352,15 @@ Two pickers above the message box choose, per message, **which Claude model answ
 
 | Model | Id | Effort levels | Thinking |
 |---|---|---|---|
-| Claude Opus 5 | `claude-opus-5` | low · medium · high (default) · extra-high · max | adaptive |
-| Claude Sonnet 5 | `claude-sonnet-5` | same | adaptive |
+| Claude Sonnet 5 | `claude-sonnet-5` | low · medium · high (default) | adaptive |
 | Claude Haiku 4.5 (default, cheapest) | `claude-haiku-4-5` | none (the picker says "No effort levels") | none |
 
-The list lives in `ASSISTANT_MODELS` (`packages/shared/src/assistant.ts`), and the server rejects any other id. `DEFAULT_ASSISTANT_MODEL` (Haiku) is what the picker starts on and what the server uses when a request names no model; a model picked earlier stays picked in that browser. Claude 3 Opus, 3.5 Sonnet and 3 Haiku are retired by Anthropic (they return 404) and never had effort levels, so each tier uses its current model. Lower effort is faster and cheaper; for simple lookups like these, low or medium is usually enough.
+The list lives in `ASSISTANT_MODELS` (`packages/shared/src/assistant.ts`), and the server rejects any other id. `DEFAULT_ASSISTANT_MODEL` (Haiku) is what the picker starts on and what the server uses when a request names no model; a model picked earlier stays picked in that browser (one no longer offered falls back to the default). Haiku answers most questions and Sonnet covers the harder ones, so there is no Opus, and no extra-high or max effort: they cost far more and add nothing for these questions. Answers given earlier by a model or effort no longer offered keep their label. Claude 3.5 Sonnet and 3 Haiku are retired by Anthropic (they return 404) and never had effort levels, so each tier uses its current model. Lower effort is faster and cheaper; for simple lookups like these, low or medium is usually enough.
 
 Don't add `temperature`/`topP`/`budgetTokens`: the Claude 5 models reject them with a 400. Settings, all with defaults:
 
-- `AI_REFUSAL_FALLBACK` (on by default) enables Anthropic's server-side refusal fallback on Claude Opus 5.
 - `AI_MAX_OUTPUT_TOKENS` (64000, at most 128000) caps answer length; Haiku 4.5 never gets more than 64000.
-- `AI_MAX_STEPS` (10) caps the model↔tool round trips per message.
+- `AI_MAX_STEPS` (10) caps the model↔tool round trips per message. If a round sends nothing new for a minute (`SILENCE_TIMEOUT_MS` in `ai.service.ts`), the answer is cut off as Stop would; one that keeps streaming is never cut.
 - `AI_PICK_LIST_INLINE_MAX` (100; 0 for never) is the longest device, tag or alarm rule list put in the prompt; a longer one is looked up when needed (see [Generative UI](#generative-ui)).
 - `AI_SEND_REASONING` (on) streams a summary of the model's thinking, shown folded under the answer.
 

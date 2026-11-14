@@ -6,8 +6,6 @@ const EFFORT_LABELS: Record<Effort, string> = {
   low: 'Low effort',
   medium: 'Medium effort',
   high: 'High effort',
-  xhigh: 'Extra-high effort',
-  max: 'Max effort',
 };
 
 /**

@@ -78,7 +78,7 @@ export function ChatMessage({
   );
 }
 
-/** "Claude Opus 5 · high effort", from the metadata saved with the answer. */
+/** "Claude Sonnet 5 · high effort", from the metadata saved with the answer. */
 function answeredBy(metadata: GenUIMetadata | undefined): string | undefined {
   if (!metadata?.model) return undefined;
   const known = AssistantModelSchema.safeParse(metadata.model);

@@ -78,9 +78,12 @@ import { buildInstructions, withSessionStamps } from './system-prompt.js';
  *          (UsersService, AlarmsService, AlarmDefinitionsService,
  *          LogbookService, DevicesService, TagsService, AssetsService,
  *          TelemetryService, ShiftsService, AuditService) → database.
+ *          The calls of one response run at the same time, once Claude has
+ *          written them all.
  *  7 [AI]  Claude reads the tool results and writes the answer. Steps 5–7
  *          repeat until it answers without calling a tool (at most
- *          AI_MAX_STEPS rounds).
+ *          AI_MAX_STEPS rounds). A stream silent for SILENCE_TIMEOUT_MS is
+ *          cut off.
  *  8 [app] Each part (text, reasoning, tool input and output) streams to the
  *          browser as it is produced, over Server-Sent Events.
  *  9 [app] When the stream ends (also after Stop or a closed tab), save the
@@ -102,16 +105,21 @@ import { buildInstructions, withSessionStamps } from './system-prompt.js';
  *  the tool and its filters; it never writes UI code or data of its own.
  */
 
-/**
- * Request limits per model. `refusalFallback`: Anthropic can re-run a request
- * Claude Opus 5 declined on another model (server side); the option is only
- * sent where it is documented.
- */
-const MODEL_LIMITS: Record<AssistantModel, { maxOutputTokens: number; refusalFallback: boolean }> = {
-  'claude-opus-5': { maxOutputTokens: 128_000, refusalFallback: true },
-  'claude-sonnet-5': { maxOutputTokens: 128_000, refusalFallback: false },
-  'claude-haiku-4-5': { maxOutputTokens: 64_000, refusalFallback: false },
+/** The most output tokens each model allows in one response. */
+const MAX_OUTPUT_TOKENS: Record<AssistantModel, number> = {
+  'claude-sonnet-5': 128_000,
+  'claude-haiku-4-5': 64_000,
 };
+
+/**
+ * How long a round may go without anything new (thinking, text, tool input)
+ * before the answer is cut off, so a stalled stream doesn't keep the user waiting.
+ * A limit on silence, not on length: an answer that keeps streaming is never cut.
+ * The SDK's timer also runs while the tools execute, and thinking that isn't
+ * shown (AI_SEND_REASONING off) counts as silence too. Running out ends the
+ * answer like Stop: what came so far is saved.
+ */
+const SILENCE_TIMEOUT_MS = 60_000;
 
 export interface StreamChatParams {
   user: AuthUser;
@@ -188,24 +196,31 @@ export class AiService {
     // 4 [app] One call to streamText. It runs steps 5–7 by itself: [AI] Claude
     // answers or calls tools, [app] the SDK runs their `execute`, [AI] Claude
     // reads the results, and so on until it stops calling tools.
+    const maxSteps = this.config.get('AI_MAX_STEPS');
     const result = streamText({
       model: this.anthropic(request.model),
       instructions: buildInstructions({ base, user, timeZone, generateUi: request.generateUi, forms, options }),
       messages: await convertToModelMessages(forClaude, { tools, ignoreIncompleteToolCalls: true }),
       tools,
       activeTools: offered,
-      stopWhen: isStepCount(this.config.get('AI_MAX_STEPS')),
-      maxOutputTokens: Math.min(this.config.get('AI_MAX_OUTPUT_TOKENS'), MODEL_LIMITS[request.model].maxOutputTokens),
-      providerOptions: { anthropic: this.anthropicOptions(request.model, effort) },
+      stopWhen: isStepCount(maxSteps),
+      // Before a round's first output, then between outputs.
+      timeout: { firstChunkMs: SILENCE_TIMEOUT_MS, chunkMs: SILENCE_TIMEOUT_MS },
+      maxOutputTokens: Math.min(this.config.get('AI_MAX_OUTPUT_TOKENS'), MAX_OUTPUT_TOKENS[request.model]),
+      providerOptions: { anthropic: this.anthropicOptions(effort) },
       abortSignal,
-      onStepEnd: ({ stepNumber, usage }) => {
-        console.log(`step ${stepNumber}`, usage.inputTokenDetails, 'total input:', usage.inputTokens);
+      onStepEnd: ({ stepNumber, toolCalls, usage }) => {
+        // Several tools in one step: Claude called them in parallel, and they ran at the same time.
+        const toolNames = toolCalls.map((call) => call.toolName);
+        console.log(`step ${stepNumber}`, 'tools:', toolNames, usage.inputTokenDetails, 'total input:', usage.inputTokens);
+      },
+      // A stream cut off for silence ends like Stop, so say in the log why it ended.
+      onAbort: ({ reason }) => {
+        if (reason instanceof Error && reason.name === 'TimeoutError') {
+          this.logger.warn(`Chat answer cut off: ${reason.message}`);
+        }
       },
     });
-
-    console.log('RESULT');
-    console.log(result.stream);
-    console.log("================");
 
     // 8–9 [app] Stream every part to the browser, then save the finished turn.
     const stream = toUIMessageStream<AiToolSet, GenUIMessage>({
@@ -238,11 +253,6 @@ export class AiService {
         return 'The assistant ran into a problem. Please try again.';
       },
     });
-
-    console.log("================");
-    console.log("STREAM");
-    console.log(stream);
-    console.log("================");
 
     await pipeUIMessageStreamToResponse({ response, stream });
   }
@@ -279,7 +289,7 @@ export class AiService {
    * since it would reject both. Never add `budgetTokens`, `temperature` or
    * `topP`: the Claude 5 models answer those with a 400.
    */
-  private anthropicOptions(model: AssistantModel, effort: Effort | undefined) {
+  private anthropicOptions(effort: Effort | undefined) {
     const caching = { cacheControl: { type: 'ephemeral' } } satisfies AnthropicLanguageModelOptions;
     if (!effort) return caching;
     return {
@@ -287,8 +297,6 @@ export class AiService {
       // "summarized" streams a readable summary of the thinking; the default streams it empty.
       thinking: { type: 'adaptive', display: this.config.get('AI_SEND_REASONING') ? 'summarized' : 'omitted' },
       effort,
-      ...(this.config.get('AI_REFUSAL_FALLBACK') &&
-        MODEL_LIMITS[model].refusalFallback && { fallbacks: 'default' as const }),
     } satisfies AnthropicLanguageModelOptions;
   }
 }

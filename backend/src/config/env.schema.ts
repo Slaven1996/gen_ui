@@ -60,7 +60,6 @@ export const EnvSchema = z
     AI_MAX_OUTPUT_TOKENS: int(64_000, 256, 128_000),
     AI_MAX_STEPS: int(10, 1, 20),
     AI_SEND_REASONING: booleanFlag(true),
-    AI_REFUSAL_FALLBACK: booleanFlag(true),
     /**
      * The longest device, tag or alarm rule list the assistant's prompt carries; a longer one
      * is left out, and the assistant looks up what it needs. 0 leaves all three out.

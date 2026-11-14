@@ -73,9 +73,8 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       AI_MAX_OUTPUT_TOKENS: ${AI_MAX_OUTPUT_TOKENS:-64000}
       # Max model↔tool round-trips per chat request.
-      AI_MAX_STEPS: ${AI_MAX_STEPS:-15}
+      AI_MAX_STEPS: ${AI_MAX_STEPS:-2}
       AI_SEND_REASONING: ${AI_SEND_REASONING:-true}
-      AI_REFUSAL_FALLBACK: ${AI_REFUSAL_FALLBACK:-true}
       # Longest device, tag or alarm rule list put in the prompt; a longer one is looked up.
       AI_PICK_LIST_INLINE_MAX: ${AI_PICK_LIST_INLINE_MAX:-100}
 

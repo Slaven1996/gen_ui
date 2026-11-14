@@ -58,16 +58,16 @@ import { LastSignInFilterSchema, UserStatusSchema } from './users.js';
 // ─── Models ─────────────────────────────────────────────────────────────────
 
 /**
- * The Claude models the chat offers, one per tier. The user picks one in the
- * chat, and the server accepts only these ids. Models with `effort` think
- * adaptively and take an effort level; Claude Haiku 4.5 does neither, and
- * the server sends it neither option.
+ * The Claude models the chat offers. The user picks one in the chat, and the
+ * server accepts only these ids. Haiku answers most questions; Sonnet is there
+ * for the harder ones, so there is no Opus. Models with `effort` think
+ * adaptively and take an effort level; Claude Haiku 4.5 does neither, and the
+ * server sends it neither option.
  */
-export const AssistantModelSchema = z.enum(['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5']);
+export const AssistantModelSchema = z.enum(['claude-sonnet-5', 'claude-haiku-4-5']);
 export type AssistantModel = z.infer<typeof AssistantModelSchema>;
 
 export const ASSISTANT_MODELS: Record<AssistantModel, { label: string; effort: boolean }> = {
-  'claude-opus-5': { label: 'Claude Opus 5', effort: true },
   'claude-sonnet-5': { label: 'Claude Sonnet 5', effort: true },
   'claude-haiku-4-5': { label: 'Claude Haiku 4.5', effort: false },
 };
@@ -77,8 +77,12 @@ export const ASSISTANT_MODELS: Record<AssistantModel, { label: string; effort: b
  */
 export const DEFAULT_ASSISTANT_MODEL: AssistantModel = 'claude-haiku-4-5';
 
-/** How hard the model works on an answer: lower is faster and cheaper. `high` is Anthropic's default. */
-export const EffortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
+/**
+ * How hard the model works on an answer: lower is faster and cheaper. `high` is
+ * Anthropic's default. Not `xhigh` or `max`: they cost far more and add nothing
+ * for the chat's questions.
+ */
+export const EffortSchema = z.enum(['low', 'medium', 'high']);
 export type Effort = z.infer<typeof EffortSchema>;
 export const DEFAULT_EFFORT: Effort = 'high';
 
@@ -2214,8 +2218,8 @@ export const isHelperToolPart = (part: { type: string }): part is HelperToolUIPa
 export interface GenUIMetadata {
   /** The model id that answered (older messages may hold ids no longer offered). */
   model?: string;
-  /** The effort level it answered with; absent for models without one. */
-  effort?: Effort;
+  /** The effort level it answered with; absent for models without one (older messages may hold levels no longer offered). */
+  effort?: string;
   /**
    * Epoch ms: when an answer started, or when a question was asked (set by the
    * server; Claude's copy of the question starts with it as its session block).
