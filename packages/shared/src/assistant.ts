@@ -58,24 +58,21 @@ import { LastSignInFilterSchema, UserStatusSchema } from './users.js';
 // ─── Models ─────────────────────────────────────────────────────────────────
 
 /**
- * The Claude models the chat offers. The user picks one in the chat, and the
- * server accepts only these ids. Haiku answers most questions; Sonnet is there
- * for the harder ones, so there is no Opus. Models with `effort` think
+ * The Claude models the chat offers, and the only ids the server accepts. Only
+ * Claude Haiku 5.5: it is the cheapest, lookups like "all admins" don't need
+ * more, and a harder question gets a higher effort level instead. With more
+ * than one model the chat shows a model picker. Models with `effort` think
  * adaptively and take an effort level; the server would send a model without
  * it neither option. `contextWindow`: how many tokens one model call can hold,
  * what it is sent plus what it writes (the chat's context meter).
  */
-export const AssistantModelSchema = z.enum(['claude-sonnet-5', 'claude-haiku-5-5']);
+export const AssistantModelSchema = z.enum(['claude-haiku-5-5']);
 export type AssistantModel = z.infer<typeof AssistantModelSchema>;
 
 export const ASSISTANT_MODELS: Record<AssistantModel, { label: string; effort: boolean; contextWindow: number }> = {
-  'claude-sonnet-5': { label: 'Claude Sonnet 5', effort: true, contextWindow: 1_000_000 },
   'claude-haiku-5-5': { label: 'Claude Haiku 5.5', effort: true, contextWindow: 1_000_000 },
 };
-/**
- * The cheapest model: the one the picker starts on, and the one the server
- * uses when a request names none. Lookups like "all admins" don't need more.
- */
+/** The model the chat starts on, and the one the server uses when a request names none. */
 export const DEFAULT_ASSISTANT_MODEL: AssistantModel = 'claude-haiku-5-5';
 
 /**

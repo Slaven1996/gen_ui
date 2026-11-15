@@ -11,9 +11,10 @@ const EFFORT_LABELS: Record<Effort, string> = {
 
 /**
  * Which Claude model answers the next message, and how hard it works. Both
- * are remembered in this browser and sent with every request. The effort
- * picker (with "No thinking" as its lowest choice) is hidden for a model
- * without effort levels.
+ * are remembered in this browser and sent with every request. The model
+ * picker shows only when there is more than one model. The effort picker
+ * (with "No thinking" as its lowest choice) is hidden for a model without
+ * effort levels.
  */
 export function ModelSettings() {
   const model = useAssistantModel();
@@ -22,18 +23,20 @@ export function ModelSettings() {
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Select value={model} onValueChange={(value) => setAssistantModel(AssistantModelSchema.parse(value))}>
-        <SelectTrigger size="sm" className="text-xs" aria-label="Model">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {AssistantModelSchema.options.map((id) => (
-            <SelectItem key={id} value={id} className="text-xs">
-              {ASSISTANT_MODELS[id].label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      {AssistantModelSchema.options.length > 1 && (
+        <Select value={model} onValueChange={(value) => setAssistantModel(AssistantModelSchema.parse(value))}>
+          <SelectTrigger size="sm" className="text-xs" aria-label="Model">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {AssistantModelSchema.options.map((id) => (
+              <SelectItem key={id} value={id} className="text-xs">
+                {ASSISTANT_MODELS[id].label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
 
       {hasEffort ? (
         <Select value={effort} onValueChange={(value) => setAssistantEffort(EffortSchema.parse(value))}>

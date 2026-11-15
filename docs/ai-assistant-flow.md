@@ -79,7 +79,7 @@ flowchart TD
     SAVE1["ConversationsService.start: save the conversation<br/>the question survives a failed model call<br/>a new chat: its row is created, titled with the question,<br/>and Claude Haiku writes it a short title meanwhile"]
     PROMPT["buildInstructions<br/>the standing instructions (an admin's from assistant_instructions, else DEFAULT_INSTRUCTIONS):<br/>generic rules + app map + guardrails (English/Serbian only, off-topic)<br/>+ components or text-only section<br/>+ every asset and active person with ids (the dropdowns' choices)<br/>+ with components on: the forms section, the lists the offered forms take:<br/>for admins every device, tag and alarm rule, for everyone their own latest logbook entries, with ids<br/>+ with components off: the role's forms by title, and the switch that opens them<br/>+ the forms the role can't open, and which role can<br/>+ the user's name and role<br/>three system blocks: rules + session note + format + forms (cached) · pick lists (cached) · user<br/>no clock: that would change every minute and lose the cached history after it"]
     ROLES["AiTools.activeFor(user, generateUi)<br/>TOOL_ROLES · the chat's @Roles<br/>form tools only with components on"]
-    CALL["streamText<br/>chosen model · effort + adaptive thinking (effort off, the default: no thinking, at low)<br/>earlier answers' thinking only back to Sonnet 5 (forModel)<br/>instructions · tools · cacheControl up to the last message<br/>history: each question starts with its session block (withSessionStamps):<br/>when it was sent, on the user's clock and the plant's<br/>activeTools · stopWhen AI_MAX_STEPS<br/>cut off after SILENCE_TIMEOUT_MS without output · abortSignal"]
+    CALL["streamText<br/>Claude Haiku 5.5 · effort + adaptive thinking (effort off, the default: no thinking, at low)<br/>earlier answers without their thinking (withoutThinking)<br/>instructions · tools · cacheControl up to the last message<br/>history: each question starts with its session block (withSessionStamps):<br/>when it was sent, on the user's clock and the plant's<br/>activeTools · stopWhen AI_MAX_STEPS<br/>cut off after SILENCE_TIMEOUT_MS without output · abortSignal"]
     GUARD --> CTRL --> KEY
     KEY -- no --> E503
     KEY -- yes --> HIST --> MERGE --> VAL --> SAVE1
@@ -170,7 +170,7 @@ flowchart TD
 
 | Step | Decided by | Where |
 |---|---|---|
-| Which model and effort answer | the user (pickers) | `assistant-preferences.ts` → request body |
+| Which effort answers (the model is Claude Haiku 5.5, the only one) | the user (effort picker) | `assistant-preferences.ts` → request body |
 | Which tools may be offered | code: role map (the audit tool and the form tools are admin-only, except the logbook forms; form tools need components on) | `TOOL_ROLES`, `activeFor` in `ai.tools.ts` |
 | The standing instructions at the head of the prompt | admins (Settings page) | `assistant_instructions`, else `DEFAULT_INSTRUCTIONS` in `system-prompt.ts` |
 | Answer, refuse (off topic or not English/Serbian) or look something up | **Claude** | steered by the system prompt (`system-prompt.ts`) |
@@ -373,7 +373,7 @@ The system prompt changes only for a new pick list. TypeScript fails the build i
 | Model, effort, components toggle | `frontend/src/features/assistant/store/assistant-preferences.ts` |
 | Open, send, delete, auth: every chat shown in this tab | `frontend/src/features/assistant/store/chat-store.ts` |
 | The chats in the sidebar: list, rename, delete | `frontend/src/features/assistant/components/chat-nav.tsx`, `chat-nav-item.tsx`, `rename-chat-dialog.tsx`, `hooks/use-chat-actions.tsx`, `api/` |
-| Thread, model/effort pickers, context meter, toolbar, composer | `frontend/src/features/assistant/components/chat-thread.tsx`, `chat-thread-view.tsx`, `model-settings.tsx`, `context-meter.tsx` |
+| Thread, effort picker (a model picker too with more than one model), context meter, toolbar, composer | `frontend/src/features/assistant/components/chat-thread.tsx`, `chat-thread-view.tsx`, `model-settings.tsx`, `context-meter.tsx` |
 | Render parts, Markdown | `frontend/src/features/assistant/components/chat-message.tsx`, `message-markdown.tsx`, `message-reasoning.tsx` |
 | Tool → component registry | `frontend/src/features/assistant/lib/tool-renderers.ts`, the bodies in `components/tool-bodies/`, drawn by `components/tool-part-view.tsx`; shared types in `types.ts` |
 | Form tools: the form in the answer, its states, recording the outcome | `frontend/src/features/assistant/lib/form-renderers.ts`, the bodies in `components/form-bodies/`, `components/form-part-view.tsx`, `hooks/use-record-form-outcome.ts`, `frontend/src/components/inline-dialog.tsx` |

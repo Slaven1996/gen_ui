@@ -6,7 +6,7 @@ import { CONVERSATION_TITLE_MAX, type AssistantModel, type GenUIMessage } from '
  * replaces it when the answer ends (unless the user renamed the chat by then).
  */
 
-/** The title writer: the cheapest model, whichever one answers the chat. */
+/** The title writer: Claude Haiku 5.5, the cheapest model. */
 export const TITLE_MODEL: AssistantModel = 'claude-haiku-5-5';
 
 /** The question is clipped to this before it goes to the title writer. */

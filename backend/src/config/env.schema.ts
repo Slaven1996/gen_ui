@@ -57,6 +57,7 @@ export const EnvSchema = z
         : [],
     ),
 
+    // At most Claude Haiku 5.5's own limit per model call.
     AI_MAX_OUTPUT_TOKENS: int(64_000, 256, 128_000),
     AI_MAX_STEPS: int(10, 1, 20),
     AI_SEND_REASONING: booleanFlag(true),

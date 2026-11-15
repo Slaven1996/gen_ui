@@ -17,7 +17,6 @@ import {
   DEFAULT_EFFORT,
   isHelperToolPart,
   MAX_CONVERSATION_MESSAGES,
-  type AssistantModel,
   type ChatRequest,
   type Effort,
   type GenUIMessage,
@@ -105,25 +104,6 @@ import { buildInstructions, withSessionStamps } from './system-prompt.js';
  *  the tool and its filters; it never writes UI code or data of its own.
  */
 
-/** The most output tokens each model allows in one response. */
-const MAX_OUTPUT_TOKENS: Record<AssistantModel, number> = {
-  'claude-sonnet-5': 128_000,
-  'claude-haiku-5-5': 128_000,
-};
-
-/**
- * Whether a model gets its own earlier answers back with their thinking.
- * Claude Haiku 5.5 rejects (400) a thinking block once anything sent before it
- * has changed, and between questions something does: the pick lists follow the
- * data, the tools follow the Generate UI switch, a saved dashboard draft gets
- * its `created`, an admin edits the instructions. So its thinking goes back to
- * it only within the answer it was written for (forModel).
- */
-const REPLAYS_THINKING: Record<AssistantModel, boolean> = {
-  'claude-sonnet-5': true,
-  'claude-haiku-5-5': false,
-};
-
 /**
  * No thinking, at the lowest effort: the fastest answer. Effort `off` (the
  * default) and every chat title. Haiku 5.5 accepts thinking off only up to
@@ -195,7 +175,6 @@ export class AiService {
     const offered = options.deferred.length > 0 ? activeTools : activeTools.filter((name) => name !== 'lookup');
     const tools = this.tools.create({ user, timeZone, options });
     const effort = effortFor(request);
-    const thinks = effort !== undefined && effort !== 'off';
 
     // 1–3 [app] The conversation this turn continues: extended, validated, saved.
     const stored = await this.conversations.messages(request.id, user.id);
@@ -206,10 +185,10 @@ export class AiService {
     const title = stored.length === 0 ? this.writeTitle(firstQuestion(messages)) : undefined;
 
     // Claude's copy of the history says which dashboard drafts were saved since, and as
-    // what, and starts each question with when it was sent (its <session> block); the
-    // copy that is streamed and saved stays as it was.
+    // what, starts each question with when it was sent (its <session> block), and has
+    // no earlier thinking; the copy that is streamed and saved stays as it was.
     const forClaude = withSessionStamps(
-      forModel(await this.drafts.withStatus(messages, request.id), request.model, thinks),
+      withoutThinking(await this.drafts.withStatus(messages, request.id)),
       timeZone,
       options.plantTimeZone,
     );
@@ -227,7 +206,7 @@ export class AiService {
       stopWhen: isStepCount(maxSteps),
       // Before a round's first output, then between outputs.
       timeout: { firstChunkMs: SILENCE_TIMEOUT_MS, chunkMs: SILENCE_TIMEOUT_MS },
-      maxOutputTokens: Math.min(this.config.get('AI_MAX_OUTPUT_TOKENS'), MAX_OUTPUT_TOKENS[request.model]),
+      maxOutputTokens: this.config.get('AI_MAX_OUTPUT_TOKENS'),
       providerOptions: { anthropic: this.anthropicOptions(effort) },
       abortSignal,
       onStepEnd: ({ stepNumber, toolCalls, usage }) => {
@@ -285,8 +264,8 @@ export class AiService {
   }
 
   /**
-   * A short title for a chat that starts with `question`, from the cheapest
-   * model whichever one answers. `null` when it fails or says nothing usable:
+   * A short title for a chat that starts with `question`, from TITLE_MODEL.
+   * `null` when it fails or says nothing usable:
    * the chat keeps its first question as the title. Never rejects.
    */
   private async writeTitle(question: string): Promise<string | null> {
@@ -317,8 +296,8 @@ export class AiService {
    * effort level think adaptively at that level, or not at all with `off`;
    * one without would get neither option. Switching thinking on or off
    * mid-chat makes Anthropic cache the conversation anew, once. Never add
-   * `budgetTokens`, `temperature` or `topP`: the Claude 5 models (Haiku 5.5
-   * too) answer those with a 400.
+   * `budgetTokens`, `temperature` or `topP`: Claude Haiku 5.5 answers those
+   * with a 400.
    */
   private anthropicOptions(effort: Effort | undefined) {
     const caching = { cacheControl: { type: 'ephemeral' } } satisfies AnthropicLanguageModelOptions;
@@ -394,15 +373,16 @@ function askedNow(messages: GenUIMessage[]): GenUIMessage[] {
 }
 
 /**
- * Thinking belongs to the model that wrote it. After a switch of model,
- * earlier answers are sent without their reasoning, and so is every earlier
- * answer to a model that doesn't get its own back (REPLAYS_THINKING), or that
- * answers this one without thinking. The saved copy keeps it.
+ * Earlier answers, without their thinking. Claude Haiku 5.5 rejects (400) a
+ * thinking block once anything sent before it has changed, and between
+ * questions something does: the pick lists follow the data, the tools follow
+ * the Generate UI switch, a saved dashboard draft gets its `created`, an admin
+ * edits the instructions. Within one answer, across its tool rounds, the SDK
+ * keeps the thinking. The saved copy keeps it too.
  */
-function forModel(messages: GenUIMessage[], model: AssistantModel, thinking: boolean): GenUIMessage[] {
-  const replays = thinking && REPLAYS_THINKING[model];
+function withoutThinking(messages: GenUIMessage[]): GenUIMessage[] {
   return messages.map((message) =>
-    message.role === 'assistant' && (!replays || message.metadata?.model !== model)
+    message.role === 'assistant'
       ? { ...message, parts: message.parts.filter((part) => part.type !== 'reasoning') }
       : message,
   );
