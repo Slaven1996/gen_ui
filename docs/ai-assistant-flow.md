@@ -77,7 +77,7 @@ flowchart TD
     SAVE1["ConversationsService.start: save the conversation<br/>the question survives a failed model call<br/>a new chat: its row is created, titled with the question,<br/>and Claude Haiku writes it a short title meanwhile"]
     PROMPT["buildInstructions<br/>the standing instructions (an admin's from assistant_instructions, else DEFAULT_INSTRUCTIONS):<br/>generic rules + app map + guardrails (English/Serbian only, off-topic)<br/>+ components or text-only section<br/>+ every asset and active person with ids (the dropdowns' choices)<br/>+ with components on: the forms section, the lists the offered forms take:<br/>for admins every device, tag and alarm rule, for everyone their own latest logbook entries, with ids<br/>+ with components off: the role's forms by title, and the switch that opens them<br/>+ the forms the role can't open, and which role can<br/>+ the user's name and role<br/>three system blocks: rules + session note + format + forms (cached) · pick lists (cached) · user<br/>no clock: that would change every minute and lose the cached history after it"]
     ROLES["AiTools.activeFor(user, generateUi)<br/>TOOL_ROLES · the chat's @Roles<br/>form tools only with components on"]
-    CALL["streamText<br/>chosen model · effort + adaptive thinking (effort off: no thinking, at low)<br/>earlier answers' thinking only back to Sonnet 5 (forModel)<br/>instructions · tools · cacheControl up to the last message<br/>history: each question starts with its session block (withSessionStamps):<br/>when it was sent, on the user's clock and the plant's<br/>activeTools · stopWhen AI_MAX_STEPS<br/>cut off after SILENCE_TIMEOUT_MS without output · abortSignal"]
+    CALL["streamText<br/>chosen model · effort + adaptive thinking (effort off, the default: no thinking, at low)<br/>earlier answers' thinking only back to Sonnet 5 (forModel)<br/>instructions · tools · cacheControl up to the last message<br/>history: each question starts with its session block (withSessionStamps):<br/>when it was sent, on the user's clock and the plant's<br/>activeTools · stopWhen AI_MAX_STEPS<br/>cut off after SILENCE_TIMEOUT_MS without output · abortSignal"]
     GUARD --> CTRL --> KEY
     KEY -- no --> E503
     KEY -- yes --> HIST --> MERGE --> VAL --> SAVE1
@@ -198,7 +198,7 @@ flowchart TD
   SEND --> URL["URL → ?chat=id (replace)<br/>the same Chat stays on screen"]
   SEND --> ROW["POST /api/ai/chat · start() creates the row,<br/>titled with the question"]
   ROW --> LIST1["the response arrives → the list refetches<br/>the chat is at the top"]
-  ROW --> TITLE["Claude Haiku writes a short title meanwhile<br/>saved in onEnd, before the response ends"]
+  ROW --> TITLE["Claude Haiku writes a short title meanwhile, with no thinking<br/>saved in onEnd, before the response ends"]
   TITLE --> LIST2["the answer ends → the list refetches<br/>the chat has its title"]
   PICK(["A chat in the sidebar · ?chat=id"]) --> MEM{"In this tab's memory?"}
   MEM -- yes --> SHOW["Show it, still answering if it was"]

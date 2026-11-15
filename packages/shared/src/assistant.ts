@@ -80,14 +80,14 @@ export const DEFAULT_ASSISTANT_MODEL: AssistantModel = 'claude-haiku-5-5';
 
 /**
  * How hard the model works on an answer: lower is faster and cheaper. `off`
- * turns thinking off and runs at `low`, the fastest answer (Anthropic advises
- * lowering the effort first: at `low` the model already skips thinking on
- * simple questions). The default is `low`: the chat's questions are mostly
- * lookups. Not `xhigh` or `max`: they cost far more and add nothing for them.
+ * turns thinking off and runs at `low`, the fastest answer, and is the
+ * default: the chat's questions are mostly lookups. From `low` up the model
+ * thinks when it judges a question needs it (at `low` it often doesn't).
+ * Not `xhigh` or `max`: they cost far more and add nothing for them.
  */
 export const EffortSchema = z.enum(['off', 'low', 'medium', 'high']);
 export type Effort = z.infer<typeof EffortSchema>;
-export const DEFAULT_EFFORT: Effort = 'low';
+export const DEFAULT_EFFORT: Effort = 'off';
 
 // ─── Requests ───────────────────────────────────────────────────────────────
 

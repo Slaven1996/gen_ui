@@ -125,6 +125,13 @@ const REPLAYS_THINKING: Record<AssistantModel, boolean> = {
 };
 
 /**
+ * No thinking, at the lowest effort: the fastest answer. Effort `off` (the
+ * default) and every chat title. Haiku 5.5 accepts thinking off only up to
+ * `high` effort.
+ */
+const NO_THINKING = { thinking: { type: 'disabled' }, effort: 'low' } satisfies AnthropicLanguageModelOptions;
+
+/**
  * How long a round may go without anything new (thinking, text, tool input)
  * before the answer is cut off, so a stalled stream doesn't keep the user waiting.
  * A limit on silence, not on length: an answer that keeps streaming is never cut.
@@ -291,7 +298,7 @@ export class AiService {
         prompt: question.slice(0, TITLE_QUESTION_LENGTH),
         maxOutputTokens: 32,
         // Claude Haiku 5.5 thinks unless told not to, and thinking would spend the title's tokens.
-        providerOptions: { anthropic: { thinking: { type: 'disabled' } } satisfies AnthropicLanguageModelOptions },
+        providerOptions: { anthropic: NO_THINKING },
         abortSignal: AbortSignal.timeout(10_000),
       });
       return cleanTitle(text);
@@ -316,11 +323,7 @@ export class AiService {
   private anthropicOptions(effort: Effort | undefined) {
     const caching = { cacheControl: { type: 'ephemeral' } } satisfies AnthropicLanguageModelOptions;
     if (!effort) return caching;
-    // No thinking, at the lowest effort: the fastest answer. Haiku 5.5 accepts
-    // thinking off only up to `high` effort.
-    if (effort === 'off') {
-      return { ...caching, thinking: { type: 'disabled' }, effort: 'low' } satisfies AnthropicLanguageModelOptions;
-    }
+    if (effort === 'off') return { ...caching, ...NO_THINKING };
     return {
       ...caching,
       // "summarized" streams a readable summary of the thinking; the default streams it empty.
