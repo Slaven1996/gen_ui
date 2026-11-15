@@ -2,6 +2,8 @@
 
 How one chat message becomes a rendered answer, how a conversation is saved and restored, and which layer calls which.
 
+The same flows as UML sequence diagrams, one page each (overview, preparing the request, the model–tool loop, rendering, `lookup`, forms, dashboard drafts, a new chat and its title, open/rename/delete/stop), are in [`ai-assistant-sequence-diagrams.drawio`](ai-assistant-sequence-diagrams.drawio): open it in [app.diagrams.net](https://app.diagrams.net/) (File → Open from → Device).
+
 ## The tools
 
 | Tool | Roles (`TOOL_ROLES`) | `execute` calls | Renders in the chat | "Open in new tab" |

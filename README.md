@@ -256,7 +256,7 @@ Email is not editable: it is the sign-in identifier, and changing it safely need
 
 ## Generative UI
 
-Ask "all admins, and also users named John" and the answer contains two live users tables: the same `UsersTable` component as the Users page, with every column and, for admins, the same row actions (make admin or remove the admin role, deactivate, reactivate). Each has **Open in new tab**, which opens `/users` with that table's filters. The full flow, with diagrams, is in [`docs/ai-assistant-flow.md`](docs/ai-assistant-flow.md).
+Ask "all admins, and also users named John" and the answer contains two live users tables: the same `UsersTable` component as the Users page, with every column and, for admins, the same row actions (make admin or remove the admin role, deactivate, reactivate). Each has **Open in new tab**, which opens `/users` with that table's filters. The full flow, with diagrams, is in [`docs/ai-assistant-flow.md`](docs/ai-assistant-flow.md), and as UML sequence diagrams (draw.io) in [`docs/ai-assistant-sequence-diagrams.drawio`](docs/ai-assistant-sequence-diagrams.drawio).
 
 The assistant has one tool per domain view, one that draws a chart, two for shifts (the calendar and the on-duty card), four that show one record's details card, one that puts a dashboard together, sixteen that open a form, and a helper the chat never draws (`lookup`, for device, tag and rule ids when those lists are too long for the prompt; see *Long lists are looked up instead* below):
 
